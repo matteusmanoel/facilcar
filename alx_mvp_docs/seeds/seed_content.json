@@ -1,0 +1,125 @@
+{
+  "siteSettings": {
+    "siteName": "Auto Dealer Demo",
+    "defaultWhatsappNumber": "5545999999999",
+    "defaultEmail": "contato@autodealerdemo.com",
+    "phoneNumber": "(45) 99999-9999",
+    "city": "Foz do Iguaçu",
+    "state": "PR",
+    "heroTitle": "Seu próximo veículo começa aqui",
+    "heroSubtitle": "Estoque selecionado, atendimento rápido e proposta sem complicação."
+  },
+  "brands": [
+    { "name": "Chevrolet", "slug": "chevrolet" },
+    { "name": "Volkswagen", "slug": "volkswagen" },
+    { "name": "Toyota", "slug": "toyota" },
+    { "name": "Honda", "slug": "honda" },
+    { "name": "Fiat", "slug": "fiat" }
+  ],
+  "vehicles": [
+    {
+      "slug": "toyota-corolla-xei-2022",
+      "status": "PUBLISHED",
+      "type": "CAR",
+      "title": "Toyota Corolla XEi 2.0 2022",
+      "shortDescription": "Sedã automático com excelente acabamento e baixa quilometragem.",
+      "description": "Veículo em ótimo estado, revisado, com multimídia, câmera de ré, bancos em couro e ótimo histórico de conservação.",
+      "brand": "Toyota",
+      "model": "Corolla",
+      "version": "XEi 2.0",
+      "yearManufacture": 2022,
+      "yearModel": 2022,
+      "mileage": 28500,
+      "fuelType": "FLEX",
+      "transmission": "AUTOMATIC",
+      "color": "Prata",
+      "doors": 4,
+      "priceCash": 129900,
+      "priceTradeIn": 127900,
+      "featured": true,
+      "images": [
+        { "url": "/mock/vehicles/corolla-1.jpg", "isCover": true, "sortOrder": 1 },
+        { "url": "/mock/vehicles/corolla-2.jpg", "isCover": false, "sortOrder": 2 },
+        { "url": "/mock/vehicles/corolla-3.jpg", "isCover": false, "sortOrder": 3 }
+      ],
+      "features": ["Ar-condicionado digital", "Central multimídia", "Câmera de ré", "Bancos em couro"]
+    },
+    {
+      "slug": "honda-civic-ex-2021",
+      "status": "PUBLISHED",
+      "type": "CAR",
+      "title": "Honda Civic EX 2021",
+      "shortDescription": "Sedã confiável com câmbio automático e excelente dirigibilidade.",
+      "description": "Ideal para quem busca conforto, economia e bom valor de revenda.",
+      "brand": "Honda",
+      "model": "Civic",
+      "version": "EX",
+      "yearManufacture": 2021,
+      "yearModel": 2021,
+      "mileage": 41200,
+      "fuelType": "FLEX",
+      "transmission": "AUTOMATIC",
+      "color": "Branco",
+      "doors": 4,
+      "priceCash": 117900,
+      "featured": true,
+      "images": [
+        { "url": "/mock/vehicles/civic-1.jpg", "isCover": true, "sortOrder": 1 },
+        { "url": "/mock/vehicles/civic-2.jpg", "isCover": false, "sortOrder": 2 }
+      ],
+      "features": ["Piloto automático", "Multimídia", "Airbags", "Sensor de estacionamento"]
+    },
+    {
+      "slug": "fiat-strada-freedom-2023",
+      "status": "PUBLISHED",
+      "type": "UTILITY",
+      "title": "Fiat Strada Freedom 2023",
+      "shortDescription": "Picape compacta prática para trabalho e uso urbano.",
+      "description": "Veículo versátil, com boa capacidade de carga e excelente custo-benefício.",
+      "brand": "Fiat",
+      "model": "Strada",
+      "version": "Freedom",
+      "yearManufacture": 2023,
+      "yearModel": 2023,
+      "mileage": 18000,
+      "fuelType": "FLEX",
+      "transmission": "MANUAL",
+      "color": "Cinza",
+      "doors": 2,
+      "priceCash": 103900,
+      "featured": false,
+      "images": [
+        { "url": "/mock/vehicles/strada-1.jpg", "isCover": true, "sortOrder": 1 }
+      ],
+      "features": ["Direção elétrica", "Ar-condicionado", "Vidros elétricos"]
+    }
+  ],
+  "pages": [
+    {
+      "slug": "quem-somos",
+      "title": "Quem Somos",
+      "status": "PUBLISHED",
+      "body": "Somos uma revenda focada em atendimento rápido, transparência e veículos selecionados."
+    },
+    {
+      "slug": "politica-de-privacidade",
+      "title": "Política de Privacidade",
+      "status": "PUBLISHED",
+      "body": "Texto de política de privacidade de demonstração."
+    }
+  ],
+  "blogPosts": [
+    {
+      "slug": "como-escolher-seu-proximo-seminovo",
+      "title": "Como escolher seu próximo seminovo",
+      "status": "PUBLISHED",
+      "excerpt": "Pontos práticos para avaliar um seminovo antes de fechar negócio.",
+      "body": "Conteúdo de demonstração para o blog."
+    }
+  ],
+  "adminUser": {
+    "name": "Admin Demo",
+    "email": "admin@autodealerdemo.com",
+    "password": "ChangeMe123!"
+  }
+}

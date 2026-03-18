@@ -1,0 +1,2 @@
+// Catalog filter logic
+export {};

@@ -1,0 +1,2 @@
+// PostHog analytics
+export {};

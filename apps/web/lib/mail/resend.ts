@@ -1,0 +1,2 @@
+// Resend email adapter
+export {};

@@ -1,0 +1,2 @@
+// Cloudflare Turnstile captcha
+export {};

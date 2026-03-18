@@ -1,0 +1,9 @@
+flowchart TD
+    U[Usuário público] --> W[Next.js Web App]
+    A[Admin] --> W
+    W --> DB[(PostgreSQL)]
+    W --> ST[Storage S3/R2]
+    W --> EM[Email Provider]
+    W --> AN[Analytics]
+    W --> SE[Sentry]
+    W --> WA[WhatsApp Click-to-Chat]

@@ -1,0 +1,2 @@
+// SiteSettings mutations
+export {};
