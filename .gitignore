@@ -35,7 +35,7 @@ yarn-error.log*
 # Env — commit .env.example only
 .env
 .env.*
-!.env.example
+.env.example
 
 # Vercel
 .vercel

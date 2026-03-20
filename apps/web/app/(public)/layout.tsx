@@ -22,6 +22,15 @@ export default async function PublicLayout({
         siteName={settings?.siteName}
         footerText={settings?.footerText ?? undefined}
         whatsappNumber={settings?.defaultWhatsappNumber ?? undefined}
+        phoneNumber={settings?.phoneNumber}
+        defaultEmail={settings?.defaultEmail}
+        addressLine={settings?.addressLine}
+        city={settings?.city}
+        state={settings?.state}
+        zipCode={settings?.zipCode}
+        instagramUrl={settings?.instagramUrl}
+        facebookUrl={settings?.facebookUrl}
+        youtubeUrl={settings?.youtubeUrl}
       />
     </div>
   );

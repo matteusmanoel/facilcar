@@ -6,7 +6,8 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 function createPrismaClient() {
   const connectionString =
-    process.env.DATABASE_URL ?? "postgresql://localhost:5432/mvp?schema=public";
+    process.env.DATABASE_URL ??
+    "postgresql://postgres:postgres@localhost:5432/facilcar?schema=public";
   const pool = new Pool({ connectionString });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({

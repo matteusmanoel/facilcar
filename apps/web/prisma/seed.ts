@@ -3,10 +3,61 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { hashPassword } from "../features/auth/server/passwords";
 
-const connectionString = process.env.DATABASE_URL ?? "postgresql://localhost:5432/mvp?schema=public";
+const connectionString =
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@localhost:5432/facilcar?schema=public";
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+
+/** Arquivo em `public/cars/` → URL pública `/cars/...`. */
+function carAsset(file: string) {
+  return `/cars/${file}`;
+}
+
+/**
+ * Fotos reais em `apps/web/public/cars/` (servidas como `/cars/...`).
+ * Reutilização por categoria quando não há foto específica do modelo.
+ */
+const SEED_CAR_IMAGES: Record<string, string[]> = {
+  "toyota-corolla-xei-2022": ["versa.png", "tracker.png"],
+  "honda-civic-ex-2021": ["versa.png", "hrv.png"],
+  "fiat-strada-freedom-2023": ["ranger.jpg"],
+  "chevrolet-onix-lt-2023": ["hb20s.webp"],
+  "volkswagen-polo-highline-2022": ["hb20s.webp"],
+  "jeep-renegade-longitude-2021": ["jeep-compass.jpg"],
+  "nissan-kicks-advance-2022": ["creta.jpg"],
+  "hyundai-hb20-platinum-2023": ["hb20s.webp"],
+  "renault-duster-intense-2020": ["duster.jpg"],
+  "ford-ranger-xls-2022": ["ranger.jpg"],
+  "toyota-hilux-srx-2021": ["hilux-srv.png"],
+  "honda-hr-v-exl-2023": ["hrv.png"],
+  "fiat-toro-volcano-2022": ["toro.png"],
+  "chevrolet-tracker-premier-2022": ["tracker.png"],
+  "volkswagen-t-cross-comfortline-2023": ["t-cross.png"],
+  "jeep-compass-longitude-2020": ["jeep-compass.jpg"],
+  "nissan-versa-advance-2023": ["versa.png"],
+  "hyundai-creta-platinum-2022": ["creta.jpg"],
+};
+
+function seedVehicleImages(slug: string): { url: string; isCover: boolean; sortOrder: number }[] {
+  const files = SEED_CAR_IMAGES[slug];
+  if (!files?.length) {
+    const text = encodeURIComponent(slug.replace(/-/g, " ").slice(0, 24));
+    return [
+      {
+        url: `https://placehold.co/1200x800/e2e8f0/64748b?text=${text}`,
+        isCover: true,
+        sortOrder: 0,
+      },
+    ];
+  }
+  return files.map((file, i) => ({
+    url: carAsset(file),
+    isCover: i === 0,
+    sortOrder: i,
+  }));
+}
 
 type VehicleSeed = {
   slug: string;
@@ -51,10 +102,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Prata",
     doors: 4,
     priceCash: 129900,
-    images: [
-      { url: "/mock/vehicles/corolla-1.jpg", isCover: true, sortOrder: 0 },
-      { url: "/mock/vehicles/corolla-2.jpg", isCover: false, sortOrder: 1 },
-    ],
+    images: seedVehicleImages("toyota-corolla-xei-2022"),
     features: ["Ar-condicionado digital", "Central multimídia", "Câmera de ré", "Bancos em couro"],
   },
   {
@@ -76,10 +124,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Branco",
     doors: 4,
     priceCash: 117900,
-    images: [
-      { url: "/mock/vehicles/civic-1.jpg", isCover: true, sortOrder: 0 },
-      { url: "/mock/vehicles/civic-2.jpg", isCover: false, sortOrder: 1 },
-    ],
+    images: seedVehicleImages("honda-civic-ex-2021"),
     features: ["Piloto automático", "Multimídia", "Airbags"],
   },
   {
@@ -101,7 +146,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Cinza",
     doors: 2,
     priceCash: 103900,
-    images: [{ url: "/mock/vehicles/strada-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("fiat-strada-freedom-2023"),
     features: ["Direção elétrica", "Ar-condicionado", "Vidros elétricos"],
   },
   {
@@ -123,7 +168,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Vermelho",
     doors: 4,
     priceCash: 89900,
-    images: [{ url: "/mock/vehicles/onix-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("chevrolet-onix-lt-2023"),
     features: ["MyLink", "Ar-condicionado", "Direção elétrica"],
   },
   {
@@ -145,7 +190,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Azul",
     doors: 4,
     priceCash: 98900,
-    images: [{ url: "/mock/vehicles/polo-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("volkswagen-polo-highline-2022"),
     features: ["Motor turbo", "Paddle shift", "Sensor de estacionamento"],
   },
   {
@@ -167,7 +212,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Preto",
     doors: 4,
     priceCash: 112900,
-    images: [{ url: "/mock/vehicles/renegade-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("jeep-renegade-longitude-2021"),
     features: ["4x2", "Central multimídia", "Controle de tração"],
   },
   {
@@ -189,7 +234,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Branco perolado",
     doors: 4,
     priceCash: 105900,
-    images: [{ url: "/mock/vehicles/kicks-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("nissan-kicks-advance-2022"),
     features: ["Câmera 360", "Ar digital", "Keyless"],
   },
   {
@@ -211,7 +256,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Cinza grafite",
     doors: 4,
     priceCash: 92900,
-    images: [{ url: "/mock/vehicles/hb20-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("hyundai-hb20-platinum-2023"),
     features: ["Bluelink", "Wireless charger", "LED"],
   },
   {
@@ -233,7 +278,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Laranja",
     doors: 4,
     priceCash: 87900,
-    images: [{ url: "/mock/vehicles/duster-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("renault-duster-intense-2020"),
     features: ["Multimídia", "Rack de teto", "Controle de estabilidade"],
   },
   {
@@ -255,7 +300,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Branco",
     doors: 4,
     priceCash: 189900,
-    images: [{ url: "/mock/vehicles/ranger-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("ford-ranger-xls-2022"),
     features: ["4x4", "Cabine dupla", "Engate"],
   },
   {
@@ -277,7 +322,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Prata",
     doors: 4,
     priceCash: 249900,
-    images: [{ url: "/mock/vehicles/hilux-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("toyota-hilux-srx-2021"),
     features: ["Teto solar", "Couro", "7 airbags"],
   },
   {
@@ -299,7 +344,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Preto",
     doors: 4,
     priceCash: 159900,
-    images: [{ url: "/mock/vehicles/hrv-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("honda-hr-v-exl-2023"),
     features: ["Honda Sensing", "Teto solar", "Som premium"],
   },
   {
@@ -321,7 +366,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Vermelho",
     doors: 4,
     priceCash: 149900,
-    images: [{ url: "/mock/vehicles/toro-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("fiat-toro-volcano-2022"),
     features: ["4x4", "Multimídia 10\"", "Bancos em couro"],
   },
   {
@@ -343,7 +388,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Branco",
     doors: 4,
     priceCash: 118900,
-    images: [{ url: "/mock/vehicles/tracker-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("chevrolet-tracker-premier-2022"),
     features: ["OnStar", "Wi-Fi", "CarPlay"],
   },
   {
@@ -365,7 +410,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Cinza",
     doors: 4,
     priceCash: 124900,
-    images: [{ url: "/mock/vehicles/tcross-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("volkswagen-t-cross-comfortline-2023"),
     features: ["Beats Audio", "Teto solar panorâmico", "LED"],
   },
   {
@@ -387,7 +432,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Verde militar",
     doors: 4,
     priceCash: 134900,
-    images: [{ url: "/mock/vehicles/compass-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("jeep-compass-longitude-2020"),
     features: ["4x4", "Teto solar", "Bancos aquecidos"],
   },
   {
@@ -409,7 +454,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Prata",
     doors: 4,
     priceCash: 99900,
-    images: [{ url: "/mock/vehicles/versa-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("nissan-versa-advance-2023"),
     features: ["6 airbags", "Câmera de ré", "Ar digital"],
   },
   {
@@ -431,25 +476,41 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
     color: "Branco",
     doors: 4,
     priceCash: 128900,
-    images: [{ url: "/mock/vehicles/creta-1.jpg", isCover: true, sortOrder: 0 }],
+    images: seedVehicleImages("hyundai-creta-platinum-2022"),
     features: ["Bluelink", "Teto solar", "Couro"],
   },
 ];
 
 async function main() {
+  const settingsData = {
+    siteName: "FácilCar Multimarcas",
+    defaultWhatsappNumber: "5545999123456",
+    defaultEmail: "contato@facilcarmultimarcas.com.br",
+    phoneNumber: "(45) 3300-0000",
+    addressLine: "Av. Exemplo, 1000 — Showroom",
+    city: "Sua Cidade",
+    state: "PR",
+    zipCode: "85800-000",
+    instagramUrl: "https://www.instagram.com/facilcarmultimarcas/",
+    facebookUrl: null as string | null,
+    youtubeUrl: null as string | null,
+    seoDefaultTitle: "FácilCar Multimarcas | Seminovos e financiamento",
+    seoDefaultDescription:
+      "Seminovos selecionados, financiamento facilitado e venda/consignação com segurança. FácilCar Multimarcas.",
+    footerText:
+      "Há anos conectando pessoas ao carro certo. Transparência, agilidade e atendimento que faz a diferença.",
+    heroTitle: "Seu próximo carro, do jeito mais fácil.",
+    heroSubtitle:
+      "Estoque curado, financiamento com especialistas e avaliação justa do seu usado — tudo em um só lugar.",
+  };
+
   const existingSettings = await prisma.siteSettings.findFirst();
   if (!existingSettings) {
-    await prisma.siteSettings.create({
-      data: {
-        siteName: "Auto Dealer Demo",
-        defaultWhatsappNumber: "5545999999999",
-        defaultEmail: "contato@autodealerdemo.com",
-        phoneNumber: "(45) 99999-9999",
-        city: "Foz do Iguaçu",
-        state: "PR",
-        heroTitle: "Seu próximo veículo começa aqui",
-        heroSubtitle: "Estoque selecionado, atendimento rápido e proposta sem complicação.",
-      },
+    await prisma.siteSettings.create({ data: settingsData });
+  } else {
+    await prisma.siteSettings.update({
+      where: { id: existingSettings.id },
+      data: settingsData,
     });
   }
 
@@ -492,7 +553,8 @@ async function main() {
     const existing = await prisma.vehicle.findUnique({ where: { slug: v.slug } });
     if (existing) continue;
 
-    const { images, features, brandSlug: _b, ...vehicleData } = v;
+    const { images, features, brandSlug, ...vehicleData } = v;
+    void brandSlug;
     await prisma.vehicle.create({
       data: {
         ...vehicleData,
@@ -516,43 +578,100 @@ async function main() {
     });
   }
 
+  // Atualiza fotos dos veículos já existentes (re-seed com novos assets em /public/cars).
+  for (const v of VEHICLE_SEEDS) {
+    const existing = await prisma.vehicle.findUnique({ where: { slug: v.slug } });
+    if (!existing) continue;
+    await prisma.vehicleImage.deleteMany({ where: { vehicleId: existing.id } });
+    await prisma.vehicleImage.createMany({
+      data: v.images.map((img) => ({
+        vehicleId: existing.id,
+        url: img.url,
+        isCover: img.isCover,
+        sortOrder: img.sortOrder,
+      })),
+    });
+  }
+
   const pages = [
     {
       slug: "quem-somos",
-      title: "Quem Somos",
-      excerpt: "Nossa história e valores.",
-      body: "Somos uma revenda focada em atendimento rápido, transparência e veículos selecionados. Trabalhamos com seminovos revisados e documentação em dia.",
+      title: "Quem somos",
+      excerpt: "A FácilCar nasceu para simplificar comprar e vender carro.",
+      body: `A FácilCar Multimarcas é uma revenda focada em seminovos com curadoria real: cada veículo passa por conferência antes de ir para o site.
+
+Nossa missão é oferecer transparência, agilidade e um atendimento humano — do primeiro WhatsApp até a assinatura do contrato. Trabalhamos com financiamento junto às principais financeiras e com consignação para quem quer vender com segurança, sem expor dados pessoais em anúncios soltos na internet.
+
+Valores: honestidade nas condições, respeito ao tempo do cliente e compromisso com pós-venda claro.
+
+Venha nos visitar ou fale pelo site. Estamos prontos para o seu próximo carro.`,
+      metaTitle: "Quem somos | FácilCar Multimarcas",
+      metaDescription: "Conheça a FácilCar: seminovos, financiamento e consignação com transparência.",
     },
     {
       slug: "politica-de-privacidade",
-      title: "Política de Privacidade",
+      title: "Política de privacidade",
       excerpt: "Como tratamos seus dados.",
-      body: "Coletamos apenas os dados necessários para atendimento e propostas. Não vendemos seus dados a terceiros. Você pode solicitar exclusão a qualquer momento.",
+      body: `Coletamos nome, telefone, e-mail e dados informados em formulários apenas para contato comercial, análise de financiamento ou avaliação de veículo.
+
+Não vendemos seus dados. Podemos usar prestadores de serviço (ex.: hospedagem, e-mail transacional) sob confidencialidade.
+
+Você pode solicitar acesso, correção ou exclusão dos dados pelo e-mail de contato da loja.
+
+Cookies: utilizamos cookies essenciais e, se configurado, de analytics para melhorar o site.`,
+      metaTitle: "Política de privacidade | FácilCar",
+      metaDescription: "Política de privacidade e tratamento de dados — FácilCar Multimarcas.",
     },
     {
       slug: "termos-de-uso",
-      title: "Termos de Uso",
-      excerpt: "Condições de uso do site.",
-      body: "O uso deste site implica aceitação destes termos. As informações dos veículos são meramente ilustrativas; confirme disponibilidade e condições na loja.",
+      title: "Termos de uso",
+      excerpt: "Condições de uso deste site.",
+      body: `Ao usar este site você concorda com estes termos. As fotos, preços e descrições dos veículos têm caráter informativo; disponibilidade e condições finais devem ser confirmadas na loja.
+
+A FácilCar não se responsabiliza por indisponibilidade temporária do site ou por conteúdo de sites externos linkados.
+
+Para dúvidas, utilize os canais oficiais de contato.`,
+      metaTitle: "Termos de uso | FácilCar",
+      metaDescription: "Termos de uso do site FácilCar Multimarcas.",
     },
     {
       slug: "nosso-estoque",
       title: "Nosso estoque",
-      excerpt: "Como funciona nossa curadoria.",
-      body: "Todos os veículos passam por inspeção básica. Oferecemos opções de financiamento parceiras e avaliação do seu usado na troca.",
+      excerpt: "Como selecionamos os carros que você vê aqui.",
+      body: `Priorizamos veículos com histórico conferível, documentação regular e estado alinhado ao anúncio.
+
+Antes de publicar, fazemos checagens básicas. Na loja você pode inspecionar o carro, fazer test drive quando disponível e tirar todas as dúvidas com nossa equipe.
+
+Financiamento e troca podem ser combinados na mesma visita — agilizando sua decisão.`,
+      metaTitle: "Nosso estoque | FácilCar",
+      metaDescription: "Curadoria e critérios do estoque FácilCar Multimarcas.",
     },
     {
       slug: "trabalhe-conosco",
       title: "Trabalhe conosco",
-      excerpt: "Envie seu currículo.",
-      body: "Estamos sempre em busca de talentos. Envie seu currículo para rh@autodealerdemo.com com o assunto VAGAS.",
+      excerpt: "Faça parte do time FácilCar.",
+      body: `Buscamos pessoas alinhadas com atendimento ao cliente e integridade comercial.
+
+Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assunto VAGAS — informe a área de interesse (vendas, administrativo, pós-venda).`,
+      metaTitle: "Trabalhe conosco | FácilCar",
+      metaDescription: "Oportunidades de carreira na FácilCar Multimarcas.",
     },
   ];
   for (const p of pages) {
+    const { metaTitle, metaDescription, ...rest } = p as typeof p & {
+      metaTitle?: string;
+      metaDescription?: string;
+    };
     await prisma.page.upsert({
       where: { slug: p.slug },
-      create: { ...p, status: "PUBLISHED" },
-      update: { body: p.body, title: p.title, excerpt: p.excerpt },
+      create: { ...rest, status: "PUBLISHED", metaTitle: metaTitle ?? null, metaDescription: metaDescription ?? null },
+      update: {
+        body: p.body,
+        title: p.title,
+        excerpt: p.excerpt,
+        metaTitle: metaTitle ?? null,
+        metaDescription: metaDescription ?? null,
+      },
     });
   }
 
@@ -561,61 +680,79 @@ async function main() {
       slug: "como-escolher-seu-proximo-seminovo",
       title: "Como escolher seu próximo seminovo",
       excerpt: "Pontos práticos para avaliar um seminovo.",
-      body: "Verifique histórico, laudo cautelar, estado dos pneus e revisões. Um test drive é essencial.",
+      body: "Verifique histórico, laudo cautelar, estado dos pneus e revisões. Um test drive é essencial.\n\nNa FácilCar você pode agendar visita e tirar dúvidas com a equipe antes de decidir.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog1/800/450",
     },
     {
       slug: "financiar-veiculo-sem-entrada",
       title: "Financiar veículo: é possível sem entrada?",
       excerpt: "Entenda as opções do mercado.",
-      body: "Algumas instituições permitem financiamento com entrada zero, mas as parcelas tendem a ser maiores. Compare CET e prazo total.",
+      body: "Algumas instituições permitem financiamento com entrada zero, mas as parcelas tendem a ser maiores. Compare CET e prazo total.\n\nNossa equipe simula em várias financeiras para achar o cenário que melhor encaixa no seu orçamento.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog2/800/450",
     },
     {
       slug: "vantagens-do-seminovo",
       title: "Vantagens de comprar um seminovo",
       excerpt: "Menos depreciação e mais equipamentos.",
-      body: "O seminovo oferece melhor custo-benefício que o zero km na maioria dos casos, com desvalorização já absorvida pelo primeiro dono.",
+      body: "O seminovo oferece melhor custo-benefício que o zero km na maioria dos casos, com desvalorização já absorvida pelo primeiro dono.\n\nVocê leva mais opcionais pelo mesmo investimento.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog3/800/450",
     },
     {
       slug: "revisao-pre-compra",
       title: "Checklist antes de fechar negócio",
       excerpt: "O que conferir no dia da compra.",
-      body: "Documentação, multas, gravames, chave reserva e manual do proprietário devem estar em ordem.",
+      body: "Documentação, multas, gravames, chave reserva e manual do proprietário devem estar em ordem.\n\nSe tiver dúvida, peça apoio profissional ou laudo cautelar.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog4/800/450",
     },
     {
       slug: "documentacao-para-comprar-carro",
       title: "Documentação para comprar carro usado",
       excerpt: "Lista do que você vai precisar.",
-      body: "RG, CPF, comprovante de residência e comprovação de renda são os básicos para financiamento.",
+      body: "RG, CPF, comprovante de residência e comprovação de renda são os básicos para financiamento.\n\nComprador PJ ou estrangeiro pode ter requisitos extras — consulte sempre a financeira.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog5/800/450",
     },
     {
       slug: "tendencias-mercado-automoveis-2025",
       title: "Tendências do mercado automotivo",
-      excerpt: "Híbridos e elétricos em alta.",
-      body: "O mercado brasileiro segue aquecido para SUVs e veículos híbridos. Seminovos premium também têm boa liquidez.",
+      excerpt: "SUVs, híbridos e seminovos premium.",
+      body: "O mercado brasileiro segue aquecido para SUVs e veículos híbridos. Seminovos premium também têm boa liquidez.\n\nAcompanhe nosso estoque — sempre atualizado com o que há de melhor na região.",
+      coverImageUrl: "https://picsum.photos/seed/facilcar-blog6/800/450",
     },
   ];
   for (const post of posts) {
     await prisma.blogPost.upsert({
       where: { slug: post.slug },
-      create: { ...post, status: "PUBLISHED", publishedAt: new Date() },
-      update: { body: post.body, title: post.title, excerpt: post.excerpt },
-    });
-  }
-
-  const adminEmail = "admin@autodealerdemo.com";
-  const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-  if (!existingAdmin) {
-    const passwordHash = await hashPassword("ChangeMe123!");
-    await prisma.user.create({
-      data: {
-        name: "Admin Demo",
-        email: adminEmail,
-        passwordHash,
-        role: "SUPER_ADMIN",
-        isActive: true,
+      create: {
+        slug: post.slug,
+        title: post.title,
+        excerpt: post.excerpt,
+        body: post.body,
+        coverImageUrl: post.coverImageUrl,
+        status: "PUBLISHED",
+        publishedAt: new Date(),
+      },
+      update: {
+        body: post.body,
+        title: post.title,
+        excerpt: post.excerpt,
+        coverImageUrl: post.coverImageUrl,
       },
     });
   }
+
+  const adminEmail = "admin@facilcar.demo";
+  const passwordHash = await hashPassword("ChangeMe123!");
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    create: {
+      name: "Admin FácilCar",
+      email: adminEmail,
+      passwordHash,
+      role: "SUPER_ADMIN",
+      isActive: true,
+    },
+    update: { passwordHash, name: "Admin FácilCar" },
+  });
 
   console.log("Seed completed.");
 }

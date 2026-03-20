@@ -39,7 +39,11 @@ export default async function AdminVeiculosPage() {
               <tr key={v.id} className="border-t">
                 <td className="p-2">
                   {v.images[0] ? (
-                    <img src={v.images[0].url} alt="" className="h-12 w-16 rounded object-cover" />
+                    <img
+                      src={v.images[0].url}
+                      alt=""
+                      className="h-12 w-16 rounded object-cover"
+                    />
                   ) : (
                     <span className="text-zinc-400">—</span>
                   )}
@@ -48,14 +52,23 @@ export default async function AdminVeiculosPage() {
                 <td className="p-2">{v.brand.name}</td>
                 <td className="p-2">{v.status}</td>
                 <td className="p-2">
-                  {v.priceCash != null ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}` : "—"}
+                  {v.priceCash != null
+                    ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
+                    : "—"}
                 </td>
                 <td className="p-2">
-                  <Link href={`/admin/veiculos/${v.id}`} className="text-zinc-600 hover:underline">
+                  <Link
+                    href={`/admin/veiculos/${v.id}`}
+                    className="text-zinc-600 hover:underline"
+                  >
                     Editar
                   </Link>
                   {" · "}
-                  <Link href={`/estoque/${v.slug}`} target="_blank" className="text-zinc-600 hover:underline">
+                  <Link
+                    href={`/estoque/${v.slug}`}
+                    target="_blank"
+                    className="text-zinc-600 hover:underline"
+                  >
                     Ver
                   </Link>
                 </td>

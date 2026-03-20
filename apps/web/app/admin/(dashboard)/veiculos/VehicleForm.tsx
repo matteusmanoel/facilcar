@@ -20,7 +20,14 @@ type VehicleForForm = {
   fuelType: string | null;
   transmission: string | null;
   color: string | null;
+  doors: number | null;
   priceCash: unknown;
+  priceTradeIn: unknown;
+  pricePromotional: unknown;
+  city: string | null;
+  state: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
   shortDescription: string | null;
   description: string | null;
   featured: boolean;
@@ -141,6 +148,38 @@ export function VehicleForm({ brands, vehicle }: Props) {
       <label className="block text-sm font-medium">
         Preço à vista (R$)
         <input name="priceCash" type="number" step="0.01" defaultValue={vehicle?.priceCash != null ? Number(vehicle.priceCash) : ""} className="mt-1 w-full rounded border px-3 py-2" />
+      </label>
+      <div className="grid grid-cols-2 gap-4">
+        <label className="block text-sm font-medium">
+          Preço promoção (R$)
+          <input name="pricePromotional" type="number" step="0.01" defaultValue={vehicle?.pricePromotional != null ? Number(vehicle.pricePromotional) : ""} className="mt-1 w-full rounded border px-3 py-2" />
+        </label>
+        <label className="block text-sm font-medium">
+          Troca a partir (R$)
+          <input name="priceTradeIn" type="number" step="0.01" defaultValue={vehicle?.priceTradeIn != null ? Number(vehicle.priceTradeIn) : ""} className="mt-1 w-full rounded border px-3 py-2" />
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <label className="block text-sm font-medium">
+          Cidade
+          <input name="city" defaultValue={vehicle?.city ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
+        </label>
+        <label className="block text-sm font-medium">
+          UF
+          <input name="state" maxLength={2} defaultValue={vehicle?.state ?? ""} className="mt-1 w-full rounded border px-3 py-2 uppercase" />
+        </label>
+      </div>
+      <label className="block text-sm font-medium">
+        Portas
+        <input name="doors" type="number" defaultValue={vehicle?.doors ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
+      </label>
+      <label className="block text-sm font-medium">
+        Meta título (SEO)
+        <input name="metaTitle" defaultValue={vehicle?.metaTitle ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
+      </label>
+      <label className="block text-sm font-medium">
+        Meta descrição
+        <textarea name="metaDescription" rows={2} defaultValue={vehicle?.metaDescription ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
       </label>
       <label className="flex items-center gap-2">
         <input name="featured" type="checkbox" defaultChecked={vehicle?.featured} className="rounded" />

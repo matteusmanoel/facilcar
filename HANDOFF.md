@@ -9,7 +9,7 @@
 - **Prisma**: sem pasta `migrations/` versionada; usar `npm run db:push` + `npm run db:seed` com `DATABASE_URL` apontando para o Postgres.
 - **Admin / Auth.js**: segmento `/admin/*` roda com **`export const runtime = "nodejs"`** em `app/admin/layout.tsx` (evita erro edge/crypto ao importar NextAuth + Prisma + bcrypt). API Auth e presign R2 também em Node.
 - **Middleware**: só checagem de cookie `next-auth.session-token` / `__Secure-next-auth.session-token` + redirect para `/admin/login` (sem importar config Auth).
-- **Login demo (seed)**: `admin@autodealerdemo.com` / `ChangeMe123!`
+- **Login demo (seed)**: `admin@facilcar.demo` / `ChangeMe123!`
 - **Logout**: botão **Sair** no header do dashboard admin (`adminSignOutAction`).
 - **Público**: catálogo, leads, blog, páginas institucionais; ver `QA_CHECKLIST.md`.
 
@@ -29,12 +29,16 @@ export AUTH_SECRET="$(openssl rand -base64 32)"
 
 # 4) App
 npm run dev
-# ou produção local: npm run build && npm run start
+# ou validar como em produção:
+# export AUTH_SECRET="..."  # obrigatório
+# npm run build && npm run start
 ```
+
+**Produção local validada:** com Docker + `DATABASE_URL` + `AUTH_SECRET`, `next build` + `next start` — rotas públicas 200; admin sem sessão redireciona para login; `/admin/login` 200.
 
 ## Deploy / QA
 
-- `apps/web/DEPLOY.md`, `apps/web/QA_CHECKLIST.md`
+- `apps/web/DEPLOY.md`, `apps/web/QA_CHECKLIST.md`, `apps/web/RUNBOOK_DEMO.md`
 
 ## Opcional
 

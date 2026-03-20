@@ -4,15 +4,33 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updatePageAction } from "@/features/content/server/mutations";
 
-type Page = { id: string; slug: string; title: string; excerpt: string | null; body: string; status: string; metaTitle: string | null; metaDescription: string | null };
+const SLUGS_FIXOS = new Set([
+  "quem-somos",
+  "politica-de-privacidade",
+  "termos-de-uso",
+  "nosso-estoque",
+  "trabalhe-conosco",
+]);
+
+type Page = {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  body: string;
+  status: string;
+  metaTitle: string | null;
+  metaDescription: string | null;
+};
 
 export function PageForm({ page }: { page: Page }) {
   const router = useRouter();
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const slugLocked = SLUGS_FIXOS.has(page.slug);
 
   return (
     <form
-      action={async (formData: FormData) => {
+      action={async (formData) => {
         setMessage(null);
         const result = await updatePageAction(formData);
         if (result.ok) {
@@ -25,10 +43,27 @@ export function PageForm({ page }: { page: Page }) {
       className="mt-6 max-w-2xl space-y-4"
     >
       <input type="hidden" name="id" value={page.id} />
-      <label className="block text-sm font-medium">
-        Slug *
-        <input name="slug" required defaultValue={page.slug} className="mt-1 w-full rounded border px-3 py-2 font-mono" />
-      </label>
+      <input type="hidden" name="slug" value={page.slug} />
+      <div>
+        <label className="block text-sm font-medium">Slug</label>
+        {slugLocked ? (
+          <>
+            <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-3 py-2 font-mono text-sm">
+              {page.slug}
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Slug fixo: alterar quebraria a rota pública desta página.
+            </p>
+          </>
+        ) : (
+          <input
+            name="slug"
+            required
+            defaultValue={page.slug}
+            className="mt-1 w-full rounded border px-3 py-2 font-mono"
+          />
+        )}
+      </div>
       <label className="block text-sm font-medium">
         Título *
         <input name="title" required defaultValue={page.title} className="mt-1 w-full rounded border px-3 py-2" />

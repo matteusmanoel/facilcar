@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { VehicleStatus, VehicleType, FuelType, Transmission } from "@prisma/client";
+import type { VehicleType, FuelType, Transmission } from "@prisma/client";
 
 const PAGE_SIZE = 12;
 
