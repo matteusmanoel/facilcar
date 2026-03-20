@@ -1,3 +1,4 @@
+import type { BlogPost } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export async function getPageBySlug(slug: string) {
@@ -6,7 +7,7 @@ export async function getPageBySlug(slug: string) {
   });
 }
 
-export async function listPublishedBlogPosts(limit = 50) {
+export async function listPublishedBlogPosts(limit = 50): Promise<BlogPost[]> {
   return prisma.blogPost.findMany({
     where: { status: "PUBLISHED" },
     orderBy: { publishedAt: "desc" },
