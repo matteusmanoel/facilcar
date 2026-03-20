@@ -1,4 +1,12 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+
+type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
+  include: {
+    brand: true;
+    images: true;
+  };
+}>;
 
 export async function getVehicleBySlug(slug: string) {
   return prisma.vehicle.findUnique({
@@ -11,7 +19,10 @@ export async function getVehicleBySlug(slug: string) {
   });
 }
 
-export async function getRelatedVehicles(vehicleId: string, limit = 6) {
+export async function getRelatedVehicles(
+  vehicleId: string,
+  limit = 6
+): Promise<VehicleWithBrandAndPreviewImages[]> {
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: vehicleId },
     select: { brandId: true, type: true },
@@ -32,7 +43,9 @@ export async function getRelatedVehicles(vehicleId: string, limit = 6) {
   });
 }
 
-export async function getFeaturedVehicles(limit = 4) {
+export async function getFeaturedVehicles(
+  limit = 4
+): Promise<VehicleWithBrandAndPreviewImages[]> {
   return prisma.vehicle.findMany({
     where: { status: "PUBLISHED", featured: true },
     orderBy: { publishedAt: "desc" },
