@@ -1,7 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getVehicleBySlug, getRelatedVehicles } from "@/features/vehicle/server/queries";
+import {
+  getVehicleBySlug,
+  getRelatedVehicles,
+  type VehicleWithBrandAndPreviewImages,
+} from "@/features/vehicle/server/queries";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import { VehicleInterestForm } from "@/features/lead/ui/VehicleInterestForm";
 import { VehicleGallery } from "@/features/vehicle/ui/VehicleGallery";
@@ -18,7 +22,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!vehicle) return { title: "Veículo" };
   const title = vehicle.metaTitle ?? vehicle.title;
   const description =
-    vehicle.metaDescription ?? vehicle.shortDescription ?? vehicle.description?.slice(0, 160) ?? undefined;
+    vehicle.metaDescription ??
+    vehicle.shortDescription ??
+    vehicle.description?.slice(0, 160) ??
+    undefined;
   return {
     title,
     description,
@@ -34,17 +41,20 @@ export default async function VehicleDetailPage({ params }: Props) {
   const vehicle = await getVehicleBySlug(slug);
   if (!vehicle) notFound();
 
-  const [settings, related] = await Promise.all([
-    getSiteSettings(),
-    getRelatedVehicles(vehicle.id, 6),
-  ]);
+  const [settings, related]: [
+    Awaited<ReturnType<typeof getSiteSettings>>,
+    VehicleWithBrandAndPreviewImages[],
+  ] = await Promise.all([getSiteSettings(), getRelatedVehicles(vehicle.id, 6)]);
 
-  const whatsappNumber = settings?.defaultWhatsappNumber?.replace(/\D/g, "") ?? "";
+  const whatsappNumber =
+    settings?.defaultWhatsappNumber?.replace(/\D/g, "") ?? "";
   const whatsappUrl = whatsappNumber
     ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(`Olá! Tenho interesse no veículo: ${vehicle.title}`)}`
     : "#";
 
-  const sortedImages = [...vehicle.images].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortedImages = [...vehicle.images].sort(
+    (a, b) => a.sortOrder - b.sortOrder,
+  );
   const siteName = settings?.siteName ?? BRAND.name;
 
   const subtitle =
@@ -93,7 +103,9 @@ export default async function VehicleDetailPage({ params }: Props) {
               {vehicle.title}
             </h1>
             {subtitle && (
-              <p className="mt-2 text-base font-medium text-zinc-600 md:text-lg">{subtitle}</p>
+              <p className="mt-2 text-base font-medium text-zinc-600 md:text-lg">
+                {subtitle}
+              </p>
             )}
             <p className="mt-4 text-3xl font-black tracking-tight text-facil-orange md:text-4xl">
               {vehicle.priceCash != null
@@ -112,7 +124,11 @@ export default async function VehicleDetailPage({ params }: Props) {
               <p className="mt-4 flex flex-wrap gap-x-2 gap-y-1 text-sm text-facil-muted">
                 {quickStats.map((s, i) => (
                   <span key={s} className="inline-flex items-center gap-2">
-                    {i > 0 && <span className="text-zinc-300" aria-hidden>·</span>}
+                    {i > 0 && (
+                      <span className="text-zinc-300" aria-hidden>
+                        ·
+                      </span>
+                    )}
                     <span>{s}</span>
                   </span>
                 ))}
@@ -127,9 +143,12 @@ export default async function VehicleDetailPage({ params }: Props) {
           {/* Sidebar: formulário (mobile após galeria; desktop coluna 2) */}
           <aside className="lg:col-start-2 lg:row-start-1 lg:row-span-3 lg:sticky lg:top-24 lg:self-start">
             <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg shadow-zinc-900/5">
-              <h2 className="text-xl font-bold text-zinc-900">Envie seu interesse</h2>
+              <h2 className="text-xl font-bold text-zinc-900">
+                Envie seu interesse
+              </h2>
               <p className="mt-2 text-sm leading-relaxed text-facil-muted">
-                Preencha seus dados — retornamos com mais informações e agendamento de visita ou test drive.
+                Preencha seus dados — retornamos com mais informações e
+                agendamento de visita ou test drive.
               </p>
               <div className="mt-5">
                 <VehicleInterestForm vehicleId={vehicle.id} />
@@ -162,9 +181,11 @@ export default async function VehicleDetailPage({ params }: Props) {
 
         {related.length > 0 && (
           <section className="mt-16 border-t border-zinc-200 pt-12">
-            <h2 className="text-2xl font-bold text-zinc-900">Veículos relacionados</h2>
+            <h2 className="text-2xl font-bold text-zinc-900">
+              Veículos relacionados
+            </h2>
             <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {related.map((v) => (
+              {related.map((v: VehicleWithBrandAndPreviewImages) => (
                 <Link
                   key={v.id}
                   href={`/estoque/${v.slug}`}

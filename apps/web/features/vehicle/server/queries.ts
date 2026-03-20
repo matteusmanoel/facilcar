@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
-type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
+/** Lista de veículo com marca + imagens (cards / relacionados). Exportado para páginas evitarem `any` com `Promise.all`. */
+export type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
   include: {
     brand: true;
     images: true;
