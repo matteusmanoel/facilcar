@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { createVehicleSchema } from "@/schemas/vehicle";
-import type { VehicleStatus } from "@prisma/client";
+import type { $Enums } from "@prisma/client";
 
 function parseImageUrls(value: string | undefined): { url: string; sortOrder: number; isCover: boolean }[] {
   if (!value?.trim()) return [];
@@ -39,7 +39,7 @@ export async function createVehicle(formData: FormData) {
   const vehicle = await prisma.vehicle.create({
     data: {
       slug: data.slug,
-      status: data.status as VehicleStatus,
+      status: data.status as $Enums.VehicleStatus,
       type: data.type,
       title: data.title,
       shortDescription: data.shortDescription ?? null,

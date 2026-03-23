@@ -1,15 +1,23 @@
 import path from "path";
 import { fileURLToPath } from "url";
 
-/** Diretório deste arquivo = `apps/web`. */
+/**
+ * Diretório do app Next (`apps/web`): é onde estão `package.json`, `node_modules` e o PostCSS
+ * que resolve `@import "tailwindcss"`. Se `turbopack.root` for a raiz do monorepo, o bundler
+ * tenta resolver `tailwindcss` a partir de `apps/` ou do repo — pastas sem dependências — e falha.
+ */
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
-/** Raiz do repositório (pai de `apps/`). Igual ao `outputFileTracingRoot` no Vercel em monorepo. */
-const workspaceRoot = path.resolve(appRoot, "..", "..");
+const tailwindcssPkg = path.resolve(appRoot, "node_modules/tailwindcss");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   turbopack: {
-    root: workspaceRoot,
+    root: appRoot,
+    // Garante resolução de `@import "tailwindcss"` mesmo quando o contexto de resolve
+    // cai em `apps/` (sem node_modules) em layouts tipo apps/web.
+    resolveAlias: {
+      tailwindcss: tailwindcssPkg,
+    },
   },
   images: {
     remotePatterns: [

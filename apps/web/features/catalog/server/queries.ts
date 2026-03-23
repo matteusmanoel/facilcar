@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/db";
-import type { VehicleType, FuelType, Transmission } from "@prisma/client";
+import type { $Enums } from "@prisma/client";
 
 const PAGE_SIZE = 12;
 
 export type CatalogFilters = {
   q?: string;
   brand?: string;
-  type?: VehicleType;
-  fuelType?: FuelType;
-  transmission?: Transmission;
+  type?: $Enums.VehicleType;
+  fuelType?: $Enums.FuelType;
+  transmission?: $Enums.Transmission;
   priceMin?: number;
   priceMax?: number;
   yearMin?: number;
@@ -24,9 +24,9 @@ export async function listPublicVehicles(filters: CatalogFilters = {}) {
   const where: {
     status: "PUBLISHED";
     brand?: { slug: string };
-    type?: VehicleType;
-    fuelType?: FuelType;
-    transmission?: Transmission;
+    type?: $Enums.VehicleType;
+    fuelType?: $Enums.FuelType;
+    transmission?: $Enums.Transmission;
     priceCash?: { gte?: number; lte?: number };
     yearModel?: { gte?: number; lte?: number };
     OR?: Array<{ title?: { contains: string; mode: "insensitive" }; model?: { contains: string; mode: "insensitive" }; brand?: { name: { contains: string; mode: "insensitive" } } }>;

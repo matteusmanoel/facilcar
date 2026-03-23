@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import type { LeadStatus, LeadType } from "@prisma/client";
+import type { $Enums } from "@prisma/client";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -15,8 +15,8 @@ export default async function AdminLeadsPage({
 
   const leads = await prisma.lead.findMany({
     where: {
-      ...(status && { status: status as LeadStatus }),
-      ...(type && { type: type as LeadType }),
+      ...(status && { status: status as $Enums.LeadStatus }),
+      ...(type && { type: type as $Enums.LeadType }),
     },
     orderBy: { createdAt: "desc" },
     take: 100,

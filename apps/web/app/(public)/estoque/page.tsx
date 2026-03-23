@@ -2,7 +2,11 @@ import Link from "next/link";
 import { listPublicVehicles, getBrandsForFilter } from "@/features/catalog/server/queries";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { VehicleImage } from "@/components/shared/VehicleImage";
-import type { FuelType, Transmission, VehicleType } from "@prisma/client";
+import type { $Enums } from "@prisma/client";
+
+type VehicleType = $Enums.VehicleType;
+type FuelType = $Enums.FuelType;
+type Transmission = $Enums.Transmission;
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
