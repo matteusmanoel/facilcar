@@ -11,6 +11,8 @@ const tailwindcssPkg = path.resolve(appRoot, "node_modules/tailwindcss");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Mesmo valor que `turbopack.root` (evita aviso e divergência no trace na Vercel).
+  outputFileTracingRoot: appRoot,
   turbopack: {
     root: appRoot,
     // Garante resolução de `@import "tailwindcss"` mesmo quando o contexto de resolve

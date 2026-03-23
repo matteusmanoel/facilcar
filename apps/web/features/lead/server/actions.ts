@@ -8,14 +8,9 @@ import {
   financingFormSchema,
   sellVehicleFormSchema,
 } from "@/schemas/lead";
-import type { $Enums } from "@prisma/client";
+import type { LeadSource } from "@prisma/client";
 
 type FormResult = { success: true } | { success: false; error: string };
-
-function getOriginUrl(): string | null {
-  if (typeof window !== "undefined") return window.location.href;
-  return null;
-}
 
 export async function createContactLead(formData: FormData): Promise<FormResult> {
   const raw = Object.fromEntries(formData.entries());
@@ -50,7 +45,7 @@ export async function createContactLead(formData: FormData): Promise<FormResult>
 export async function createVehicleInterestLead(
   formData: FormData,
   vehicleId: string,
-  source: $Enums.LeadSource = "VEHICLE_PAGE"
+  source: LeadSource = "VEHICLE_PAGE"
 ): Promise<FormResult> {
   const raw = Object.fromEntries(formData.entries());
   const parsed = vehicleInterestFormSchema.safeParse({

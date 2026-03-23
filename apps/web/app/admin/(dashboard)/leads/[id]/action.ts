@@ -1,14 +1,14 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import type { $Enums } from "@prisma/client";
+import type { LeadStatus } from "@prisma/client";
 
-const VALID: $Enums.LeadStatus[] = ["NEW", "IN_PROGRESS", "CONTACTED", "QUALIFIED", "WON", "LOST", "SPAM"];
+const VALID: LeadStatus[] = ["NEW", "IN_PROGRESS", "CONTACTED", "QUALIFIED", "WON", "LOST", "SPAM"];
 
 export async function updateLeadStatusAction(leadId: string, status: string) {
-  if (!VALID.includes(status as $Enums.LeadStatus)) return;
+  if (!VALID.includes(status as LeadStatus)) return;
   await prisma.lead.update({
     where: { id: leadId },
-    data: { status: status as $Enums.LeadStatus },
+    data: { status: status as LeadStatus },
   });
 }
