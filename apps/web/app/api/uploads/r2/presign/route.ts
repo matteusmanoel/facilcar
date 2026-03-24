@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   if (!endpoint || !bucket || !accessKey || !secretKey) {
     return NextResponse.json(
-      { error: "R2 not configured. Set STORAGE_* env vars." },
+      { error: "Storage not configured. Set STORAGE_* env vars (R2 ou Supabase S3)." },
       { status: 501 }
     );
   }
@@ -29,9 +29,11 @@ export async function POST(req: Request) {
     const ext = (body.filename as string)?.split(".").pop() || "jpg";
     const key = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
+    const isSupabaseS3 = endpoint.includes("supabase.co");
     const client = new S3Client({
-      region: "auto",
+      region: isSupabaseS3 ? (process.env.STORAGE_S3_REGION ?? "us-east-1") : "auto",
       endpoint,
+      forcePathStyle: isSupabaseS3,
       credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
     });
 
@@ -50,7 +52,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: imageUrl, key, uploadUrl: url });
   } catch (e) {
-    console.error("R2 presign error:", e);
+    console.error("Storage presign error:", e);
     return NextResponse.json({ error: "Failed to generate upload URL" }, { status: 500 });
   }
 }

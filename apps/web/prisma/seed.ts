@@ -4,8 +4,7 @@ import { Pool } from "pg";
 import { hashPassword } from "../features/auth/server/passwords";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@localhost:5432/facilcar?schema=public";
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/facilcar";
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });

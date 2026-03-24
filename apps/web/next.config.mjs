@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const tailwindcssPkg = path.resolve(appRoot, "node_modules/tailwindcss");
 
+const supabaseImageHost = process.env.NEXT_PUBLIC_SUPABASE_HOST;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Mesmo valor que `turbopack.root` (evita aviso e divergência no trace na Vercel).
@@ -25,6 +27,15 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "picsum.photos", pathname: "/**" },
       { protocol: "https", hostname: "fastly.picsum.photos", pathname: "/**" },
+      ...(supabaseImageHost
+        ? [
+            {
+              protocol: "https",
+              hostname: supabaseImageHost,
+              pathname: "/storage/v1/object/public/**",
+            },
+          ]
+        : []),
     ],
   },
 };

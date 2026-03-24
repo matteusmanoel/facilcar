@@ -1,5 +1,5 @@
 // Auto Dealer MVP - Prisma schema v1
-// See DECISIONS.md and plan for domain model
+// Tabelas no schema PostgreSQL `facilcar` (convive com outros apps no mesmo projeto Supabase).
 
 generator client {
   provider = "prisma-client-js"
@@ -7,6 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["facilcar"]
 }
 
 enum UserRole {
@@ -14,6 +15,8 @@ enum UserRole {
   ADMIN
   EDITOR
   LEAD_MANAGER
+
+  @@schema("facilcar")
 }
 
 enum VehicleStatus {
@@ -22,6 +25,8 @@ enum VehicleStatus {
   RESERVED
   SOLD
   ARCHIVED
+
+  @@schema("facilcar")
 }
 
 enum VehicleType {
@@ -29,6 +34,8 @@ enum VehicleType {
   MOTORCYCLE
   UTILITY
   OTHER
+
+  @@schema("facilcar")
 }
 
 enum FuelType {
@@ -39,6 +46,8 @@ enum FuelType {
   ELECTRIC
   HYBRID
   OTHER
+
+  @@schema("facilcar")
 }
 
 enum Transmission {
@@ -47,6 +56,8 @@ enum Transmission {
   AUTOMATED
   CVT
   OTHER
+
+  @@schema("facilcar")
 }
 
 enum LeadType {
@@ -54,6 +65,8 @@ enum LeadType {
   VEHICLE_INTEREST
   FINANCING
   SELL_VEHICLE
+
+  @@schema("facilcar")
 }
 
 enum LeadStatus {
@@ -64,6 +77,8 @@ enum LeadStatus {
   WON
   LOST
   SPAM
+
+  @@schema("facilcar")
 }
 
 enum LeadSource {
@@ -75,22 +90,30 @@ enum LeadSource {
   SELL_PAGE
   BLOG
   UNKNOWN
+
+  @@schema("facilcar")
 }
 
 enum LeadChannel {
   FORM
   WHATSAPP
   MANUAL
+
+  @@schema("facilcar")
 }
 
 enum PageStatus {
   DRAFT
   PUBLISHED
+
+  @@schema("facilcar")
 }
 
 enum PostStatus {
   DRAFT
   PUBLISHED
+
+  @@schema("facilcar")
 }
 
 enum VehicleFeatureCategory {
@@ -99,6 +122,8 @@ enum VehicleFeatureCategory {
   TECH
   EXTERIOR
   OTHER
+
+  @@schema("facilcar")
 }
 
 model User {
@@ -112,6 +137,8 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   assignedLeads Lead[]
+
+  @@schema("facilcar")
 }
 
 model Brand {
@@ -121,6 +148,8 @@ model Brand {
   logoUrl  String?
   isActive Boolean  @default(true)
   vehicles Vehicle[]
+
+  @@schema("facilcar")
 }
 
 model Vehicle {
@@ -159,6 +188,7 @@ model Vehicle {
   leads             Lead[]
   financingRequests FinancingRequest[]
 
+  @@schema("facilcar")
   @@index([status])
   @@index([featured])
   @@index([brandId])
@@ -177,6 +207,8 @@ model VehicleImage {
   sortOrder Int
   isCover   Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@schema("facilcar")
 }
 
 model VehicleFeature {
@@ -186,6 +218,8 @@ model VehicleFeature {
   label     String
   category  VehicleFeatureCategory
   sortOrder Int
+
+  @@schema("facilcar")
 }
 
 model Lead {
@@ -217,6 +251,7 @@ model Lead {
   financingRequest FinancingRequest?
   sellRequest      SellRequest?
 
+  @@schema("facilcar")
   @@index([type])
   @@index([status])
   @@index([source])
@@ -235,6 +270,8 @@ model FinancingRequest {
   monthlyIncome      Decimal? @db.Decimal(12, 2)
   occupation         String?
   notes              String?
+
+  @@schema("facilcar")
 }
 
 model SellRequest {
@@ -250,6 +287,8 @@ model SellRequest {
   fuelType        String?
   transmission    String?
   observations    String?
+
+  @@schema("facilcar")
 }
 
 model Page {
@@ -263,6 +302,8 @@ model Page {
   metaDescription String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+
+  @@schema("facilcar")
 }
 
 model BlogPost {
@@ -277,7 +318,9 @@ model BlogPost {
   metaTitle     String?
   metaDescription String?
   createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  updatedAt   DateTime   @updatedAt
+
+  @@schema("facilcar")
 }
 
 model SiteSettings {
@@ -298,4 +341,6 @@ model SiteSettings {
   footerText          String?
   heroTitle           String?
   heroSubtitle        String?
+
+  @@schema("facilcar")
 }
