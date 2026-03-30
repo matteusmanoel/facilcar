@@ -323,6 +323,8 @@ main().finally(() => prisma.\$disconnect());
 | Build Vercel: Prisma **P1011** / TLS “self-signed certificate in certificate chain” | `pg` 8.13+ + `sslmode=require` em hosts gerenciados | Já mitigado com `uselibpqcompat=true` no código; se persistir, `DATABASE_SSL_REJECT_UNAUTHORIZED=false` na Vercel |
 | `migrate deploy` conecta no Postgres **local** apesar do `DATABASE_URL` no comando | `prisma.config.ts` antigo sobrescrevia o shell com `.env.local` | Atualizado: variáveis do shell têm prioridade |
 | **P3005** schema not empty no Supabase | Tabelas já existem sem `_prisma_migrations` alinhado | Banco novo só com migrations, ou [baseline](https://www.prisma.io/docs/guides/migrate/developing-with-prisma-migrate/baselining) |
+| **P2022** coluna não existe (`lead.findMany`, `/admin`) | `schema.prisma` evoluiu sem **migration** correspondente no banco de produção | Rodar `npx prisma migrate deploy` com a URL direta após cada deploy que inclua novas pastas em `prisma/migrations/` |
+| **P1000** Authentication failed | Senha ou usuário da URI incorretos | No Supabase use a **senha do banco** (Settings → Database → *Database password* ou “Reset password”), não a anon key nem o *project ref* como senha |
 | Warning da fonte Big Shoulders no Turbopack | Métricas de fallback ausentes no `next/font` | Big Shoulders carregada via Google Fonts no `layout.tsx` (sem `next/font`) |
 | Imagens não carregam | Host não em `next.config.mjs` `remotePatterns` | Adicionar hostname do storage |
 | Slug duplicado ao criar veículo | Auto-incremente aplicado (`-1`, `-2`) | Normal — sistema resolve automaticamente |
