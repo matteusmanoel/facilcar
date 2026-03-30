@@ -246,6 +246,7 @@ model Lead {
   utmContent       String?
   originUrl        String?
   metadataJson     Json?
+  internalNote     String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   financingRequest FinancingRequest?
@@ -259,17 +260,21 @@ model Lead {
 }
 
 model FinancingRequest {
-  id                 String   @id @default(cuid())
-  leadId             String   @unique
-  lead               Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  vehicleId          String?
-  vehicle            Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  hasDriverLicense   Boolean?
-  downPayment        Decimal? @db.Decimal(12, 2)
+  id                  String    @id @default(cuid())
+  leadId              String    @unique
+  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vehicleId           String?
+  vehicle             Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  cpf                 String?
+  birthDate           DateTime?
+  hasDriverLicense    Boolean?
+  downPayment         Decimal?  @db.Decimal(12, 2)
   desiredInstallments Int?
-  monthlyIncome      Decimal? @db.Decimal(12, 2)
-  occupation         String?
-  notes              String?
+  monthlyIncome       Decimal?  @db.Decimal(12, 2)
+  vehicleYear         Int?
+  vehicleModel        String?
+  occupation          String?
+  notes               String?
 
   @@schema("facilcar")
 }

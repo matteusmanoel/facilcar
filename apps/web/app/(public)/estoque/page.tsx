@@ -2,6 +2,8 @@ import Link from "next/link";
 import { listPublicVehicles, getBrandsForFilter } from "@/features/catalog/server/queries";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { VehicleImage } from "@/components/shared/VehicleImage";
+import { ScrollReveal } from "@/components/motion/ScrollReveal";
+import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 import type { FuelType, Transmission, VehicleType } from "@prisma/client";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -273,41 +275,55 @@ export default async function EstoquePage({
             <p className="mt-8 text-sm font-medium text-facil-muted">
               {result.total} veículo(s) encontrado(s)
             </p>
-            <div className="mt-6 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-              {result.items.map((v) => {
+            <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {result.items.map((v, i) => {
                 const firstImage =
                   "images" in v && Array.isArray(v.images) ? v.images[0] : null;
+                const fuel = v.fuelType
+                  ? (fuelLabels[v.fuelType as FuelType] ?? v.fuelType)
+                  : null;
+                const trans = v.transmission
+                  ? (transLabels[v.transmission as Transmission] ?? v.transmission)
+                  : null;
                 return (
-                  <Link
-                    key={v.id}
-                    href={`/estoque/${v.slug}`}
-                    className="group overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:border-facil-orange/30 hover:shadow-lg"
-                  >
-                    <div className="relative aspect-[16/10] overflow-hidden bg-zinc-100">
-                      <VehicleImage
-                        src={firstImage?.url}
-                        alt={v.title}
-                        className="h-full w-full object-cover transition group-hover:scale-105"
-                      />
-                    </div>
-                    <div className="p-5">
-                      <h2 className="font-bold text-zinc-900 line-clamp-2 group-hover:text-facil-orange">
-                        {v.title}
-                      </h2>
-                      <p className="mt-2 text-2xl font-black text-facil-orange">
-                        {v.priceCash != null
-                          ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
-                          : "Consultar"}
-                      </p>
-                      <p className="mt-2 text-xs text-facil-muted">
-                        {v.yearModel ?? "—"} ·{" "}
-                        {v.mileage != null
-                          ? `${v.mileage.toLocaleString("pt-BR")} km`
-                          : "—"}{" "}
-                        · {v.fuelType ?? "—"} · {v.transmission ?? "—"}
-                      </p>
-                    </div>
-                  </Link>
+                  <ScrollReveal key={v.id} delay={(i % 3) * 60}>
+                    <Link
+                      href={`/estoque/${v.slug}`}
+                      className="vehicle-card group block"
+                    >
+                      <div className="relative aspect-[16/10] overflow-hidden bg-zinc-100">
+                        <VehicleImage
+                          src={firstImage?.url}
+                          alt={v.title}
+                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        />
+                        {v.yearModel && (
+                          <span className="absolute right-3 top-3 badge-zinc">
+                            {v.yearModel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-5">
+                        <h2 className="font-bold text-zinc-900 line-clamp-2 transition-colors group-hover:text-facil-orange">
+                          {v.title}
+                        </h2>
+                        <p className="mt-2 text-2xl font-black text-facil-orange">
+                          {v.priceCash != null
+                            ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
+                            : "Consultar"}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {v.mileage != null && (
+                            <span className="badge-zinc">
+                              {v.mileage.toLocaleString("pt-BR")} km
+                            </span>
+                          )}
+                          {fuel && <span className="badge-zinc">{fuel}</span>}
+                          {trans && <span className="badge-zinc">{trans}</span>}
+                        </div>
+                      </div>
+                    </Link>
+                  </ScrollReveal>
                 );
               })}
             </div>

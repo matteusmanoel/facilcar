@@ -12,3 +12,10 @@ export async function updateLeadStatusAction(leadId: string, status: string) {
     data: { status: status as LeadStatus },
   });
 }
+
+export async function updateLeadNoteAction(leadId: string, note: string) {
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: { internalNote: note || null },
+  });
+}

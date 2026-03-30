@@ -47,8 +47,8 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
 
   if (!count) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm">
-        <div className="relative aspect-[4/3] min-h-[240px] md:min-h-[min(420px,50vh)] md:aspect-[16/10]">
+      <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm">
+        <div className="relative aspect-[4/3] w-full md:aspect-[16/10]">
           <VehicleImage src={null} alt={title} className="h-full w-full object-cover" />
         </div>
       </div>
@@ -58,13 +58,15 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
   const main = images[active] ?? images[0];
 
   return (
-    <div className="space-y-4">
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-md">
-        <div className="relative aspect-[4/3] min-h-[240px] md:min-h-[min(420px,52vh)] md:aspect-[16/10]">
+    <div className="w-full space-y-4 overflow-hidden">
+      <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-md">
+        <div className="relative aspect-[4/3] w-full md:aspect-[16/10]">
           <VehicleImage
             src={main.url}
             alt={main.alt || title}
             className="h-full w-full object-cover"
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 60vw, 800px"
+            priority
           />
           {count > 1 && (
             <>
@@ -98,7 +100,7 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
               key={img.id}
               type="button"
               onClick={() => setActive(i)}
-              className={`h-20 w-28 shrink-0 overflow-hidden rounded-lg border-2 transition md:h-[5.25rem] md:w-32 ${
+              className={`relative h-20 w-28 shrink-0 overflow-hidden rounded-lg border-2 transition md:h-[5.25rem] md:w-32 ${
                 i === active
                   ? "border-facil-orange ring-2 ring-facil-orange/35"
                   : "border-transparent opacity-75 hover:opacity-100"

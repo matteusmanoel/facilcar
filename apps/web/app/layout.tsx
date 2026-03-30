@@ -1,18 +1,22 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
+import { Outfit, Big_Shoulders } from "next/font/google";
 import { PostHogInit } from "@/components/analytics/PostHogInit";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
 
-const plusJakarta = Plus_Jakarta_Sans({
-  variable: "--font-plus-jakarta",
+const outfit = Outfit({
+  variable: "--font-outfit",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const bigShoulders = Big_Shoulders({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["700", "800", "900"],
+  display: "swap",
 });
 
 const siteUrl =
@@ -43,12 +47,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
-      <body
-        className={`${plusJakarta.variable} ${geistMono.variable} antialiased`}
-      >
-        <PostHogInit />
-        {children}
+    <html lang="pt-BR" suppressHydrationWarning>
+      <body className={`${outfit.variable} ${bigShoulders.variable} antialiased`}>
+        {/* Dark mode temporariamente desativado — apenas light. Para reativar: remova forcedTheme,
+            use defaultTheme="system" e enableSystem, e descomente ThemeToggle no AdminShell. */}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem={false}
+          forcedTheme="light"
+          disableTransitionOnChange
+        >
+          <PostHogInit />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

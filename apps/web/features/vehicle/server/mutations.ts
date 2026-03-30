@@ -4,6 +4,31 @@ import { prisma } from "@/lib/db";
 import { createVehicleSchema } from "@/schemas/vehicle";
 import type { VehicleStatus } from "@prisma/client";
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "veiculo";
+}
+
+async function uniqueSlug(base: string, excludeId?: string): Promise<string> {
+  let suffix = 0;
+  while (true) {
+    const candidate = suffix === 0 ? base : `${base}-${suffix}`;
+    const existing = await prisma.vehicle.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+    if (!existing || existing.id === excludeId) return candidate;
+    suffix++;
+  }
+}
+
 function parseImageUrls(value: string | undefined): { url: string; sortOrder: number; isCover: boolean }[] {
   if (!value?.trim()) return [];
   return value
@@ -36,9 +61,12 @@ export async function createVehicle(formData: FormData) {
   const images = parseImageUrls(imageUrls);
   const features = parseFeatures(featuresStr);
 
+  const baseSlug = data.slug?.trim() || slugify(data.title);
+  const slug = await uniqueSlug(baseSlug);
+
   const vehicle = await prisma.vehicle.create({
     data: {
-      slug: data.slug,
+      slug,
       status: data.status as VehicleStatus,
       type: data.type,
       title: data.title,

@@ -6,7 +6,10 @@ const fuelTypeEnum = z.enum(["GASOLINE", "ETHANOL", "FLEX", "DIESEL", "ELECTRIC"
 const transmissionEnum = z.enum(["MANUAL", "AUTOMATIC", "AUTOMATED", "CVT", "OTHER"]);
 
 export const createVehicleSchema = z.object({
-  slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "Slug: apenas minúsculas, números e hífens"),
+  slug: z
+    .string()
+    .regex(/^[a-z0-9-]*$/, "Slug: apenas minúsculas, números e hífens")
+    .optional(),
   status: vehicleStatusEnum,
   type: vehicleTypeEnum,
   title: z.string().min(1),

@@ -25,6 +25,22 @@ export const financingFormSchema = z.object({
   vehicleId: z.string().optional(),
 });
 
+export const financingSimulationSchema = z.object({
+  name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
+  cpf: z.string().min(11, "CPF inválido").max(14, "CPF inválido"),
+  birthDate: z.string().min(1, "Data de nascimento é obrigatória"),
+  phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),
+  monthlyIncome: z.coerce.number().min(1, "Informe sua renda mensal"),
+  downPayment: z.coerce.number().min(0, "Valor de entrada inválido"),
+  desiredInstallments: z.coerce.number().int().min(1).max(84),
+  vehicleYear: z.coerce.number().int().min(1990).max(2030).optional(),
+  vehicleModel: z.string().optional(),
+  vehicleId: z.string().optional(),
+  vehicleTitle: z.string().optional(),
+});
+
+export type FinancingSimulationValues = z.infer<typeof financingSimulationSchema>;
+
 export const sellVehicleFormSchema = z.object({
   name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
   phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),

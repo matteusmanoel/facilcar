@@ -753,6 +753,42 @@ Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assu
     update: { passwordHash, name: "Admin FácilCar" },
   });
 
+  // Demo lead — financing simulation
+  const demoVehicle = await prisma.vehicle.findFirst({
+    where: { status: "PUBLISHED" },
+    select: { id: true, title: true, model: true, yearModel: true },
+  });
+  const demoLead = await prisma.lead.upsert({
+    where: { id: "demo-lead-financing-001" },
+    create: {
+      id: "demo-lead-financing-001",
+      type: "FINANCING",
+      status: "NEW",
+      source: "VEHICLE_PAGE",
+      channel: "FORM",
+      name: "João da Silva",
+      phone: "11999990000",
+      vehicleId: demoVehicle?.id ?? null,
+    },
+    update: {},
+  });
+  await prisma.financingRequest.upsert({
+    where: { leadId: demoLead.id },
+    create: {
+      leadId: demoLead.id,
+      vehicleId: demoVehicle?.id ?? null,
+      cpf: "123.456.789-00",
+      birthDate: new Date("1990-05-15"),
+      monthlyIncome: 4500,
+      downPayment: 5000,
+      desiredInstallments: 60,
+      vehicleYear: demoVehicle?.yearModel ?? null,
+      vehicleModel: demoVehicle?.model ?? null,
+      hasDriverLicense: true,
+    },
+    update: {},
+  });
+
   console.log("Seed completed.");
 }
 

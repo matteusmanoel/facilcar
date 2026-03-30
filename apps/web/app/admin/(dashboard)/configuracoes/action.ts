@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/db";
 
 export async function updateSettingsAction(formData: FormData) {
@@ -32,5 +33,6 @@ export async function updateSettingsAction(formData: FormData) {
       heroSubtitle: emptyToNull(formData.get("heroSubtitle")),
     },
   });
+  revalidateTag("site-settings", "max");
   return { success: true };
 }

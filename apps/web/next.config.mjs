@@ -24,6 +24,7 @@ const nextConfig = {
     },
   },
   images: {
+    formats: ["image/avif", "image/webp"],
     remotePatterns: [
       { protocol: "https", hostname: "picsum.photos", pathname: "/**" },
       { protocol: "https", hostname: "fastly.picsum.photos", pathname: "/**" },
@@ -33,6 +34,15 @@ const nextConfig = {
               protocol: "https",
               hostname: supabaseImageHost,
               pathname: "/storage/v1/object/public/**",
+            },
+          ]
+        : []),
+      ...(process.env.NEXT_PUBLIC_R2_PUBLIC_HOST
+        ? [
+            {
+              protocol: "https",
+              hostname: process.env.NEXT_PUBLIC_R2_PUBLIC_HOST,
+              pathname: "/**",
             },
           ]
         : []),

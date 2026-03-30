@@ -6,13 +6,19 @@ import {
   contactFormSchema,
   vehicleInterestFormSchema,
   financingFormSchema,
+  financingSimulationSchema,
   sellVehicleFormSchema,
 } from "@/schemas/lead";
+import { checkRateLimit } from "./rateLimit";
 import type { LeadSource } from "@prisma/client";
 
 type FormResult = { success: true } | { success: false; error: string };
+type SimulationResult = { success: true; whatsappUrl: string } | { success: false; error: string };
 
 export async function createContactLead(formData: FormData): Promise<FormResult> {
+  const rl = await checkRateLimit();
+  if (!rl.ok) return { success: false, error: rl.error! };
+
   const raw = Object.fromEntries(formData.entries());
   const parsed = contactFormSchema.safeParse({
     name: raw.name,
@@ -47,6 +53,9 @@ export async function createVehicleInterestLead(
   vehicleId: string,
   source: LeadSource = "VEHICLE_PAGE"
 ): Promise<FormResult> {
+  const rl = await checkRateLimit();
+  if (!rl.ok) return { success: false, error: rl.error! };
+
   const raw = Object.fromEntries(formData.entries());
   const parsed = vehicleInterestFormSchema.safeParse({
     ...raw,
@@ -175,4 +184,106 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
   });
   void sendLeadNotification({ type: "Vender veículo", name: data.name, phone: data.phone, email: data.email, message: data.observations ?? undefined });
   return { success: true };
+}
+
+export async function createFinancingSimulationLead(
+  formData: FormData,
+  whatsappNumber: string,
+): Promise<SimulationResult> {
+  const rl = await checkRateLimit();
+  if (!rl.ok) return { success: false, error: rl.error! };
+
+  const raw = Object.fromEntries(formData.entries());
+
+  const parsed = financingSimulationSchema.safeParse({
+    name: raw.name,
+    cpf: raw.cpf,
+    birthDate: raw.birthDate,
+    phone: raw.phone,
+    monthlyIncome: raw.monthlyIncome ? Number(raw.monthlyIncome) : undefined,
+    downPayment: raw.downPayment !== undefined ? Number(raw.downPayment) : 0,
+    desiredInstallments: raw.desiredInstallments ? Number(raw.desiredInstallments) : undefined,
+    vehicleYear: raw.vehicleYear ? Number(raw.vehicleYear) : undefined,
+    vehicleModel: raw.vehicleModel || undefined,
+    vehicleId: raw.vehicleId || undefined,
+    vehicleTitle: raw.vehicleTitle || undefined,
+  });
+
+  if (!parsed.success) {
+    const firstError =
+      Object.values(parsed.error.flatten().fieldErrors).flat()[0] ?? "Dados inválidos";
+    return { success: false, error: firstError };
+  }
+
+  const data = parsed.data;
+
+  // Basic deduplication: same phone + vehicleId within 24h
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const existing = await prisma.lead.findFirst({
+    where: {
+      phone: data.phone,
+      vehicleId: data.vehicleId ?? null,
+      type: "FINANCING",
+      createdAt: { gte: cutoff },
+    },
+    select: { id: true },
+  });
+
+  const vehicleLabel =
+    data.vehicleTitle ||
+    [data.vehicleModel, data.vehicleYear].filter(Boolean).join(" ") ||
+    "veículo de interesse";
+
+  const waNum = whatsappNumber.replace(/\D/g, "");
+  const waText = encodeURIComponent(
+    `Olá, FácilCar! Meu nome é ${data.name}. Tenho interesse em financiar: ${vehicleLabel}. Renda mensal: R$ ${Number(data.monthlyIncome).toLocaleString("pt-BR")}. Entrada: R$ ${Number(data.downPayment).toLocaleString("pt-BR")}. Prazo: ${data.desiredInstallments} meses. Aguardo análise!`,
+  );
+  const whatsappUrl = waNum ? `https://wa.me/${waNum}?text=${waText}` : "#";
+
+  if (existing) {
+    console.log(`[leads] duplicate skipped phone=${data.phone} vehicleId=${data.vehicleId}`);
+    return { success: true, whatsappUrl };
+  }
+
+  const source: LeadSource = data.vehicleId ? "VEHICLE_PAGE" : "FINANCING_PAGE";
+
+  const lead = await prisma.lead.create({
+    data: {
+      type: "FINANCING",
+      status: "NEW",
+      source,
+      channel: "FORM",
+      name: data.name,
+      phone: data.phone,
+      message: null,
+      vehicleId: data.vehicleId || null,
+      originUrl: null,
+    },
+  });
+
+  await prisma.financingRequest.create({
+    data: {
+      leadId: lead.id,
+      vehicleId: data.vehicleId || null,
+      cpf: data.cpf,
+      birthDate: data.birthDate ? new Date(data.birthDate) : null,
+      monthlyIncome: data.monthlyIncome,
+      downPayment: data.downPayment,
+      desiredInstallments: data.desiredInstallments,
+      vehicleYear: data.vehicleYear ?? null,
+      vehicleModel: data.vehicleModel ?? null,
+      hasDriverLicense: null,
+      notes: null,
+    },
+  });
+
+  void sendLeadNotification({
+    type: "Simulação de Financiamento",
+    name: data.name,
+    phone: data.phone,
+    vehicleTitle: vehicleLabel,
+    message: `Renda: R$ ${Number(data.monthlyIncome).toLocaleString("pt-BR")} | Entrada: R$ ${Number(data.downPayment).toLocaleString("pt-BR")} | Prazo: ${data.desiredInstallments}m`,
+  });
+
+  return { success: true, whatsappUrl };
 }

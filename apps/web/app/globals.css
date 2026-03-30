@@ -5,8 +5,20 @@
   --foreground: #18181b;
   --facil-orange: #ff6600;
   --facil-orange-hover: #e65c00;
+  --facil-orange-light: #fff3eb;
   --facil-black: #0a0a0a;
   --facil-card: #ffffff;
+  --facil-surface: #f9f9f9;
+  --facil-border: #e4e4e7;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --facil-orange-light: #3f2a1a;
+  --facil-card: #18181b;
+  --facil-surface: #27272a;
+  --facil-border: #3f3f46;
 }
 
 @theme inline {
@@ -14,10 +26,17 @@
   --color-foreground: var(--foreground);
   --color-facil-orange: var(--facil-orange);
   --color-facil-orange-hover: var(--facil-orange-hover);
+  --color-facil-orange-light: var(--facil-orange-light);
   --color-facil-black: var(--facil-black);
   --color-facil-muted: #71717a;
-  --font-sans: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --color-facil-surface: var(--facil-surface);
+  --color-facil-border: var(--facil-border);
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-outfit), ui-sans-serif, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -26,7 +45,15 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Utility patterns */
+/* ── Typography helpers ───────────────────────────────────── */
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+}
+
+/* ── Button utilities ─────────────────────────────────────── */
 .btn-facil-primary {
   @apply inline-flex items-center justify-center rounded-lg bg-facil-orange px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-facil-orange-hover;
 }
@@ -37,4 +64,87 @@ body {
 
 .section-dark {
   @apply bg-facil-black text-white;
+}
+
+/* ── Glassmorphism ────────────────────────────────────────── */
+.glass {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Scroll-reveal animations ─────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.reveal-left {
+  transform: translateX(-32px);
+}
+
+.reveal.reveal-right {
+  transform: translateX(32px);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translate(0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ── Badge utilities ──────────────────────────────────────── */
+.badge-orange {
+  @apply inline-flex items-center rounded-full bg-facil-orange-light px-2.5 py-0.5 text-xs font-semibold text-facil-orange;
+}
+
+.badge-green {
+  @apply inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-400;
+}
+
+.badge-zinc {
+  @apply inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300;
+}
+
+/* ── Card hover ───────────────────────────────────────────── */
+.vehicle-card {
+  @apply overflow-hidden rounded-2xl border border-facil-border bg-white dark:bg-zinc-900 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-xl hover:-translate-y-0.5;
+}
+
+/* ── Admin layout utilities ───────────────────────────────── */
+.admin-page {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
+}
+
+.admin-card {
+  @apply bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 shadow-sm;
+}
+
+.admin-section {
+  @apply space-y-6;
+}
+
+.admin-table-header {
+  @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400;
+}
+
+.admin-table-cell {
+  @apply px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300;
+}
+
+/* ── Sidebar transition ───────────────────────────────────── */
+.sidebar-expanded {
+  width: 240px;
+}
+
+.sidebar-collapsed {
+  width: 64px;
 }

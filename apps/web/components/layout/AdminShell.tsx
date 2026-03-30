@@ -1,4 +1,2 @@
-// Admin layout shell (sidebar/nav)
-export function AdminShell() {
-  return null;
-}
+// Re-export from canonical location
+export { AdminShell } from "@/components/admin/AdminShell";
