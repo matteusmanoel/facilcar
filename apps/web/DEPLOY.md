@@ -86,12 +86,19 @@ DATABASE_URL="postgresql://postgres.PROJ_REF:PASSWORD@aws-0-REGION.pooler.supaba
 
 ### Configurar schema
 
-Com a URL de produção:
+Com a URL de produção (**conexão direta**, porta **5432** — copie do painel Supabase com a senha real; não use o placeholder `PROJ_REF`):
 
 ```bash
-DATABASE_URL="<url_direta>" npx prisma migrate deploy
-DATABASE_URL="<url_direta>" npm run db:seed
+cd apps/web
+DATABASE_URL="postgresql://postgres:SUA_SENHA@db.xxxxx.supabase.co:5432/postgres?sslmode=require" npx prisma migrate deploy
+DATABASE_URL="postgresql://postgres:SUA_SENHA@db.xxxxx.supabase.co:5432/postgres?sslmode=require" npm run db:seed
 ```
+
+O `prisma.config.ts` carrega `.env` / `.env.local`, mas **preserva** variáveis já definidas no comando (o `DATABASE_URL=` acima não é mais sobrescrito pelo Postgres local).
+
+Se aparecer **P3005** (“database schema is not empty”), o banco já tem objetos sem histórico Prisma. Opções: banco novo/projeto novo só com migrations; ou [baselining](https://www.prisma.io/docs/guides/migrate/developing-with-prisma-migrate/baselining) / `prisma db push` em ambiente vazio seguido de alinhar `_prisma_migrations` — evite misturar `push` e `migrate` no mesmo banco sem planejar.
+
+Credenciais do seed (ajuste em `prisma/seed.ts` se mudou): após o seed, use o e-mail/senha definidos lá para entrar em `/admin/login`.
 
 Ou via painel Supabase → SQL Editor, execute o output de `npx prisma migrate diff`.
 
@@ -314,6 +321,8 @@ main().finally(() => prisma.\$disconnect());
 | Leads não notificam por e-mail | `RESEND_*` não configurado | Adicionar variáveis na Vercel |
 | `/api/health` retorna DB desconectado | `DATABASE_URL` incorreta ou limite de conexões | Usar pooler Supabase (pgbouncer=true) |
 | Build Vercel: Prisma **P1011** / TLS “self-signed certificate in certificate chain” | `pg` 8.13+ + `sslmode=require` em hosts gerenciados | Já mitigado com `uselibpqcompat=true` no código; se persistir, `DATABASE_SSL_REJECT_UNAUTHORIZED=false` na Vercel |
+| `migrate deploy` conecta no Postgres **local** apesar do `DATABASE_URL` no comando | `prisma.config.ts` antigo sobrescrevia o shell com `.env.local` | Atualizado: variáveis do shell têm prioridade |
+| **P3005** schema not empty no Supabase | Tabelas já existem sem `_prisma_migrations` alinhado | Banco novo só com migrations, ou [baseline](https://www.prisma.io/docs/guides/migrate/developing-with-prisma-migrate/baselining) |
 | Warning da fonte Big Shoulders no Turbopack | Métricas de fallback ausentes no `next/font` | Big Shoulders carregada via Google Fonts no `layout.tsx` (sem `next/font`) |
 | Imagens não carregam | Host não em `next.config.mjs` `remotePatterns` | Adicionar hostname do storage |
 | Slug duplicado ao criar veículo | Auto-incremente aplicado (`-1`, `-2`) | Normal — sistema resolve automaticamente |

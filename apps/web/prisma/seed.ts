@@ -2,10 +2,15 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { hashPassword } from "../features/auth/server/passwords";
+import { getPgPoolSslExtras, normalizeDatabaseUrl } from "../lib/database-url";
 
-const connectionString =
+const rawUrl =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/facilcar";
-const pool = new Pool({ connectionString });
+const connectionString = normalizeDatabaseUrl(rawUrl);
+const pool = new Pool({
+  connectionString,
+  ...getPgPoolSslExtras(connectionString),
+});
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
