@@ -77,6 +77,8 @@ npm run dev              # inicia em http://localhost:3000
 DATABASE_URL="postgresql://postgres.PROJ_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
 ```
 
+> O app (`lib/db.ts`) acrescenta automaticamente `uselibpqcompat=true` em URLs remotas, para evitar falha de TLS na Vercel com o driver `pg` 8.13+ (`sslmode=require` tratado como verify-full). Se ainda aparecer erro de certificado, defina `DATABASE_SSL_REJECT_UNAUTHORIZED=false` (último recurso, menos rigoroso).
+
 > Para migrations (`prisma migrate deploy`), use a conexão **direta** (porta 5432):
 > ```env
 > DATABASE_URL="postgresql://postgres:PASSWORD@db.PROJ_REF.supabase.co:5432/postgres?sslmode=require"
@@ -202,6 +204,7 @@ Vá em **Settings → Environment Variables** e adicione:
 | `NEXT_PUBLIC_POSTHOG_KEY` | Analytics |
 | `NEXT_PUBLIC_POSTHOG_HOST` | Host PostHog |
 | `SENTRY_DSN` | Monitoramento de erros |
+| `DATABASE_SSL_REJECT_UNAUTHORIZED` | `false` só se TLS ainda falhar na build (ver troubleshooting) |
 
 ### 6.3 Domínio customizado
 
@@ -310,6 +313,8 @@ main().finally(() => prisma.\$disconnect());
 | Upload de imagens falha | Variáveis `STORAGE_*` ausentes ou bucket não público | Verificar bucket público e credenciais S3 |
 | Leads não notificam por e-mail | `RESEND_*` não configurado | Adicionar variáveis na Vercel |
 | `/api/health` retorna DB desconectado | `DATABASE_URL` incorreta ou limite de conexões | Usar pooler Supabase (pgbouncer=true) |
+| Build Vercel: Prisma **P1011** / TLS “self-signed certificate in certificate chain” | `pg` 8.13+ + `sslmode=require` em hosts gerenciados | Já mitigado com `uselibpqcompat=true` no código; se persistir, `DATABASE_SSL_REJECT_UNAUTHORIZED=false` na Vercel |
+| Warning da fonte Big Shoulders no Turbopack | Métricas de fallback ausentes no `next/font` | Big Shoulders carregada via Google Fonts no `layout.tsx` (sem `next/font`) |
 | Imagens não carregam | Host não em `next.config.mjs` `remotePatterns` | Adicionar hostname do storage |
 | Slug duplicado ao criar veículo | Auto-incremente aplicado (`-1`, `-2`) | Normal — sistema resolve automaticamente |
 | Vercel build timeout | Pacotes pesados | Aumentar timeout em `vercel.json`: `{"buildCommand": "npm run build", "functions": {"api/**": {"maxDuration": 30}}}` |

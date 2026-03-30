@@ -32,7 +32,8 @@
   --color-facil-surface: var(--facil-surface);
   --color-facil-border: var(--facil-border);
   --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-display), var(--font-outfit), ui-sans-serif, sans-serif;
+  /* Big Shoulders via stylesheet em layout.tsx (evita warning do Turbopack/next/font) */
+  --font-display: "Big Shoulders", var(--font-outfit), ui-sans-serif, sans-serif;
 }
 
 html {

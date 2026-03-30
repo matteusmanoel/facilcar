@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, Big_Shoulders } from "next/font/google";
+import { Outfit } from "next/font/google";
 import { PostHogInit } from "@/components/analytics/PostHogInit";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
@@ -9,13 +9,6 @@ const outfit = Outfit({
   variable: "--font-outfit",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const bigShoulders = Big_Shoulders({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["700", "800", "900"],
   display: "swap",
 });
 
@@ -48,7 +41,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
-      <body className={`${outfit.variable} ${bigShoulders.variable} antialiased`}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@700;800;900&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className={`${outfit.variable} antialiased`}>
         {/* Dark mode temporariamente desativado — apenas light. Para reativar: remova forcedTheme,
             use defaultTheme="system" e enableSystem, e descomente ThemeToggle no AdminShell. */}
         <ThemeProvider
