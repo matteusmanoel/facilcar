@@ -4,6 +4,8 @@ import { Footer } from "@/components/layout/Footer";
 import { WhatsAppFloat } from "@/components/shared/WhatsAppFloat";
 import { buildAutoDealerJsonLd } from "@/lib/seo";
 
+export const dynamic = "force-dynamic";
+
 export default async function PublicLayout({
   children,
 }: {
