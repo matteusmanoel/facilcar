@@ -7,10 +7,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-zinc-900 text-white hover:bg-zinc-800",
+        default: "bg-foreground text-background hover:opacity-90",
         primary: "bg-facil-orange text-white hover:bg-facil-orange-hover",
-        outline: "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800",
-        ghost: "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+        outline: "border border-facil-border bg-facil-card text-foreground hover:bg-facil-surface",
+        ghost: "text-foreground hover:bg-facil-surface",
         destructive: "bg-red-600 text-white hover:bg-red-700",
         success: "bg-green-600 text-white hover:bg-green-700",
         link: "text-facil-orange underline-offset-4 hover:underline p-0 h-auto",

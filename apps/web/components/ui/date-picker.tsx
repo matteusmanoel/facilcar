@@ -16,29 +16,45 @@ export function DateRangePicker({
   onApply,
   disabled,
   className,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   from: Date | undefined;
   to: Date | undefined;
   onApply: (range: { from: Date | undefined; to: Date | undefined }) => void;
   disabled?: boolean;
   className?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [range, setRange] = React.useState<DateRange | undefined>(() =>
     from && to ? { from, to } : from ? { from, to: undefined } : undefined,
   );
   const [currentMonth, setCurrentMonth] = React.useState<Date>(from ?? to ?? new Date());
+  const [monthsToShow, setMonthsToShow] = React.useState(2);
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const update = () => setMonthsToShow(media.matches ? 1 : 2);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   React.useEffect(() => {
     setRange(from && to ? { from, to } : from ? { from, to: undefined } : undefined);
-  }, [from, to]);
+    if (from) setCurrentMonth(from);
+  }, [from?.getTime(), to?.getTime()]);
 
   const label =
     from && to
       ? `${format(from, "dd/MM/yyyy", { locale: ptBR })} – ${format(to, "dd/MM/yyyy", { locale: ptBR })}`
       : from
         ? `${format(from, "dd/MM/yyyy", { locale: ptBR })} – …`
-        : "Período";
+        : "Intervalo personalizado";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -56,23 +72,27 @@ export function DateRangePicker({
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         {/* Navigation header with chevrons at the top corners */}
-        <div className="relative flex items-center justify-center border-b border-zinc-100 px-10 py-2.5 dark:border-zinc-800">
+        <div className="relative flex items-center justify-center border-b border-facil-border px-10 py-2.5">
           <button
             type="button"
             onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
-            className="absolute left-2 flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="absolute left-2 flex h-7 w-7 items-center justify-center rounded-md border border-facil-border bg-facil-card text-foreground transition-colors hover:bg-facil-surface"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          <span className="text-sm font-medium text-foreground">
             {format(currentMonth, "MMMM yyyy", { locale: ptBR })}
-            {" – "}
-            {format(addMonths(currentMonth, 1), "MMMM yyyy", { locale: ptBR })}
+            {monthsToShow > 1 && (
+              <>
+                {" – "}
+                {format(addMonths(currentMonth, 1), "MMMM yyyy", { locale: ptBR })}
+              </>
+            )}
           </span>
           <button
             type="button"
             onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
-            className="absolute right-2 flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="absolute right-2 flex h-7 w-7 items-center justify-center rounded-md border border-facil-border bg-facil-card text-foreground transition-colors hover:bg-facil-surface"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -85,11 +105,11 @@ export function DateRangePicker({
           onMonthChange={setCurrentMonth}
           selected={range}
           onSelect={setRange}
-          numberOfMonths={2}
+          numberOfMonths={monthsToShow}
           components={{ Nav: () => <span /> }}
         />
 
-        <div className="flex justify-end gap-2 border-t border-zinc-100 p-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t border-facil-border p-3">
           <Button
             type="button"
             variant="ghost"

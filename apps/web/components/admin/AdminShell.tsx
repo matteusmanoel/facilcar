@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { UserRole } from "@prisma/client";
 import {
   LayoutDashboard,
   Car,
   Users,
+  UserCog,
   FileText,
   BookOpen,
   Settings,
@@ -16,26 +18,51 @@ import {
   LogOut,
   Menu,
   X,
+  Tag,
+  Contact,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-// Dark mode temporariamente desativado — ver app/layout.tsx (forcedTheme="light")
-// import { ThemeToggle } from "@/components/admin/ThemeToggle";
+import { ThemeToggle } from "@/components/admin/ThemeToggle";
+import { getBottomNavPriority, getVisibleNavItems, type NavItemKey } from "@/features/auth/rbac-config";
 
-const NAV_ITEMS = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/veiculos", label: "Veículos", icon: Car },
-  { href: "/admin/leads", label: "Leads & CRM", icon: Users, matchPrefixes: ["/admin/leads", "/admin/crm"] },
-  { href: "/admin/paginas", label: "Páginas", icon: FileText },
-  { href: "/admin/blog", label: "Blog", icon: BookOpen },
-  { href: "/admin/configuracoes", label: "Configurações", icon: Settings },
-];
+type NavItemDef = {
+  key: NavItemKey;
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  exact?: boolean;
+  matchPrefixes?: string[];
+};
 
-const BOTTOM_NAV = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/veiculos", label: "Veículos", icon: Car },
-  { href: "/admin/leads", label: "Leads", icon: Users, matchPrefixes: ["/admin/leads", "/admin/crm"] },
-  { href: "/admin/configuracoes", label: "Config.", icon: Settings },
+const ALL_NAV_ITEMS: NavItemDef[] = [
+  { key: "dashboard", href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { key: "veiculos", href: "/admin/veiculos", label: "Veículos", icon: Car },
+  {
+    key: "leads",
+    href: "/admin/leads",
+    label: "Leads & CRM",
+    icon: Users,
+    matchPrefixes: ["/admin/leads", "/admin/crm"],
+  },
+  {
+    key: "clientes",
+    href: "/admin/clientes",
+    label: "Clientes",
+    icon: Contact,
+    matchPrefixes: ["/admin/clientes"],
+  },
+  { key: "marcas", href: "/admin/marcas", label: "Marcas", icon: Tag, matchPrefixes: ["/admin/marcas"] },
+  {
+    key: "usuarios",
+    href: "/admin/usuarios",
+    label: "Usuários",
+    icon: UserCog,
+    matchPrefixes: ["/admin/usuarios"],
+  },
+  { key: "paginas", href: "/admin/paginas", label: "Páginas", icon: FileText },
+  { key: "blog", href: "/admin/blog", label: "Blog", icon: BookOpen },
+  { key: "configuracoes", href: "/admin/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 function useNavActive(href: string, exact?: boolean, matchPrefixes?: string[]) {
@@ -49,7 +76,7 @@ function NavItem({
   item,
   collapsed,
 }: {
-  item: (typeof NAV_ITEMS)[number];
+  item: NavItemDef;
   collapsed: boolean;
 }) {
   const isActive = useNavActive(item.href, item.exact, item.matchPrefixes);
@@ -73,7 +100,7 @@ function NavItem({
   );
 }
 
-function BottomNavItem({ item }: { item: (typeof BOTTOM_NAV)[number] }) {
+function BottomNavItem({ item }: { item: NavItemDef }) {
   const isActive = useNavActive(item.href, item.exact, item.matchPrefixes);
   const Icon = item.icon;
 
@@ -94,26 +121,37 @@ function BottomNavItem({ item }: { item: (typeof BOTTOM_NAV)[number] }) {
 interface AdminShellProps {
   children: React.ReactNode;
   signOutAction: () => Promise<void>;
+  role: UserRole;
 }
 
-export function AdminShell({ children, signOutAction }: AdminShellProps) {
+export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
   const [collapsed, setCollapsed, isHydrated] = useLocalStorage("admin-sidebar-collapsed", false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const toggleCollapse = useCallback(() => setCollapsed((v) => !v), [setCollapsed]);
-
   const isCollapsed = isHydrated ? collapsed : false;
 
+  const navItems = useMemo(() => {
+    const visible = new Set(getVisibleNavItems(role));
+    return ALL_NAV_ITEMS.filter((item) => visible.has(item.key));
+  }, [role]);
+
+  const bottomNavItems = useMemo(() => {
+    const priority = getBottomNavPriority(role);
+    return priority
+      .map((key) => navItems.find((item) => item.key === key))
+      .filter((item): item is NavItemDef => !!item)
+      .slice(0, 5);
+  }, [navItems, role]);
+
   return (
-    <div className="flex h-screen overflow-hidden bg-zinc-100 dark:bg-zinc-950">
-      {/* Desktop sidebar */}
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <aside
         className={cn(
-          "hidden md:flex flex-col flex-shrink-0 border-r border-zinc-200 bg-white transition-all duration-200 ease-in-out dark:border-zinc-800 dark:bg-zinc-900",
+          "hidden md:flex flex-col flex-shrink-0 border-r border-facil-border bg-facil-card transition-all duration-200 ease-in-out",
           isCollapsed ? "sidebar-collapsed" : "sidebar-expanded",
         )}
       >
-        {/* Logo area */}
         <div
           className={cn(
             "flex h-14 items-center border-b border-zinc-100 px-3 dark:border-zinc-800",
@@ -141,18 +179,16 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavItem key={item.href} item={item} collapsed={isCollapsed} />
           ))}
         </nav>
 
-        {/* Footer */}
         <div className={cn("border-t border-zinc-100 p-2 space-y-0.5 dark:border-zinc-800")}>
-          {/* <div className={cn("flex px-1 pb-1", isCollapsed && "justify-center")}>
+          <div className={cn("flex px-1 pb-1", isCollapsed && "justify-center")}>
             <ThemeToggle />
-          </div> */}
+          </div>
           <Link
             href="/"
             target="_blank"
@@ -181,7 +217,6 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
         </div>
       </aside>
 
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -189,10 +224,9 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
         />
       )}
 
-      {/* Mobile drawer */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 flex-col bg-white border-r border-zinc-200 transition-transform duration-200 dark:border-zinc-800 dark:bg-zinc-900 md:hidden",
+          "fixed inset-y-0 left-0 z-50 w-64 flex-col border-r border-facil-border bg-facil-card transition-transform duration-200 md:hidden",
           mobileOpen ? "flex translate-x-0" : "-translate-x-full flex",
         )}
       >
@@ -211,7 +245,7 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
           </button>
         </div>
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavItem key={item.href} item={item} collapsed={false} />
           ))}
         </nav>
@@ -236,10 +270,8 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
         </div>
       </aside>
 
-      {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar (mobile) */}
-        <header className="flex h-14 items-center gap-2 border-b border-zinc-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-900 md:hidden">
+        <header className="flex h-14 items-center gap-2 border-b border-facil-border bg-facil-card px-4 md:hidden">
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -254,16 +286,14 @@ export function AdminShell({ children, signOutAction }: AdminShellProps) {
               FácilCar Admin
             </span>
           </div>
-          {/* <ThemeToggle /> */}
+          <ThemeToggle />
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">{children}</main>
       </div>
 
-      {/* Mobile bottom navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-30 flex border-t border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 md:hidden">
-        {BOTTOM_NAV.map((item) => (
+      <nav className="fixed bottom-0 inset-x-0 z-30 flex border-t border-facil-border bg-facil-card md:hidden">
+        {bottomNavItems.map((item) => (
           <BottomNavItem key={item.href} item={item} />
         ))}
       </nav>

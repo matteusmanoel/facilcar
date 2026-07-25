@@ -11,6 +11,9 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
 const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
+const menuItemStyles =
+  "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground outline-none transition-colors focus:bg-facil-accent focus:text-facil-accent-foreground data-[highlighted]:bg-facil-accent data-[highlighted]:text-facil-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -21,11 +24,7 @@ function DropdownMenuSubTrigger({
 }) {
   return (
     <DropdownMenuPrimitive.SubTrigger
-      className={cn(
-        "flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none focus:bg-zinc-100 data-[state=open]:bg-zinc-100",
-        inset && "pl-8",
-        className,
-      )}
+      className={cn(menuItemStyles, inset && "pl-8", className)}
       {...props}
     >
       {children}
@@ -41,7 +40,7 @@ function DropdownMenuSubContent({
   return (
     <DropdownMenuPrimitive.SubContent
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "z-50 min-w-[8rem] overflow-hidden rounded-xl border border-facil-border bg-facil-popover p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         className,
       )}
       {...props}
@@ -59,7 +58,7 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[10rem] overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          "z-50 min-w-[10rem] overflow-hidden rounded-xl border border-facil-border bg-facil-popover p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className,
         )}
         {...props}
@@ -77,11 +76,7 @@ function DropdownMenuItem({
 }) {
   return (
     <DropdownMenuPrimitive.Item
-      className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors focus:bg-zinc-100 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-        inset && "pl-8",
-        className,
-      )}
+      className={cn(menuItemStyles, inset && "pl-8", className)}
       {...props}
     />
   );
@@ -95,10 +90,7 @@ function DropdownMenuCheckboxItem({
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>) {
   return (
     <DropdownMenuPrimitive.CheckboxItem
-      className={cn(
-        "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-zinc-100",
-        className,
-      )}
+      className={cn(menuItemStyles, "cursor-default pl-8 pr-2", className)}
       checked={checked}
       {...props}
     >
@@ -119,10 +111,7 @@ function DropdownMenuRadioItem({
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>) {
   return (
     <DropdownMenuPrimitive.RadioItem
-      className={cn(
-        "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-zinc-100",
-        className,
-      )}
+      className={cn(menuItemStyles, "cursor-default pl-8 pr-2", className)}
       {...props}
     >
       <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
@@ -144,7 +133,11 @@ function DropdownMenuLabel({
 }) {
   return (
     <DropdownMenuPrimitive.Label
-      className={cn("px-2 py-1.5 text-xs font-semibold text-zinc-500", inset && "pl-8", className)}
+      className={cn(
+        "px-2 py-1.5 text-xs font-semibold text-facil-muted",
+        inset && "pl-8",
+        className,
+      )}
       {...props}
     />
   );
@@ -156,7 +149,7 @@ function DropdownMenuSeparator({
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>) {
   return (
     <DropdownMenuPrimitive.Separator
-      className={cn("-mx-1 my-1 h-px bg-zinc-100", className)}
+      className={cn("-mx-1 my-1 h-px bg-facil-border", className)}
       {...props}
     />
   );

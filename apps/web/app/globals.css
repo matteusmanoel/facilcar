@@ -8,8 +8,13 @@
   --facil-orange-light: #fff3eb;
   --facil-black: #0a0a0a;
   --facil-card: #ffffff;
-  --facil-surface: #f9f9f9;
+  --facil-surface: #f4f4f5;
   --facil-border: #e4e4e7;
+  --facil-muted: #52525b;
+  --facil-accent: #ff6600;
+  --facil-accent-foreground: #ffffff;
+  --facil-accent-muted: #fff3eb;
+  --facil-popover: #ffffff;
 }
 
 .dark {
@@ -19,6 +24,9 @@
   --facil-card: #18181b;
   --facil-surface: #27272a;
   --facil-border: #3f3f46;
+  --facil-muted: #a1a1aa;
+  --facil-accent-muted: #3f2a1a;
+  --facil-popover: #18181b;
 }
 
 @theme inline {
@@ -28,9 +36,14 @@
   --color-facil-orange-hover: var(--facil-orange-hover);
   --color-facil-orange-light: var(--facil-orange-light);
   --color-facil-black: var(--facil-black);
-  --color-facil-muted: #71717a;
+  --color-facil-card: var(--facil-card);
+  --color-facil-muted: var(--facil-muted);
   --color-facil-surface: var(--facil-surface);
   --color-facil-border: var(--facil-border);
+  --color-facil-accent: var(--facil-accent);
+  --color-facil-accent-foreground: var(--facil-accent-foreground);
+  --color-facil-accent-muted: var(--facil-accent-muted);
+  --color-facil-popover: var(--facil-popover);
   --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
   /* Big Shoulders via stylesheet em layout.tsx (evita warning do Turbopack/next/font) */
   --font-display: "Big Shoulders", var(--font-outfit), ui-sans-serif, sans-serif;
@@ -115,6 +128,14 @@ body {
   @apply inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300;
 }
 
+.badge-blue {
+  @apply inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400;
+}
+
+.badge-green-solid {
+  @apply inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800 dark:bg-green-950/40 dark:text-green-400;
+}
+
 /* ── Card hover ───────────────────────────────────────────── */
 .vehicle-card {
   @apply overflow-hidden rounded-2xl border border-facil-border bg-white dark:bg-zinc-900 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-xl hover:-translate-y-0.5;
@@ -126,19 +147,65 @@ body {
 }
 
 .admin-card {
-  @apply bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 shadow-sm;
+  @apply rounded-xl border border-facil-border bg-facil-card p-4 shadow-sm;
 }
 
 .admin-section {
   @apply space-y-6;
 }
 
+.admin-page-title {
+  @apply text-2xl font-bold text-foreground;
+}
+
+.admin-page-subtitle {
+  @apply mt-0.5 text-sm text-facil-muted;
+}
+
+.admin-section-title {
+  @apply text-base font-semibold text-foreground;
+}
+
 .admin-table-header {
-  @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400;
+  @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-facil-muted;
 }
 
 .admin-table-cell {
-  @apply px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300;
+  @apply px-4 py-3 text-sm text-foreground;
+}
+
+.admin-tab-list {
+  @apply flex items-center gap-1 rounded-lg border border-facil-border bg-facil-surface p-1;
+}
+
+.admin-tab {
+  @apply flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors;
+}
+
+.admin-tab-active {
+  @apply bg-facil-accent text-facil-accent-foreground shadow-sm;
+}
+
+.admin-tab-inactive {
+  @apply text-facil-muted hover:bg-facil-card hover:text-foreground;
+}
+
+.menu-item-accent {
+  @apply outline-none transition-colors focus:bg-facil-accent focus:text-facil-accent-foreground data-[highlighted]:bg-facil-accent data-[highlighted]:text-facil-accent-foreground;
+}
+
+/* ── Sonner toast (FacilCar brand) ─────────────────────────── */
+[data-sonner-toaster][data-theme="light"],
+[data-sonner-toaster][data-theme="dark"] {
+  --normal-bg: var(--facil-black);
+  --normal-border: var(--facil-border);
+  --normal-text: #fafafa;
+  --success-bg: var(--facil-black);
+  --success-border: var(--facil-orange);
+  --success-text: #fafafa;
+  --error-bg: var(--facil-black);
+  --error-border: #ef4444;
+  --error-text: #fafafa;
 }
 
 /* ── Sidebar transition ───────────────────────────────────── */
@@ -146,6 +213,10 @@ body {
   width: 240px;
 }
 
-.sidebar-collapsed {
-  width: 64px;
+.public-form-input {
+  @apply mt-1 w-full rounded-lg border border-facil-border bg-facil-card px-3 py-2 text-foreground;
+}
+
+.public-prose {
+  @apply max-w-none whitespace-pre-wrap leading-relaxed text-facil-muted;
 }

@@ -1,7 +1,9 @@
 import { getSiteSettings } from "@/features/settings/server/queries";
+import { guardAdminSection } from "@/features/auth/server/rbac";
 import { SettingsForm } from "./SettingsForm";
 
 export default async function AdminConfiguracoesPage() {
+  await guardAdminSection("configuracoes");
   const settings = await getSiteSettings();
   if (!settings) {
     return (
@@ -15,8 +17,8 @@ export default async function AdminConfiguracoesPage() {
   return (
     <div className="admin-page admin-section">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Configurações</h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">Informações do site e contato</p>
+        <h1 className="admin-page-title">Configurações</h1>
+        <p className="admin-page-subtitle">Informações do site e contato</p>
       </div>
       <SettingsForm settings={settings} />
     </div>

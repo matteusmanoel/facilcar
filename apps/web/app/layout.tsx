@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import { PostHogInit } from "@/components/analytics/PostHogInit";
+import { AppThemeProvider } from "@/components/app-theme-provider";
+import { getSiteSettings } from "@/features/settings/server/queries";
 import { BRAND } from "@/lib/brand";
+import { normalizePublicTheme } from "@/lib/theme";
 import "./globals.css";
-import { ThemeProvider } from "@/components/theme-provider";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -34,11 +36,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const settings = await getSiteSettings();
+  const publicTheme = normalizePublicTheme(settings?.publicTheme);
+
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
@@ -50,18 +55,10 @@ export default function RootLayout({
         />
       </head>
       <body className={`${outfit.variable} antialiased`}>
-        {/* Dark mode temporariamente desativado — apenas light. Para reativar: remova forcedTheme,
-            use defaultTheme="system" e enableSystem, e descomente ThemeToggle no AdminShell. */}
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem={false}
-          forcedTheme="light"
-          disableTransitionOnChange
-        >
+        <AppThemeProvider publicTheme={publicTheme}>
           <PostHogInit />
           {children}
-        </ThemeProvider>
+        </AppThemeProvider>
       </body>
     </html>
   );

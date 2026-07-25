@@ -1,9 +1,24 @@
 "use server";
 
 import { revalidateTag } from "next/cache";
+import {
+  CONTENT_ROLES,
+  ForbiddenError,
+  UnauthorizedError,
+  requireAdminRole,
+} from "@/features/auth/server/rbac";
 import { prisma } from "@/lib/db";
+import { themeModeSchema } from "@/schemas/settings";
 
 export async function updateSettingsAction(formData: FormData) {
+  try {
+    await requireAdminRole(CONTENT_ROLES);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return { success: false, error: e.message };
+    if (e instanceof ForbiddenError) return { success: false, error: e.message };
+    throw e;
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { success: false };
 
@@ -11,6 +26,10 @@ export async function updateSettingsAction(formData: FormData) {
     const s = typeof v === "string" ? v.trim() : "";
     return s === "" ? null : s;
   };
+
+  const publicThemeRaw = formData.get("publicTheme");
+  const publicTheme = themeModeSchema.safeParse(publicThemeRaw);
+  if (!publicTheme.success) return { success: false };
 
   await prisma.siteSettings.update({
     where: { id },
@@ -31,6 +50,7 @@ export async function updateSettingsAction(formData: FormData) {
       footerText: emptyToNull(formData.get("footerText")),
       heroTitle: emptyToNull(formData.get("heroTitle")),
       heroSubtitle: emptyToNull(formData.get("heroSubtitle")),
+      publicTheme: publicTheme.data,
     },
   });
   revalidateTag("site-settings", "max");
