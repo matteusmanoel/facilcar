@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { guardAdminSection } from "@/features/auth/server/rbac";
 import { UpdateLeadStatusForm } from "./UpdateLeadStatusForm";
 import { InternalNoteForm } from "./InternalNoteForm";
+import { AssignLeadForm } from "./AssignLeadForm";
 import { LeadDangerZone } from "./LeadDangerZone";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -51,14 +53,23 @@ export default async function AdminLeadDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const lead = await prisma.lead.findUnique({
-    where: { id },
-    include: {
-      vehicle: true,
-      financingRequest: true,
-      sellRequest: true,
-    },
-  });
+  await guardAdminSection("leads");
+  const [lead, sellers] = await Promise.all([
+    prisma.lead.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        vehicle: true,
+        financingRequest: true,
+        sellRequest: true,
+        assignedToUser: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
 
   if (!lead) notFound();
 
@@ -273,6 +284,19 @@ export default async function AdminLeadDetailPage({
               <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                 Atual: {STATUS_LABELS[lead.status] ?? lead.status}
               </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Responsável</p>
+              <AssignLeadForm
+                leadId={lead.id}
+                currentAssignedToUserId={lead.assignedToUserId}
+                sellers={sellers}
+              />
+              {lead.assignedToUser ? (
+                <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                  Atual: {lead.assignedToUser.name}
+                </p>
+              ) : null}
             </div>
             <div>
               <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Anotação interna</p>

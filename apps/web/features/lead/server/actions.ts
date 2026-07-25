@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { sendLeadNotification } from "@/lib/email";
+import { upsertCustomerByPhone } from "@/features/customer/server/upsert";
 import {
   contactFormSchema,
   vehicleInterestFormSchema,
@@ -30,6 +31,7 @@ export async function createContactLead(formData: FormData): Promise<FormResult>
     return { success: false, error: parsed.error.flatten().fieldErrors?.name?.[0] ?? "Dados inválidos" };
   }
   const { name, phone, email, message } = parsed.data;
+  const customer = await upsertCustomerByPhone(name, phone, email);
 
   await prisma.lead.create({
     data: {
@@ -42,6 +44,7 @@ export async function createContactLead(formData: FormData): Promise<FormResult>
       email: email || null,
       message: message || null,
       originUrl: null,
+      customerId: customer?.id ?? null,
     },
   });
   void sendLeadNotification({ type: "Contato", name, phone, email, message });
@@ -65,6 +68,7 @@ export async function createVehicleInterestLead(
     return { success: false, error: parsed.error.flatten().fieldErrors?.name?.[0] ?? "Dados inválidos" };
   }
   const { name, phone, email, message } = parsed.data;
+  const customer = await upsertCustomerByPhone(name, phone, email);
 
   await prisma.lead.create({
     data: {
@@ -78,6 +82,7 @@ export async function createVehicleInterestLead(
       message: message || null,
       vehicleId,
       originUrl: null,
+      customerId: customer?.id ?? null,
     },
   });
   const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { title: true } });
@@ -102,6 +107,7 @@ export async function createFinancingLead(formData: FormData): Promise<FormResul
     return { success: false, error: parsed.error.flatten().fieldErrors?.name?.[0] ?? "Dados inválidos" };
   }
   const data = parsed.data;
+  const customer = await upsertCustomerByPhone(data.name, data.phone, data.email);
 
   const lead = await prisma.lead.create({
     data: {
@@ -115,6 +121,7 @@ export async function createFinancingLead(formData: FormData): Promise<FormResul
       message: data.notes || null,
       vehicleId: data.vehicleId || null,
       originUrl: null,
+      customerId: customer?.id ?? null,
     },
   });
 
@@ -153,6 +160,7 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
     return { success: false, error: parsed.error.flatten().fieldErrors?.name?.[0] ?? "Dados inválidos" };
   }
   const data = parsed.data;
+  const customer = await upsertCustomerByPhone(data.name, data.phone, data.email);
 
   const lead = await prisma.lead.create({
     data: {
@@ -165,6 +173,7 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
       email: data.email || null,
       message: data.observations || null,
       originUrl: null,
+      customerId: customer?.id ?? null,
     },
   });
 
@@ -224,6 +233,7 @@ export async function createFinancingSimulationLead(
       phone: data.phone,
       vehicleId: data.vehicleId ?? null,
       type: "FINANCING",
+      deletedAt: null,
       createdAt: { gte: cutoff },
     },
     select: { id: true },
@@ -246,6 +256,7 @@ export async function createFinancingSimulationLead(
   }
 
   const source: LeadSource = data.vehicleId ? "VEHICLE_PAGE" : "FINANCING_PAGE";
+  const customer = await upsertCustomerByPhone(data.name, data.phone);
 
   const lead = await prisma.lead.create({
     data: {
@@ -258,6 +269,7 @@ export async function createFinancingSimulationLead(
       message: null,
       vehicleId: data.vehicleId || null,
       originUrl: null,
+      customerId: customer?.id ?? null,
     },
   });
 

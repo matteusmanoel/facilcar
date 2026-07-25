@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { updateLeadNoteAction } from "./action";
+import { updateLeadNoteAction } from "@/features/lead/server/mutations";
+import { Button } from "@/components/ui/button";
 
 type Props = { leadId: string; currentNote: string | null };
 
@@ -33,15 +34,11 @@ export function InternalNoteForm({ leadId, currentNote }: Props) {
         defaultValue={currentNote ?? ""}
         placeholder="Anotações internas sobre este lead…"
         disabled={isPending}
-        className="w-full resize-y rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-800 focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-facil-orange/20 disabled:opacity-50"
+        className="box-border w-full resize-y rounded-lg border border-facil-border bg-facil-card px-3 py-2 text-sm text-foreground placeholder:text-facil-muted focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-inset focus:ring-facil-orange/30 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
       />
-      <button
-        type="submit"
-        disabled={isPending}
-        className="self-start rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-      >
+      <Button type="submit" variant="primary" size="sm" disabled={isPending} className="self-start">
         {isPending ? "Salvando…" : "Salvar nota"}
-      </button>
+      </Button>
     </form>
   );
 }

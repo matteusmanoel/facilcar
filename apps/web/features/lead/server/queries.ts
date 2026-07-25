@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { eachDayOfInterval, endOfDay, format, startOfDay } from "date-fns";
 
+const NOT_DELETED: Prisma.LeadWhereInput = { deletedAt: null };
+
 export function parseDashboardDateParam(value: string | undefined): Date | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
   const [y, m, d] = value.split("-").map(Number);
@@ -25,7 +27,7 @@ export async function getLeadsDailyCountsInRange(from: Date, to: Date) {
   const start = startOfDay(from);
   const end = endOfDay(to);
   const leads = await prisma.lead.findMany({
-    where: { createdAt: { gte: start, lte: end } },
+    where: { createdAt: { gte: start, lte: end }, ...NOT_DELETED },
     select: { createdAt: true },
     orderBy: { createdAt: "asc" },
   });
@@ -48,7 +50,7 @@ export async function getLeadsByStatusInRange(from?: Date, to?: Date) {
   const ca = createdAtRangeFilter(from, to);
   const result = await prisma.lead.groupBy({
     by: ["status"],
-    where: ca ? { createdAt: ca } : undefined,
+    where: ca ? { createdAt: ca, ...NOT_DELETED } : NOT_DELETED,
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
   });
@@ -74,7 +76,7 @@ export async function getLeadsBySourceInRange(from?: Date, to?: Date) {
   const ca = createdAtRangeFilter(from, to);
   const result = await prisma.lead.groupBy({
     by: ["source"],
-    where: ca ? { createdAt: ca } : undefined,
+    where: ca ? { createdAt: ca, ...NOT_DELETED } : NOT_DELETED,
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
   });
@@ -108,6 +110,7 @@ const ADMIN_LEAD_SELECT = {
   message: true,
   internalNote: true,
   createdAt: true,
+  assignedToUser: { select: { id: true, name: true } },
   vehicle: { select: { title: true, slug: true } },
 } as const;
 
@@ -121,10 +124,16 @@ export async function listAdminLeads(opts: {
   search?: string;
   from?: Date;
   to?: Date;
+  assignedToUserId?: string | null;
 }) {
-  const where: Prisma.LeadWhereInput = {};
+  const where: Prisma.LeadWhereInput = { ...NOT_DELETED };
   if (opts.status) where.status = opts.status;
   if (opts.type) where.type = opts.type;
+  if (opts.assignedToUserId === null) {
+    where.assignedToUserId = null;
+  } else if (opts.assignedToUserId) {
+    where.assignedToUserId = opts.assignedToUserId;
+  }
   const ca = createdAtRangeFilter(opts.from, opts.to);
   if (ca) where.createdAt = ca;
 
@@ -158,7 +167,7 @@ export async function getLeadsByPeriod(days: number) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const leads = await prisma.lead.findMany({
-    where: { createdAt: { gte: since } },
+    where: { createdAt: { gte: since }, ...NOT_DELETED },
     select: { createdAt: true },
     orderBy: { createdAt: "asc" },
   });
@@ -182,6 +191,7 @@ export async function getLeadsByPeriod(days: number) {
 export async function getLeadsByStatus() {
   const result = await prisma.lead.groupBy({
     by: ["status"],
+    where: NOT_DELETED,
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
   });
@@ -206,6 +216,7 @@ export async function getLeadsByStatus() {
 export async function getLeadsBySource() {
   const result = await prisma.lead.groupBy({
     by: ["source"],
+    where: NOT_DELETED,
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
   });

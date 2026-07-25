@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { updateLeadStatusAction } from "./action";
+import {
+  deleteLeadAction,
+  updateLeadStatusAction,
+} from "@/features/lead/server/mutations";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,9 +22,9 @@ type Props = { leadId: string; currentStatus: string };
 export function LeadDangerZone({ leadId, currentStatus }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [confirm, setConfirm] = useState<"LOST" | "SPAM" | null>(null);
+  const [confirm, setConfirm] = useState<"LOST" | "SPAM" | "DELETE" | null>(null);
 
-  function run(status: "LOST" | "SPAM") {
+  function runStatus(status: "LOST" | "SPAM") {
     startTransition(async () => {
       try {
         await updateLeadStatusAction(leadId, status);
@@ -34,8 +37,33 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
     });
   }
 
+  function runDelete() {
+    startTransition(async () => {
+      const result = await deleteLeadAction(leadId);
+      if (result.ok) {
+        toast.success("Lead excluído.");
+        router.push("/admin/leads");
+        return;
+      }
+      toast.error(typeof result.error === "string" ? result.error : "Não foi possível excluir o lead.");
+      setConfirm(null);
+    });
+  }
+
   if (currentStatus === "LOST" || currentStatus === "SPAM" || currentStatus === "WON") {
-    return null;
+    return (
+      <div className="mt-6 rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+        <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Zona sensível</h3>
+        <p className="mt-1 text-xs text-red-700/90 dark:text-red-400/90">
+          Este lead está encerrado. Você ainda pode excluí-lo permanentemente.
+        </p>
+        <div className="mt-3">
+          <Button type="button" variant="destructive" size="sm" onClick={() => setConfirm("DELETE")}>
+            Excluir lead
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -43,7 +71,7 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
       <div className="mt-6 rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
         <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Zona sensível</h3>
         <p className="mt-1 text-xs text-red-700/90 dark:text-red-400/90">
-          Ações que fecham o atendimento deste lead.
+          Ações que fecham ou removem este lead.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
@@ -58,6 +86,15 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
           <Button type="button" variant="destructive" size="sm" onClick={() => setConfirm("SPAM")}>
             Marcar como spam
           </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="bg-red-800 hover:bg-red-900"
+            onClick={() => setConfirm("DELETE")}
+          >
+            Excluir lead
+          </Button>
         </div>
       </div>
 
@@ -65,12 +102,18 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {confirm === "SPAM" ? "Confirmar spam?" : "Confirmar lead perdido?"}
+              {confirm === "SPAM"
+                ? "Confirmar spam?"
+                : confirm === "DELETE"
+                  ? "Excluir lead permanentemente?"
+                  : "Confirmar lead perdido?"}
             </DialogTitle>
             <DialogDescription>
               {confirm === "SPAM"
                 ? "Este lead será classificado como spam e sairá das filas principais."
-                : "Indica que o negócio não foi fechado com este contato."}
+                : confirm === "DELETE"
+                  ? "O lead será removido das listas. Esta ação não pode ser desfeita."
+                  : "Indica que o negócio não foi fechado com este contato."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -79,9 +122,12 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
             </Button>
             <Button
               type="button"
-              variant={confirm === "SPAM" ? "destructive" : "default"}
+              variant={confirm === "LOST" ? "default" : "destructive"}
               disabled={isPending}
-              onClick={() => confirm && run(confirm)}
+              onClick={() => {
+                if (confirm === "DELETE") runDelete();
+                else if (confirm) runStatus(confirm);
+              }}
             >
               {isPending ? "Salvando…" : "Confirmar"}
             </Button>

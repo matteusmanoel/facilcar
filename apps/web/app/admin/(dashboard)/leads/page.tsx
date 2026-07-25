@@ -1,11 +1,12 @@
-import Link from "next/link";
 import type { LeadStatus, LeadType } from "@prisma/client";
-import { startOfDay, subDays } from "date-fns";
+import { startOfDay, subDays, format } from "date-fns";
 import { prisma } from "@/lib/db";
+import { guardAdminSection } from "@/features/auth/server/rbac";
 import { listAdminLeads, parseDashboardDateParam } from "@/features/lead/server/queries";
 import { LeadsClient } from "./LeadsClient";
 import { KanbanBoardLoader } from "@/components/admin/Kanban/KanbanBoardLoader";
 import { ViewTabs } from "./ViewTabs";
+import { NewLeadDialog } from "./NewLeadDialog";
 
 const LEAD_STATUSES: LeadStatus[] = [
   "NEW",
@@ -36,11 +37,18 @@ function parseLeadType(value: string | undefined): LeadType | undefined {
   return LEAD_TYPES.includes(value as LeadType) ? (value as LeadType) : undefined;
 }
 
+function parseAssignee(value: string | undefined): string | null | undefined {
+  if (!value || value === "all") return undefined;
+  if (value === "none") return null;
+  return value;
+}
+
 export default async function AdminLeadsPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  await guardAdminSection("leads");
   const params = await searchParams;
   const view = params.view === "kanban" ? "kanban" : "lista";
 
@@ -62,6 +70,13 @@ export default async function AdminLeadsPage({
       },
     });
 
+    const kanbanVehicles = await prisma.vehicle.findMany({
+      where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+      select: { id: true, title: true },
+    });
+
     return (
       <div className="admin-page admin-section">
         <div className="flex items-center justify-between">
@@ -71,7 +86,10 @@ export default async function AdminLeadsPage({
               Arraste os cards entre colunas para atualizar o status
             </p>
           </div>
-          <ViewTabs currentView="kanban" />
+          <div className="flex items-center gap-2">
+            <NewLeadDialog vehicles={kanbanVehicles} />
+            <ViewTabs currentView="kanban" />
+          </div>
         </div>
         <KanbanBoardLoader initialLeads={leads} />
       </div>
@@ -83,6 +101,7 @@ export default async function AdminLeadsPage({
   const q = typeof params.q === "string" ? params.q : undefined;
   const status = parseLeadStatus(typeof params.status === "string" ? params.status : undefined);
   const type = parseLeadType(typeof params.tipo === "string" ? params.tipo : undefined);
+  const assignee = parseAssignee(typeof params.responsavel === "string" ? params.responsavel : undefined);
   const period = typeof params.periodo === "string" ? params.periodo : "all";
 
   let fromD: Date | undefined;
@@ -101,20 +120,37 @@ export default async function AdminLeadsPage({
     fromD = startOfDay(subDays(toD, 29));
   }
 
-  const { leads, totalCount } = await listAdminLeads({
-    page,
-    pageSize,
-    status,
-    type,
-    search: q,
-    from: fromD,
-    to: toD,
-  });
+  const [{ leads, totalCount }, sellers, vehicles] = await Promise.all([
+    listAdminLeads({
+      page,
+      pageSize,
+      status,
+      type,
+      search: q,
+      from: fromD,
+      to: toD,
+      assignedToUserId: assignee,
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.vehicle.findMany({
+      where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+      select: { id: true, title: true },
+    }),
+  ]);
 
   const serializableLeads = leads.map((l) => ({
     ...l,
     createdAt: l.createdAt.toISOString(),
   }));
+
+  const currentAssignee =
+    assignee === null ? "none" : assignee === undefined ? undefined : assignee;
 
   return (
     <div className="admin-page admin-section">
@@ -125,7 +161,10 @@ export default async function AdminLeadsPage({
             Gerencie e acompanhe todos os contatos
           </p>
         </div>
-        <ViewTabs currentView="lista" />
+        <div className="flex items-center gap-2">
+          <NewLeadDialog vehicles={vehicles} />
+          <ViewTabs currentView="lista" />
+        </div>
       </div>
 
       <LeadsClient
@@ -135,11 +174,23 @@ export default async function AdminLeadsPage({
         pageSize={pageSize}
         currentStatus={status}
         currentType={type}
+        currentAssignee={currentAssignee}
+        sellers={sellers}
         currentPeriod={period}
         fromKey={
-          customFrom && customTo && typeof params.from === "string" ? params.from : undefined
+          typeof params.from === "string"
+            ? params.from
+            : period === "7d" || period === "30d"
+              ? format(startOfDay(subDays(new Date(), period === "7d" ? 6 : 29)), "yyyy-MM-dd")
+              : undefined
         }
-        toKey={customFrom && customTo && typeof params.to === "string" ? params.to : undefined}
+        toKey={
+          typeof params.to === "string"
+            ? params.to
+            : period === "7d" || period === "30d"
+              ? format(startOfDay(new Date()), "yyyy-MM-dd")
+              : undefined
+        }
         initialSearch={q ?? ""}
       />
     </div>

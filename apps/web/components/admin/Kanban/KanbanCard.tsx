@@ -26,17 +26,25 @@ export type KanbanLead = {
 interface KanbanCardProps {
   lead: KanbanLead;
   isDragOverlay?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (leadId: string) => void;
 }
 
-export function KanbanCard({ lead, isDragOverlay }: KanbanCardProps) {
+export function KanbanCard({
+  lead,
+  isDragOverlay,
+  selectable,
+  selected,
+  onToggleSelect,
+}: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
+    disabled: selectable,
   });
 
-  const style = transform
-    ? { transform: CSS.Translate.toString(transform) }
-    : undefined;
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   const phone = lead.phone.replace(/\D/g, "");
   const waUrl = phone
@@ -48,28 +56,38 @@ export function KanbanCard({ lead, isDragOverlay }: KanbanCardProps) {
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group rounded-lg border border-zinc-200 bg-white p-3 shadow-sm transition-shadow",
+        "group rounded-lg border border-facil-border bg-facil-card p-3 shadow-sm transition-shadow",
         isDragging && "opacity-40",
-        isDragOverlay && "shadow-xl rotate-1 opacity-100",
+        isDragOverlay && "rotate-1 opacity-100 shadow-xl",
+        selected && "ring-2 ring-facil-orange ring-offset-2 ring-offset-background",
       )}
     >
       <div className="flex items-start gap-2">
+        {selectable ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(lead.id)}
+            className="mt-1 h-4 w-4 rounded border-facil-border accent-facil-orange"
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : null}
         <button
           {...listeners}
           {...attributes}
-          className="mt-0.5 cursor-grab touch-none text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
+          className="mt-0.5 cursor-grab touch-none text-facil-muted hover:text-foreground active:cursor-grabbing"
         >
           <GripVertical className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-900">{lead.name}</p>
-          <p className="mt-0.5 text-xs text-zinc-400">{lead.phone}</p>
+          <p className="truncate text-sm font-medium text-foreground">{lead.name}</p>
+          <p className="mt-0.5 text-xs text-facil-muted">{lead.phone}</p>
           {lead.vehicle && (
-            <p className="mt-1 truncate text-xs text-zinc-500">{lead.vehicle.title}</p>
+            <p className="mt-1 truncate text-xs text-facil-muted">{lead.vehicle.title}</p>
           )}
           <div className="mt-2 flex items-center justify-between">
             <StatusBadge status={lead.type} type="type" />
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {waUrl && (
                 <a
                   href={waUrl}
@@ -82,7 +100,7 @@ export function KanbanCard({ lead, isDragOverlay }: KanbanCardProps) {
               )}
               <Link
                 href={`/admin/leads/${lead.id}`}
-                className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                className="flex h-5 w-5 items-center justify-center rounded-full bg-facil-surface text-foreground hover:bg-facil-border"
               >
                 <ExternalLink className="h-2.5 w-2.5" />
               </Link>

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { updateLeadStatusAction } from "./action";
+import { updateLeadStatusAction } from "@/features/lead/server/mutations";
 import {
   Select,
   SelectContent,

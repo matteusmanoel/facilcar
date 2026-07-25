@@ -1,19 +1,12 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback } from "react";
+import { useState, useEffect, useTransition, useCallback, useMemo } from "react";
 import Link from "next/link";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, X, ExternalLink } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { Search, X } from "lucide-react";
+import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,10 +14,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { DateRangePicker } from "@/components/ui/date-picker";
 import { useDebounce } from "@/hooks/useDebounce";
+import { cn } from "@/lib/cn";
 
 type Lead = {
   id: string;
@@ -37,8 +30,11 @@ type Lead = {
   message: string | null;
   internalNote: string | null;
   createdAt: string;
+  assignedToUser: { id: string; name: string } | null;
   vehicle: { title: string; slug: string } | null;
 };
+
+type Seller = { id: string; name: string };
 
 const WA_ICON = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -46,18 +42,40 @@ const WA_ICON = (
   </svg>
 );
 
-const SOURCE_LABELS: Record<string, string> = {
-  HOME: "Página inicial",
-  CATALOG: "Catálogo",
-  VEHICLE_PAGE: "Página do veículo",
-  CONTACT_PAGE: "Contato",
-  FINANCING_PAGE: "Financiamento",
-  SELL_PAGE: "Vender veículo",
-  BLOG: "Blog",
-  UNKNOWN: "Desconhecido",
+const PERIOD_CUSTOM = "custom";
+
+function getPresetRange(period: string): { from: Date; to: Date } | null {
+  if (period === "7d") {
+    const to = startOfDay(new Date());
+    return { from: startOfDay(subDays(to, 6)), to };
+  }
+  if (period === "30d") {
+    const to = startOfDay(new Date());
+    return { from: startOfDay(subDays(to, 29)), to };
+  }
+  return null;
+}
+
+const STATUS_LABELS: Record<LeadStatus, string> = {
+  NEW: "Novo",
+  IN_PROGRESS: "Em progresso",
+  CONTACTED: "Contactado",
+  QUALIFIED: "Qualificado",
+  WON: "Ganho",
+  LOST: "Perdido",
+  SPAM: "Spam",
 };
 
-const PERIOD_RANGE_SENTINEL = "__range__";
+const TYPE_LABELS: Record<LeadType, string> = {
+  CONTACT: "Contato",
+  VEHICLE_INTEREST: "Interesse veículo",
+  FINANCING: "Financiamento",
+  SELL_VEHICLE: "Vender veículo",
+  REFINANCING: "Refinanciamento",
+  TRADE_IN: "Troca",
+  CONSIGNMENT: "Consignação",
+  THIRD_PARTY_FINANCING: "Financiamento terceiros",
+};
 
 interface LeadsClientProps {
   leads: Lead[];
@@ -66,6 +84,8 @@ interface LeadsClientProps {
   pageSize: number;
   currentStatus?: LeadStatus;
   currentType?: LeadType;
+  currentAssignee?: string;
+  sellers: Seller[];
   currentPeriod?: string;
   fromKey?: string;
   toKey?: string;
@@ -79,6 +99,8 @@ export function LeadsClient({
   pageSize,
   currentStatus,
   currentType,
+  currentAssignee,
+  sellers,
   currentPeriod = "all",
   fromKey,
   toKey,
@@ -90,7 +112,7 @@ export function LeadsClient({
   const [isPending, startTransition] = useTransition();
 
   const [search, setSearch] = useState(initialSearch);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const debouncedSearch = useDebounce(search, 350);
 
   useEffect(() => {
@@ -127,16 +149,30 @@ export function LeadsClient({
         if (v === undefined || v === "" || v === "all") sp.delete(k);
         else sp.set(k, v);
       });
-      if (Object.prototype.hasOwnProperty.call(updates, "periodo") && updates.periodo !== undefined) {
-        sp.delete("from");
-        sp.delete("to");
-      }
-      if (
+
+      const hasPeriodUpdate = Object.prototype.hasOwnProperty.call(updates, "periodo");
+      const hasDateUpdate =
         Object.prototype.hasOwnProperty.call(updates, "from") ||
-        Object.prototype.hasOwnProperty.call(updates, "to")
-      ) {
+        Object.prototype.hasOwnProperty.call(updates, "to");
+
+      if (hasPeriodUpdate && !hasDateUpdate) {
+        const period = updates.periodo;
+        if (period === "7d" || period === "30d") {
+          const preset = getPresetRange(period);
+          if (preset) {
+            sp.set("from", format(preset.from, "yyyy-MM-dd"));
+            sp.set("to", format(preset.to, "yyyy-MM-dd"));
+          }
+        } else if (!period || period === "all") {
+          sp.delete("from");
+          sp.delete("to");
+        }
+      }
+
+      if (hasDateUpdate && !hasPeriodUpdate) {
         sp.delete("periodo");
       }
+
       if (!Object.prototype.hasOwnProperty.call(updates, "page")) {
         sp.set("page", "1");
       }
@@ -155,48 +191,75 @@ export function LeadsClient({
   const hasActiveFilters = !!(
     currentStatus ||
     currentType ||
+    currentAssignee ||
     (currentPeriod && currentPeriod !== "all") ||
     (fromKey && toKey) ||
     qActive
   );
 
-  const rangeFrom = fromKey ? parseISO(`${fromKey}T12:00:00`) : undefined;
-  const rangeTo = toKey ? parseISO(`${toKey}T12:00:00`) : undefined;
+  const presetRange = useMemo(
+    () => getPresetRange(currentPeriod),
+    [currentPeriod],
+  );
+
+  const rangeFrom = fromKey
+    ? parseISO(`${fromKey}T12:00:00`)
+    : presetRange?.from;
+  const rangeTo = toKey
+    ? parseISO(`${toKey}T12:00:00`)
+    : presetRange?.to;
 
   const periodSelectValue =
-    fromKey && toKey ? PERIOD_RANGE_SENTINEL : currentPeriod || "all";
+    currentPeriod === "7d"
+      ? "7d"
+      : currentPeriod === "30d"
+        ? "30d"
+        : fromKey && toKey
+          ? PERIOD_CUSTOM
+          : currentPeriod || "all";
+
+  const assigneeLabel =
+    currentAssignee === "none"
+      ? "Sem responsável"
+      : currentAssignee
+        ? sellers.find((s) => s.id === currentAssignee)?.name
+        : undefined;
 
   return (
     <>
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <div className="relative min-w-[200px] max-w-xs flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-            <Input
-              placeholder="Buscar por nome, telefone…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              disabled={isPending}
-              className="pl-9 pr-8 dark:border-zinc-700 dark:bg-zinc-900"
-            />
-            {search ? (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
+        {/* Search row */}
+        <div className="relative w-full">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-facil-muted" />
+          <Input
+            placeholder="Buscar por nome, telefone…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            disabled={isPending}
+            className="pl-9 pr-8"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-facil-muted hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
 
+        {/* Filters row */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Select
             value={currentStatus ?? "all"}
             disabled={isPending}
             onValueChange={(v) => applyFilter({ status: v === "all" ? undefined : v })}
           >
-            <SelectTrigger className="h-9 w-[180px] dark:border-zinc-700 dark:bg-zinc-900">
-              <SelectValue placeholder="Status" />
+            <SelectTrigger className="h-9 w-full">
+              <span className={cn("truncate", !currentStatus && "text-facil-muted")}>
+                {currentStatus ? STATUS_LABELS[currentStatus] : "Status"}
+              </span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os status</SelectItem>
@@ -215,8 +278,10 @@ export function LeadsClient({
             disabled={isPending}
             onValueChange={(v) => applyFilter({ tipo: v === "all" ? undefined : v })}
           >
-            <SelectTrigger className="h-9 w-[200px] dark:border-zinc-700 dark:bg-zinc-900">
-              <SelectValue placeholder="Tipo" />
+            <SelectTrigger className="h-9 w-full">
+              <span className={cn("truncate", !currentType && "text-facil-muted")}>
+                {currentType ? TYPE_LABELS[currentType] : "Tipo"}
+              </span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os tipos</SelectItem>
@@ -228,63 +293,103 @@ export function LeadsClient({
           </Select>
 
           <Select
+            value={currentAssignee ?? "all"}
+            disabled={isPending}
+            onValueChange={(v) => applyFilter({ responsavel: v === "all" ? undefined : v })}
+          >
+            <SelectTrigger className="h-9 w-full">
+              <span className={cn("truncate", !currentAssignee && "text-facil-muted")}>
+                {assigneeLabel ?? "Responsável"}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os responsáveis</SelectItem>
+              <SelectItem value="none">Sem responsável</SelectItem>
+              {sellers.map((seller) => (
+                <SelectItem key={seller.id} value={seller.id}>
+                  {seller.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
             value={periodSelectValue}
             disabled={isPending}
             onValueChange={(v) => {
-              if (v === PERIOD_RANGE_SENTINEL) return;
-              applyFilter({ periodo: v, from: undefined, to: undefined });
+              if (v === PERIOD_CUSTOM) {
+                setCalendarOpen(true);
+                return;
+              }
+              applyFilter({ periodo: v === "all" ? undefined : v });
             }}
           >
-            <SelectTrigger className="h-9 w-[200px] dark:border-zinc-700 dark:bg-zinc-900">
-              <SelectValue placeholder="Período" />
+            <SelectTrigger className="h-9 w-full">
+              <span
+                className={cn(
+                  "truncate",
+                  periodSelectValue === "all" && "text-facil-muted",
+                )}
+              >
+                {periodSelectValue === "7d"
+                  ? "Últimos 7 dias"
+                  : periodSelectValue === "30d"
+                    ? "Últimos 30 dias"
+                    : periodSelectValue === PERIOD_CUSTOM
+                      ? "Intervalo personalizado…"
+                      : "Período"}
+              </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={PERIOD_RANGE_SENTINEL} className="opacity-80">
-                Intervalo (calendário)
-              </SelectItem>
               <SelectItem value="all">Todo o período</SelectItem>
               <SelectItem value="7d">Últimos 7 dias</SelectItem>
               <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value={PERIOD_CUSTOM}>Intervalo personalizado…</SelectItem>
             </SelectContent>
           </Select>
 
           <DateRangePicker
+            key={`${periodSelectValue}-${fromKey ?? ""}-${toKey ?? ""}`}
             from={rangeFrom}
             to={rangeTo}
             disabled={isPending}
+            open={calendarOpen}
+            onOpenChange={setCalendarOpen}
+            className="w-full"
             onApply={({ from: f, to: t }) =>
               applyFilter({
                 from: f ? format(f, "yyyy-MM-dd") : undefined,
                 to: t ? format(t, "yyyy-MM-dd") : undefined,
-                periodo: "all",
+                periodo: undefined,
               })
             }
           />
 
           {hasActiveFilters ? (
-            <Button variant="outline" size="sm" onClick={clearFilters} disabled={isPending}>
+            <Button variant="outline" size="sm" onClick={clearFilters} disabled={isPending} className="w-full sm:w-auto">
               <X className="mr-1 h-3.5 w-3.5" />
-              Limpar
+              Limpar filtros
             </Button>
           ) : null}
         </div>
 
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+        <span className="text-sm text-facil-muted">
           {totalCount} resultado(s)
           {isPending ? " · atualizando…" : ""}
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
-            <thead className="border-b border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50">
+            <thead className="border-b border-facil-border bg-facil-surface">
               <tr>
                 <th className="admin-table-header">Data</th>
                 <th className="admin-table-header">Nome</th>
                 <th className="admin-table-header">Telefone</th>
                 <th className="admin-table-header">Tipo</th>
                 <th className="admin-table-header">Status</th>
+                <th className="admin-table-header">Responsável</th>
                 <th className="admin-table-header">Veículo</th>
                 <th className="admin-table-header">Ações</th>
               </tr>
@@ -292,7 +397,7 @@ export function LeadsClient({
             <tbody>
               {leads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-sm text-zinc-400">
+                  <td colSpan={8} className="py-12 text-center text-sm text-zinc-400">
                     Nenhum lead encontrado.
                   </td>
                 </tr>
@@ -305,16 +410,15 @@ export function LeadsClient({
                   return (
                     <tr
                       key={lead.id}
-                      className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50/70 dark:border-zinc-800 dark:hover:bg-zinc-800/50"
-                      onClick={() => setSelectedLead(lead)}
+                      className="border-t border-facil-border hover:bg-facil-surface/70"
                     >
-                      <td className="admin-table-cell text-zinc-400 dark:text-zinc-500">
+                      <td className="admin-table-cell text-facil-muted">
                         {new Date(lead.createdAt).toLocaleDateString("pt-BR")}
                       </td>
-                      <td className="admin-table-cell font-medium text-zinc-900 dark:text-zinc-100">
+                      <td className="admin-table-cell font-medium text-foreground">
                         {lead.name}
                       </td>
-                      <td className="admin-table-cell text-zinc-600 dark:text-zinc-300">
+                      <td className="admin-table-cell text-foreground/80">
                         {lead.phone}
                       </td>
                       <td className="admin-table-cell">
@@ -323,7 +427,10 @@ export function LeadsClient({
                       <td className="admin-table-cell">
                         <StatusBadge status={lead.status} />
                       </td>
-                      <td className="admin-table-cell max-w-[160px] text-zinc-500 dark:text-zinc-400">
+                      <td className="admin-table-cell text-facil-muted">
+                        {lead.assignedToUser?.name ?? "—"}
+                      </td>
+                      <td className="admin-table-cell max-w-[160px] text-facil-muted">
                         <span className="line-clamp-1">{lead.vehicle?.title ?? "—"}</span>
                       </td>
                       <td className="admin-table-cell" onClick={(e) => e.stopPropagation()}>
@@ -354,9 +461,9 @@ export function LeadsClient({
           </table>
         </div>
 
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800 md:hidden">
+        <div className="divide-y divide-facil-border md:hidden">
           {leads.length === 0 ? (
-            <div className="py-10 text-center text-sm text-zinc-400">Nenhum lead encontrado.</div>
+            <div className="py-10 text-center text-sm text-facil-muted">Nenhum lead encontrado.</div>
           ) : (
             leads.map((lead) => {
               const phone = lead.phone.replace(/\D/g, "");
@@ -366,13 +473,12 @@ export function LeadsClient({
               return (
                 <div
                   key={lead.id}
-                  className="cursor-pointer px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                  onClick={() => setSelectedLead(lead)}
+                  className="px-4 py-3 hover:bg-facil-surface/70"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{lead.name}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{lead.phone}</p>
+                      <p className="truncate font-medium text-foreground">{lead.name}</p>
+                      <p className="text-xs text-facil-muted">{lead.phone}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <StatusBadge status={lead.status} />
@@ -389,10 +495,16 @@ export function LeadsClient({
                       ) : null}
                     </div>
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-facil-muted">
                     <StatusBadge status={lead.type} type="type" />
                     <span>·</span>
                     <span>{new Date(lead.createdAt).toLocaleDateString("pt-BR")}</span>
+                    {lead.assignedToUser ? (
+                      <>
+                        <span>·</span>
+                        <span>{lead.assignedToUser.name}</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -401,8 +513,8 @@ export function LeadsClient({
         </div>
 
         {totalPages > 1 ? (
-          <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="flex items-center justify-between border-t border-facil-border px-4 py-3">
+            <p className="text-xs text-facil-muted">
               Página {page} de {totalPages} · {totalCount} leads
             </p>
             <div className="flex items-center gap-1">
@@ -434,88 +546,6 @@ export function LeadsClient({
           </div>
         ) : null}
       </div>
-
-      <Dialog open={!!selectedLead} onOpenChange={(open) => !open && setSelectedLead(null)}>
-        <DialogContent className="max-w-md">
-          {selectedLead ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedLead.name}</DialogTitle>
-                <DialogDescription>
-                  {new Date(selectedLead.createdAt).toLocaleString("pt-BR")} ·{" "}
-                  {SOURCE_LABELS[selectedLead.source] ?? selectedLead.source}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="mt-4 space-y-3">
-                <div className="flex gap-2">
-                  <StatusBadge status={selectedLead.type} type="type" />
-                  <StatusBadge status={selectedLead.status} />
-                </div>
-
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                  <div>
-                    <dt className="text-xs font-medium text-zinc-400">Telefone</dt>
-                    <dd className="mt-0.5 text-zinc-900 dark:text-zinc-100">{selectedLead.phone}</dd>
-                  </div>
-                  {selectedLead.email ? (
-                    <div>
-                      <dt className="text-xs font-medium text-zinc-400">E-mail</dt>
-                      <dd className="mt-0.5 truncate text-zinc-900 dark:text-zinc-100">
-                        {selectedLead.email}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {selectedLead.vehicle ? (
-                    <div className="col-span-2">
-                      <dt className="text-xs font-medium text-zinc-400">Veículo</dt>
-                      <dd className="mt-0.5 text-zinc-900 dark:text-zinc-100">
-                        {selectedLead.vehicle.title}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {selectedLead.message ? (
-                    <div className="col-span-2">
-                      <dt className="text-xs font-medium text-zinc-400">Mensagem</dt>
-                      <dd className="mt-0.5 whitespace-pre-wrap text-xs text-zinc-700 dark:text-zinc-300">
-                        {selectedLead.message}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {selectedLead.internalNote ? (
-                    <div className="col-span-2">
-                      <dt className="text-xs font-medium text-zinc-400">Nota interna</dt>
-                      <dd className="mt-0.5 rounded bg-yellow-50 px-2 py-1.5 text-xs text-zinc-700 dark:bg-yellow-950/40 dark:text-zinc-200">
-                        {selectedLead.internalNote}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-
-                <div className="flex gap-2 pt-2">
-                  <Link
-                    href={`/admin/leads/${selectedLead.id}`}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Ver detalhes completos
-                  </Link>
-                  {selectedLead.phone ? (
-                    <a
-                      href={`https://wa.me/${selectedLead.phone.replace(/\D/g, "")}?text=${encodeURIComponent(`Olá ${selectedLead.name}, aqui é da FácilCar!`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-1.5 rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600"
-                    >
-                      {WA_ICON}
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
