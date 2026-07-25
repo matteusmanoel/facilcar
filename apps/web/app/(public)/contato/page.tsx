@@ -17,15 +17,15 @@ export default async function ContatoPage() {
   return (
     <main className="min-h-screen py-12 px-4">
       <div className="mx-auto max-w-6xl">
-        <h1 className="text-3xl font-extrabold text-zinc-900">Contato</h1>
+        <h1 className="text-3xl font-extrabold text-foreground">Contato</h1>
         <p className="mt-2 text-facil-muted">
           Estamos prontos para atender você por WhatsApp, e-mail ou formulário.
         </p>
 
         <div className="mt-10 grid gap-10 lg:grid-cols-2">
           <div>
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-8">
-              <h2 className="font-bold text-zinc-900">FácilCar Multimarcas</h2>
+            <div className="rounded-2xl border border-facil-border bg-facil-surface p-8">
+              <h2 className="font-bold text-foreground">FácilCar Multimarcas</h2>
               {address && (
                 <p className="mt-4 text-sm leading-relaxed text-facil-muted">{address}</p>
               )}
@@ -76,8 +76,8 @@ export default async function ContatoPage() {
                 </p>
               )}
             </div>
-            <div className="mt-6 aspect-video overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-200">
-              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-zinc-500">
+            <div className="mt-6 aspect-video overflow-hidden rounded-2xl border border-facil-border bg-facil-border">
+              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-facil-muted">
                 {address ? (
                   <p>
                     Mapa: configure o embed do Google Maps com o endereço da loja para a versão final.
@@ -90,8 +90,8 @@ export default async function ContatoPage() {
               </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-            <h2 className="font-bold text-zinc-900">Envie uma mensagem</h2>
+          <div className="rounded-2xl border border-facil-border bg-facil-card p-8 shadow-sm">
+            <h2 className="font-bold text-foreground">Envie uma mensagem</h2>
             <p className="mt-2 text-sm text-facil-muted">
               Retornamos o mais rápido possível em horário comercial.
             </p>

@@ -113,31 +113,31 @@ export default async function EstoquePage({
   return (
     <main className="min-h-screen py-10 px-4">
       <div className="mx-auto max-w-6xl">
-        <div className="border-b border-zinc-200 pb-8">
-          <h1 className="text-3xl font-extrabold text-zinc-900">Estoque</h1>
+        <div className="border-b border-facil-border pb-8">
+          <h1 className="text-3xl font-extrabold text-foreground">Estoque</h1>
           <p className="mt-2 text-facil-muted">
             Filtre por marca, preço, ano e mais. Todas as informações são confirmadas na loja.
           </p>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="mt-8 rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm">
           <form method="get" action="/estoque" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="block text-sm font-medium text-zinc-700 sm:col-span-2">
+            <label className="block text-sm font-medium text-foreground sm:col-span-2">
               Busca
               <input
                 type="search"
                 name="q"
                 defaultValue={q}
                 placeholder="Modelo, marca..."
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               />
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Marca
               <select
                 name="marca"
                 defaultValue={brand ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               >
                 <option value="">Todas</option>
                 {brands.map((b) => (
@@ -147,12 +147,12 @@ export default async function EstoquePage({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Tipo
               <select
                 name="tipo"
                 defaultValue={type ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               >
                 <option value="">Todos</option>
                 {TYPES.map((t) => (
@@ -162,12 +162,12 @@ export default async function EstoquePage({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Combustível
               <select
                 name="combustivel"
                 defaultValue={fuelType ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               >
                 <option value="">Todos</option>
                 {FUELS.map((f) => (
@@ -177,12 +177,12 @@ export default async function EstoquePage({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Câmbio
               <select
                 name="cambio"
                 defaultValue={transmission ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               >
                 <option value="">Todos</option>
                 {TRANS.map((t) => (
@@ -192,52 +192,52 @@ export default async function EstoquePage({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Preço mín. (R$)
               <input
                 name="precoMin"
                 type="number"
                 defaultValue={priceMin ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
                 placeholder="0"
               />
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Preço máx. (R$)
               <input
                 name="precoMax"
                 type="number"
                 defaultValue={priceMax ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
                 placeholder="300000"
               />
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Ano mín.
               <input
                 name="anoMin"
                 type="number"
                 defaultValue={yearMin ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
                 placeholder="2015"
               />
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Ano máx.
               <input
                 name="anoMax"
                 type="number"
                 defaultValue={yearMax ?? ""}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
                 placeholder="2025"
               />
             </label>
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-sm font-medium text-foreground">
               Ordenar
               <select
                 name="ordem"
                 defaultValue={sort}
-                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                className="public-form-input"
               >
                 <option value="newest">Mais recentes</option>
                 <option value="priceAsc">Menor preço</option>
@@ -255,7 +255,7 @@ export default async function EstoquePage({
               </button>
               <Link
                 href="/estoque"
-                className="rounded-lg border border-zinc-300 px-6 py-2.5 font-medium text-zinc-700 hover:bg-zinc-50"
+                className="rounded-lg border border-facil-border px-6 py-2.5 font-medium text-foreground hover:bg-facil-surface"
               >
                 Limpar
               </Link>
@@ -291,7 +291,7 @@ export default async function EstoquePage({
                       href={`/estoque/${v.slug}`}
                       className="vehicle-card group block"
                     >
-                      <div className="relative aspect-[16/10] overflow-hidden bg-zinc-100">
+                      <div className="relative aspect-[16/10] overflow-hidden bg-facil-surface">
                         <VehicleImage
                           src={firstImage?.url}
                           alt={v.title}
@@ -304,7 +304,7 @@ export default async function EstoquePage({
                         )}
                       </div>
                       <div className="p-5">
-                        <h2 className="font-bold text-zinc-900 line-clamp-2 transition-colors group-hover:text-facil-orange">
+                        <h2 className="font-bold text-foreground line-clamp-2 transition-colors group-hover:text-facil-orange">
                           {v.title}
                         </h2>
                         <p className="mt-2 text-2xl font-black text-facil-orange">
@@ -333,7 +333,7 @@ export default async function EstoquePage({
                 {page > 1 && (
                   <Link
                     href={buildUrl({ page: page - 1 })}
-                    className="rounded-lg border border-zinc-300 px-5 py-2 font-medium hover:bg-zinc-50"
+                    className="rounded-lg border border-facil-border px-5 py-2 font-medium hover:bg-facil-surface"
                   >
                     Anterior
                   </Link>
@@ -344,7 +344,7 @@ export default async function EstoquePage({
                 {page < result.totalPages && (
                   <Link
                     href={buildUrl({ page: page + 1 })}
-                    className="rounded-lg border border-zinc-300 px-5 py-2 font-medium hover:bg-zinc-50"
+                    className="rounded-lg border border-facil-border px-5 py-2 font-medium hover:bg-facil-surface"
                   >
                     Próxima
                   </Link>

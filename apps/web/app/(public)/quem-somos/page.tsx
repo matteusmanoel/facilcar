@@ -31,11 +31,11 @@ export default async function QuemSomosPage() {
         </div>
       </section>
       <section className="mx-auto max-w-3xl px-4 py-12">
-        <div className="prose prose-zinc max-w-none whitespace-pre-wrap text-facil-muted leading-relaxed">
+        <div className="public-prose">
           {page.body}
         </div>
         <div className="mt-12 rounded-2xl border border-facil-orange/30 bg-orange-50/50 p-8 text-center">
-          <p className="font-bold text-zinc-900">Quer nos conhecer pessoalmente?</p>
+          <p className="font-bold text-foreground">Quer nos conhecer pessoalmente?</p>
           <p className="mt-2 text-sm text-facil-muted">
             Agende uma visita ou fale pelo WhatsApp.
           </p>

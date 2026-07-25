@@ -12,7 +12,7 @@ export default async function BlogPage() {
   return (
     <main className="min-h-screen py-12 px-4">
       <div className="mx-auto max-w-6xl">
-        <h1 className="text-3xl font-extrabold text-zinc-900">Blog</h1>
+        <h1 className="text-3xl font-extrabold text-foreground">Blog</h1>
         <p className="mt-2 text-facil-muted">
           Conteúdo para quem quer comprar ou vender com segurança.
         </p>
@@ -24,9 +24,9 @@ export default async function BlogPage() {
               <Link
                 key={post.id}
                 href={`/blog/${post.slug}`}
-                className="group overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:border-facil-orange/30 hover:shadow-lg"
+                className="group overflow-hidden rounded-2xl border border-facil-border bg-facil-card shadow-sm transition hover:border-facil-orange/30 hover:shadow-lg"
               >
-                <div className="aspect-video overflow-hidden bg-zinc-100">
+                <div className="aspect-video overflow-hidden bg-facil-surface">
                   {post.coverImageUrl ? (
                     <img
                       src={post.coverImageUrl}
@@ -40,7 +40,7 @@ export default async function BlogPage() {
                   )}
                 </div>
                 <div className="p-5">
-                  <h2 className="font-bold text-zinc-900 group-hover:text-facil-orange line-clamp-2">
+                  <h2 className="font-bold text-foreground group-hover:text-facil-orange line-clamp-2">
                     {post.title}
                   </h2>
                   {post.excerpt && (

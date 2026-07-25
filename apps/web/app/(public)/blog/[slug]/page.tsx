@@ -27,7 +27,7 @@ export default async function BlogPostPage({ params }: Props) {
           ← Blog
         </Link>
         {post.coverImageUrl && (
-          <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-200">
+          <div className="mt-6 overflow-hidden rounded-2xl border border-facil-border">
             <img
               src={post.coverImageUrl}
               alt=""
@@ -35,9 +35,9 @@ export default async function BlogPostPage({ params }: Props) {
             />
           </div>
         )}
-        <h1 className="mt-8 text-3xl font-extrabold text-zinc-900 md:text-4xl">{post.title}</h1>
+        <h1 className="mt-8 text-3xl font-extrabold text-foreground md:text-4xl">{post.title}</h1>
         {post.excerpt && <p className="mt-4 text-lg text-facil-muted">{post.excerpt}</p>}
-        <div className="mt-8 prose prose-zinc max-w-none whitespace-pre-wrap leading-relaxed text-facil-muted">
+        <div className="mt-8 public-prose">
           {post.body}
         </div>
       </article>

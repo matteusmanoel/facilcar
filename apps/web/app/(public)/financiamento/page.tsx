@@ -27,19 +27,19 @@ export default async function FinanciamentoPage() {
             10 financeiras para encontrar a melhor condição para o seu perfil.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
-            <div className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-full bg-facil-card/10 px-4 py-2 text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M20 6 9 17l-5-5" />
               </svg>
               100% gratuito
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-full bg-facil-card/10 px-4 py-2 text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M20 6 9 17l-5-5" />
               </svg>
               Resposta via WhatsApp
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-full bg-facil-card/10 px-4 py-2 text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M20 6 9 17l-5-5" />
               </svg>
@@ -52,7 +52,7 @@ export default async function FinanciamentoPage() {
       <section className="px-4 py-14">
         <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1fr_min(100%,440px)]">
           <div>
-            <h2 className="text-2xl font-bold text-zinc-900">Como funciona</h2>
+            <h2 className="text-2xl font-bold text-foreground">Como funciona</h2>
             <div className="mt-8 grid gap-6 sm:grid-cols-3">
               {[
                 {
@@ -71,23 +71,23 @@ export default async function FinanciamentoPage() {
                   d: "Você recebe as melhores condições e fecha o negócio sem burocracia.",
                 },
               ].map((x) => (
-                <div key={x.step} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6">
+                <div key={x.step} className="rounded-2xl border border-facil-border bg-facil-surface p-6">
                   <span className="text-3xl font-black text-facil-orange">{x.step}</span>
-                  <h3 className="mt-2 font-bold text-zinc-900">{x.t}</h3>
+                  <h3 className="mt-2 font-bold text-foreground">{x.t}</h3>
                   <p className="mt-2 text-sm text-facil-muted leading-relaxed">{x.d}</p>
                 </div>
               ))}
             </div>
             <div className="mt-10 rounded-2xl border border-facil-orange/20 bg-orange-50/50 p-6">
-              <h3 className="font-bold text-zinc-900">Refinanciamento</h3>
+              <h3 className="font-bold text-foreground">Refinanciamento</h3>
               <p className="mt-2 text-sm text-facil-muted leading-relaxed">
                 Quer usar seu carro como garantia para obter crédito? Podemos orientar sobre
                 refinanciamento com prazos e taxas competitivas, conforme análise da instituição.
               </p>
             </div>
-            <div className="mt-10 rounded-2xl border border-zinc-200 bg-zinc-50 p-6">
-              <h3 className="font-semibold text-zinc-900">Documentos necessários (na hora do fechamento)</h3>
-              <ul className="mt-3 space-y-1.5 text-sm text-zinc-600">
+            <div className="mt-10 rounded-2xl border border-facil-border bg-facil-surface p-6">
+              <h3 className="font-semibold text-foreground">Documentos necessários (na hora do fechamento)</h3>
+              <ul className="mt-3 space-y-1.5 text-sm text-facil-muted">
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-facil-orange" />
                   RG, CPF e comprovante de residência
@@ -105,8 +105,8 @@ export default async function FinanciamentoPage() {
           </div>
 
           <aside className="h-fit">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg shadow-zinc-900/5">
-              <h2 className="text-xl font-bold text-zinc-900">Simule Agora</h2>
+            <div className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-lg shadow-zinc-900/5">
+              <h2 className="text-xl font-bold text-foreground">Simule Agora</h2>
               <p className="mt-1.5 text-sm text-facil-muted">
                 Preencha abaixo. Após o envio, abrimos o WhatsApp automaticamente.
               </p>
@@ -117,8 +117,8 @@ export default async function FinanciamentoPage() {
               </div>
             </div>
             {wa && (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5">
-                <h3 className="text-sm font-semibold text-zinc-900">Prefere falar antes?</h3>
+              <div className="mt-4 rounded-2xl border border-facil-border bg-facil-card p-5">
+                <h3 className="text-sm font-semibold text-foreground">Prefere falar antes?</h3>
                 <a
                   href={`https://wa.me/${wa}?text=${encodeURIComponent("Olá, tenho interesse em simular um financiamento!")}`}
                   target="_blank"
@@ -131,8 +131,8 @@ export default async function FinanciamentoPage() {
                   Falar no WhatsApp
                 </a>
                 {settings?.phoneNumber && (
-                  <p className="mt-3 text-center text-sm text-zinc-500">
-                    ou ligue: <span className="font-semibold text-zinc-700">{settings.phoneNumber}</span>
+                  <p className="mt-3 text-center text-sm text-facil-muted">
+                    ou ligue: <span className="font-semibold text-foreground">{settings.phoneNumber}</span>
                   </p>
                 )}
               </div>

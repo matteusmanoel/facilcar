@@ -15,19 +15,7 @@ export default async function PublicLayout({
   const jsonLd = settings ? buildAutoDealerJsonLd(settings) : null;
 
   return (
-    <div
-      className="flex min-h-screen flex-col"
-      style={{
-        colorScheme: "light",
-        // Force light-mode CSS variables regardless of system theme
-        ["--background" as string]: "#f4f4f5",
-        ["--foreground" as string]: "#18181b",
-        ["--facil-card" as string]: "#ffffff",
-        ["--facil-surface" as string]: "#f9f9f9",
-        ["--facil-border" as string]: "#e4e4e7",
-        ["--facil-orange-light" as string]: "#fff3eb",
-      }}
-    >
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       {jsonLd && (
         <script
           type="application/ld+json"

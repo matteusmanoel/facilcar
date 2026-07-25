@@ -39,7 +39,7 @@ export default async function VenderVeiculoPage() {
 
       <section className="px-4 py-14">
         <div className="mx-auto max-w-6xl">
-          <h2 className="text-2xl font-bold text-zinc-900">Por que consignar conosco?</h2>
+          <h2 className="text-2xl font-bold text-foreground">Por que consignar conosco?</h2>
           <div className="mt-10 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
             {[
               {
@@ -67,9 +67,9 @@ export default async function VenderVeiculoPage() {
                 d: "Cliente troca com a gente? Absorvemos o usado e você recebe o combinado de forma organizada.",
               },
             ].map((x) => (
-              <div key={x.t} className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <div key={x.t} className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm">
                 <div className="h-1 w-10 rounded-full bg-facil-orange" />
-                <h3 className="mt-4 font-bold text-zinc-900">{x.t}</h3>
+                <h3 className="mt-4 font-bold text-foreground">{x.t}</h3>
                 <p className="mt-2 text-sm text-facil-muted leading-relaxed">{x.d}</p>
               </div>
             ))}
@@ -77,7 +77,7 @@ export default async function VenderVeiculoPage() {
 
           <div className="mt-16 grid gap-12 lg:grid-cols-2">
             <div>
-              <h2 className="text-2xl font-bold text-zinc-900">Solicite sua avaliação</h2>
+              <h2 className="text-2xl font-bold text-foreground">Solicite sua avaliação</h2>
               <p className="mt-2 text-facil-muted">
                 Preencha os dados do veículo. Retornamos com próximos passos e convite para vistoria.
               </p>
@@ -85,8 +85,8 @@ export default async function VenderVeiculoPage() {
                 <SellVehicleForm />
               </div>
             </div>
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-8">
-              <h3 className="font-bold text-zinc-900">Como funciona na prática</h3>
+            <div className="rounded-2xl border border-facil-border bg-facil-surface p-8">
+              <h3 className="font-bold text-foreground">Como funciona na prática</h3>
               <ol className="mt-4 list-decimal space-y-3 pl-5 text-sm text-facil-muted">
                 <li>Você envia os dados ou traz o carro para avaliação.</li>
                 <li>Definimos valor de anúncio e condições de consignação.</li>

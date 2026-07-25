@@ -199,7 +199,7 @@ export default async function HomePage() {
             />
             <button
               type="submit"
-              className="rounded-xl bg-white px-6 py-3 font-semibold text-facil-black transition hover:bg-zinc-100"
+              className="rounded-xl bg-white px-6 py-3 font-semibold text-facil-black transition hover:bg-facil-surface"
             >
               Buscar
             </button>
@@ -231,7 +231,7 @@ export default async function HomePage() {
                   <p className="text-xs font-semibold uppercase tracking-widest text-facil-orange">
                     Seleção especial
                   </p>
-                  <h2 className="mt-1 text-3xl font-bold text-zinc-900 md:text-4xl">
+                  <h2 className="mt-1 text-3xl font-bold text-foreground md:text-4xl">
                     Destaques do estoque
                   </h2>
                   <p className="mt-2 text-facil-muted">
@@ -262,7 +262,7 @@ export default async function HomePage() {
                       href={`/estoque/${v.slug}`}
                       className="vehicle-card group block"
                     >
-                      <div className="relative aspect-[16/10] overflow-hidden bg-zinc-100">
+                      <div className="relative aspect-[16/10] overflow-hidden bg-facil-surface">
                         <VehicleImage
                           src={v.images[0]?.url}
                           alt={v.title}
@@ -317,18 +317,18 @@ export default async function HomePage() {
       <section className="border-y border-facil-border bg-facil-surface py-20 px-4">
         <div className="mx-auto max-w-6xl">
           <ScrollReveal>
-            <h2 className="text-center text-3xl font-bold text-zinc-900 md:text-4xl">
+            <h2 className="text-center text-3xl font-bold text-foreground md:text-4xl">
               Por que escolher a FácilCar?
             </h2>
           </ScrollReveal>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
             {benefits.map((b, i) => (
               <ScrollReveal key={b.title} delay={i * 100}>
-                <div className="group rounded-2xl border border-facil-border bg-white p-8 transition-all duration-300 hover:border-facil-orange/40 hover:shadow-lg hover:-translate-y-0.5">
+                <div className="group rounded-2xl border border-facil-border bg-facil-card p-8 transition-all duration-300 hover:border-facil-orange/40 hover:shadow-lg hover:-translate-y-0.5">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-facil-orange-light text-facil-orange transition-colors group-hover:bg-facil-orange group-hover:text-white">
                     {b.icon}
                   </div>
-                  <h3 className="mt-5 text-xl font-bold text-zinc-900">
+                  <h3 className="mt-5 text-xl font-bold text-foreground">
                     {b.title}
                   </h3>
                   <p className="mt-3 text-facil-muted leading-relaxed">
@@ -423,14 +423,14 @@ export default async function HomePage() {
             <p className="text-center text-xs font-semibold uppercase tracking-widest text-facil-orange">
               Depoimentos
             </p>
-            <h2 className="mt-2 text-center text-3xl font-bold text-zinc-900 md:text-4xl">
+            <h2 className="mt-2 text-center text-3xl font-bold text-foreground md:text-4xl">
               O que nossos clientes dizem
             </h2>
           </ScrollReveal>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
             {testimonials.map((t, i) => (
               <ScrollReveal key={t.name} delay={i * 80}>
-                <blockquote className="flex h-full flex-col rounded-2xl border border-facil-border bg-white p-6 shadow-sm transition hover:border-facil-orange/30 hover:shadow-md">
+                <blockquote className="flex h-full flex-col rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm transition hover:border-facil-orange/30 hover:shadow-md">
                   {/* Stars */}
                   <div className="flex gap-0.5 text-amber-400">
                     {Array.from({ length: 5 }).map((_, j) => (
@@ -446,15 +446,15 @@ export default async function HomePage() {
                       </svg>
                     ))}
                   </div>
-                  <p className="mt-4 flex-1 text-zinc-600 leading-relaxed">
+                  <p className="mt-4 flex-1 text-facil-muted leading-relaxed">
                     &ldquo;{t.text}&rdquo;
                   </p>
-                  <footer className="mt-5 flex items-center gap-3 border-t border-zinc-100 pt-4">
+                  <footer className="mt-5 flex items-center gap-3 border-t border-facil-border pt-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-facil-orange text-sm font-bold text-white">
                       {t.initials}
                     </div>
                     <div>
-                      <cite className="not-italic text-sm font-bold text-zinc-900">
+                      <cite className="not-italic text-sm font-bold text-foreground">
                         {t.name}
                       </cite>
                       <p className="text-xs text-facil-muted">{t.role}</p>
@@ -477,7 +477,7 @@ export default async function HomePage() {
             <p className="text-xs font-semibold uppercase tracking-widest text-facil-orange">
               Sobre nós
             </p>
-            <h2 className="mt-2 text-3xl font-bold text-zinc-900 md:text-4xl">
+            <h2 className="mt-2 text-3xl font-bold text-foreground md:text-4xl">
               Conheça a FácilCar
             </h2>
             <p className="mt-4 text-facil-muted leading-relaxed">
@@ -525,7 +525,7 @@ export default async function HomePage() {
                   <p className="text-xs font-semibold uppercase tracking-widest text-facil-orange">
                     Conteúdo
                   </p>
-                  <h2 className="mt-1 text-3xl font-bold text-zinc-900 md:text-4xl">
+                  <h2 className="mt-1 text-3xl font-bold text-foreground md:text-4xl">
                     Blog
                   </h2>
                 </div>
@@ -542,9 +542,9 @@ export default async function HomePage() {
                 <ScrollReveal key={post.id} delay={i * 80}>
                   <Link
                     href={`/blog/${post.slug}`}
-                    className="group flex flex-col rounded-2xl border border-facil-border bg-white p-6 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-lg hover:-translate-y-0.5"
+                    className="group flex flex-col rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-lg hover:-translate-y-0.5"
                   >
-                    <h3 className="font-bold text-zinc-900 group-hover:text-facil-orange transition-colors">
+                    <h3 className="font-bold text-foreground group-hover:text-facil-orange transition-colors">
                       {post.title}
                     </h3>
                     {post.excerpt && (

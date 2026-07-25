@@ -124,21 +124,21 @@ export default async function VehicleDetailPage({ params }: Props) {
           {/* Coluna principal: título + galeria + accordion */}
           <header className="min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
+              <span className="badge-green-solid">
                 Revisado / conferido
               </span>
               <span className="rounded-full bg-facil-orange/15 px-3 py-1 text-xs font-bold text-facil-orange">
                 Documentação em dia
               </span>
-              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+              <span className="badge-blue">
                 Financiamento facilitado
               </span>
             </div>
-            <h1 className="mt-3 text-2xl font-extrabold uppercase tracking-tight text-zinc-900 md:text-3xl lg:text-[1.75rem] lg:leading-tight">
+            <h1 className="mt-3 text-2xl font-extrabold uppercase tracking-tight text-foreground md:text-3xl lg:text-[1.75rem] lg:leading-tight">
               {vehicle.title}
             </h1>
             {subtitle && (
-              <p className="mt-2 text-base font-medium text-zinc-600 md:text-lg">
+              <p className="mt-2 text-base font-medium text-facil-muted md:text-lg">
                 {subtitle}
               </p>
             )}
@@ -148,9 +148,9 @@ export default async function VehicleDetailPage({ params }: Props) {
                 : "Consultar valor"}
             </p>
             {estimatedMonthly && (
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-1 text-sm text-facil-muted">
                 ou financie a partir de{" "}
-                <strong className="text-zinc-700">~R$ {estimatedMonthly}/mês*</strong>
+                <strong className="text-foreground">~R$ {estimatedMonthly}/mês*</strong>
               </p>
             )}
             {(vehicle.pricePromotional || vehicle.priceTradeIn) && (
@@ -183,8 +183,8 @@ export default async function VehicleDetailPage({ params }: Props) {
 
           {/* Sidebar: simulação de financiamento */}
           <aside className="lg:col-start-2 lg:row-start-1 lg:row-span-3 lg:sticky lg:top-24 lg:self-start">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg shadow-zinc-900/5">
-              <h2 className="text-xl font-bold text-zinc-900">
+            <div className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-lg shadow-zinc-900/5">
+              <h2 className="text-xl font-bold text-foreground">
                 Simule seu Financiamento
               </h2>
               <p className="mt-1.5 text-sm leading-relaxed text-facil-muted">
@@ -201,7 +201,7 @@ export default async function VehicleDetailPage({ params }: Props) {
                 />
               </div>
               {whatsappNumber && (
-                <div className="mt-4 border-t border-zinc-100 pt-4">
+                <div className="mt-4 border-t border-facil-border pt-4">
                   <p className="mb-2 text-center text-xs text-zinc-400">
                     Prefere falar direto?
                   </p>
@@ -236,8 +236,8 @@ export default async function VehicleDetailPage({ params }: Props) {
         </div>
 
         {related.length > 0 && (
-          <section className="mt-16 border-t border-zinc-200 pt-12">
-            <h2 className="text-2xl font-bold text-zinc-900">
+          <section className="mt-16 border-t border-facil-border pt-12">
+            <h2 className="text-2xl font-bold text-foreground">
               Veículos relacionados
             </h2>
             <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -245,9 +245,9 @@ export default async function VehicleDetailPage({ params }: Props) {
                 <Link
                   key={v.id}
                   href={`/estoque/${v.slug}`}
-                  className="group overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm hover:border-facil-orange/30"
+                  className="group overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm hover:border-facil-orange/30"
                 >
-                  <div className="relative aspect-video overflow-hidden bg-zinc-100">
+                  <div className="relative aspect-video overflow-hidden bg-facil-surface">
                     <VehicleImage
                       src={v.images[0]?.url}
                       alt={v.title}
@@ -255,13 +255,13 @@ export default async function VehicleDetailPage({ params }: Props) {
                     />
                   </div>
                   <div className="p-4">
-                    <h3 className="font-semibold text-zinc-900">{v.title}</h3>
+                    <h3 className="font-semibold text-foreground">{v.title}</h3>
                     <p className="mt-1 font-bold text-facil-orange">
                       {v.priceCash != null
                         ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
                         : "Consultar"}
                     </p>
-                    <p className="mt-2 text-xs text-zinc-500">Simule o financiamento →</p>
+                    <p className="mt-2 text-xs text-facil-muted">Simule o financiamento →</p>
                   </div>
                 </Link>
               ))}
