@@ -2,7 +2,20 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Save } from "lucide-react";
+import { toast } from "sonner";
 import { updateBlogPostAction } from "@/features/content/server/mutations";
+import { AdminFieldLabel, AdminTextarea } from "@/components/admin/AdminField";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/cn";
 
 type Post = {
   id: string;
@@ -16,64 +29,99 @@ type Post = {
   metaDescription: string | null;
 };
 
-export function BlogPostForm({ post }: { post: Post }) {
+type Props = {
+  post: Post;
+  variant?: "page" | "dialog";
+  onCancel?: () => void;
+  onSaved?: () => void;
+};
+
+export function BlogPostForm({ post, variant = "page", onCancel, onSaved }: Props) {
   const router = useRouter();
-  const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [status, setStatus] = useState(post.status);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
     <form
       action={async (formData: FormData) => {
-        setMessage(null);
+        setIsSubmitting(true);
         const result = await updateBlogPostAction(formData);
+        setIsSubmitting(false);
         if (result.ok) {
-          setMessage({ type: "ok", text: "Salvo." });
-          router.refresh();
+          toast.success("Post salvo.");
+          if (onSaved) {
+            onSaved();
+          } else {
+            router.refresh();
+          }
         } else {
-          setMessage({ type: "error", text: result.error ?? "Erro" });
+          toast.error("error" in result && result.error ? String(result.error) : "Erro ao salvar");
         }
       }}
-      className="mt-6 max-w-2xl space-y-4"
+      className={cn("space-y-4", variant === "page" && "mt-6 max-w-2xl")}
     >
       <input type="hidden" name="id" value={post.id} />
-      <label className="block text-sm font-medium">
-        Slug *
-        <input name="slug" required defaultValue={post.slug} className="mt-1 w-full rounded border px-3 py-2 font-mono" />
-      </label>
-      <label className="block text-sm font-medium">
-        Título *
-        <input name="title" required defaultValue={post.title} className="mt-1 w-full rounded border px-3 py-2" />
-      </label>
-      <label className="block text-sm font-medium">
-        Status
-        <select name="status" defaultValue={post.status} className="mt-1 w-full rounded border px-3 py-2">
-          <option value="DRAFT">DRAFT</option>
-          <option value="PUBLISHED">PUBLISHED</option>
-        </select>
-      </label>
-      <label className="block text-sm font-medium">
-        Resumo
-        <input name="excerpt" defaultValue={post.excerpt ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
-      </label>
-      <label className="block text-sm font-medium">
-        URL da imagem de capa
-        <input name="coverImageUrl" defaultValue={post.coverImageUrl ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
-      </label>
-      <label className="block text-sm font-medium">
-        Conteúdo *
-        <textarea name="body" rows={12} defaultValue={post.body} className="mt-1 w-full rounded border px-3 py-2 font-mono text-sm" />
-      </label>
-      <label className="block text-sm font-medium">
-        Meta título
-        <input name="metaTitle" defaultValue={post.metaTitle ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
-      </label>
-      <label className="block text-sm font-medium">
-        Meta descrição
-        <textarea name="metaDescription" rows={2} defaultValue={post.metaDescription ?? ""} className="mt-1 w-full rounded border px-3 py-2" />
-      </label>
-      {message && <p className={message.type === "ok" ? "text-green-600" : "text-red-600"}>{message.text}</p>}
-      <button type="submit" className="rounded bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800">
-        Salvar
-      </button>
+      <input type="hidden" name="status" value={status} />
+
+      <div className="space-y-1">
+        <AdminFieldLabel required>Slug</AdminFieldLabel>
+        <Input name="slug" required defaultValue={post.slug} className="font-mono" />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel required>Título</AdminFieldLabel>
+        <Input name="title" required defaultValue={post.title} />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel>Status</AdminFieldLabel>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="DRAFT">Rascunho</SelectItem>
+            <SelectItem value="PUBLISHED">Publicado</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel>Resumo</AdminFieldLabel>
+        <Input name="excerpt" defaultValue={post.excerpt ?? ""} />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel>URL da imagem de capa</AdminFieldLabel>
+        <Input name="coverImageUrl" defaultValue={post.coverImageUrl ?? ""} />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel required>Conteúdo</AdminFieldLabel>
+        <AdminTextarea name="body" rows={10} defaultValue={post.body} className="font-mono text-sm" />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel>Meta título</AdminFieldLabel>
+        <Input name="metaTitle" defaultValue={post.metaTitle ?? ""} />
+      </div>
+
+      <div className="space-y-1">
+        <AdminFieldLabel>Meta descrição</AdminFieldLabel>
+        <AdminTextarea name="metaDescription" rows={2} defaultValue={post.metaDescription ?? ""} />
+      </div>
+
+      <div className={cn("flex justify-end gap-2", variant === "dialog" && "border-t border-facil-border pt-4")}>
+        {variant === "dialog" && onCancel ? (
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+            Cancelar
+          </Button>
+        ) : null}
+        <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Save className="h-4 w-4" />
+          {isSubmitting ? "Salvando…" : "Salvar"}
+        </Button>
+      </div>
     </form>
   );
 }

@@ -1,8 +1,26 @@
 "use server";
 
+import {
+  CONTENT_ROLES,
+  ForbiddenError,
+  UnauthorizedError,
+  requireAdminRole,
+} from "@/features/auth/server/rbac";
 import { prisma } from "@/lib/db";
 
+function handleAuthError(e: unknown) {
+  if (e instanceof UnauthorizedError) return { ok: false, error: e.message };
+  if (e instanceof ForbiddenError) return { ok: false, error: e.message };
+  throw e;
+}
+
 export async function updatePageAction(formData: FormData) {
+  try {
+    await requireAdminRole(CONTENT_ROLES);
+  } catch (e) {
+    return handleAuthError(e);
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { ok: false, error: "id obrigatório" };
 
@@ -24,6 +42,12 @@ export async function updatePageAction(formData: FormData) {
 }
 
 export async function updateBlogPostAction(formData: FormData) {
+  try {
+    await requireAdminRole(CONTENT_ROLES);
+  } catch (e) {
+    return handleAuthError(e);
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { ok: false, error: "id obrigatório" };
 
