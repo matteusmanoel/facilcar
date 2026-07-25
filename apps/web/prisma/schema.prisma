@@ -233,6 +233,19 @@ model VehicleFeature {
   @@schema("facilcar")
 }
 
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  leads     Lead[]
+
+  @@schema("facilcar")
+  @@index([name])
+}
+
 model Lead {
   id               String       @id @default(cuid())
   type             LeadType
@@ -248,6 +261,8 @@ model Lead {
   message          String?
   vehicleId        String?
   vehicle          Vehicle?     @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  customerId       String?
+  customer         Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedToUserId String?
   assignedToUser    User?        @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
   utmSource        String?
@@ -258,6 +273,7 @@ model Lead {
   originUrl        String?
   metadataJson     Json?
   internalNote     String?
+  deletedAt        DateTime?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   financingRequest FinancingRequest?
@@ -267,6 +283,8 @@ model Lead {
   @@index([type])
   @@index([status])
   @@index([source])
+  @@index([customerId])
+  @@index([deletedAt])
   @@index([createdAt(sort: Desc)])
 }
 
@@ -357,6 +375,7 @@ model SiteSettings {
   footerText          String?
   heroTitle           String?
   heroSubtitle        String?
+  publicTheme         String   @default("dark")
 
   @@schema("facilcar")
 }

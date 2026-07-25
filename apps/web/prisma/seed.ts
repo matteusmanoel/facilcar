@@ -488,7 +488,7 @@ const VEHICLE_SEEDS: VehicleSeed[] = [
 async function main() {
   const settingsData = {
     siteName: "FácilCar Multimarcas",
-    defaultWhatsappNumber: "5545999123456",
+    defaultWhatsappNumber: "5545999974232",
     defaultEmail: "contato@facilcarmultimarcas.com.br",
     phoneNumber: "(45) 3300-0000",
     addressLine: "Av. Exemplo, 1000 — Showroom",
@@ -506,6 +506,7 @@ async function main() {
     heroTitle: "Seu próximo carro, do jeito mais fácil.",
     heroSubtitle:
       "Estoque curado, financiamento com especialistas e avaliação justa do seu usado — tudo em um só lugar.",
+    publicTheme: "dark",
   };
 
   const existingSettings = await prisma.siteSettings.findFirst();
@@ -757,6 +758,24 @@ Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assu
     },
     update: { passwordHash, name: "Admin FácilCar" },
   });
+
+  const demoUsers = [
+    { email: "vendedor@facilcar.demo", name: "Vendedor Demo", role: "LEAD_MANAGER" as const },
+    { email: "editor@facilcar.demo", name: "Editor Demo", role: "EDITOR" as const },
+  ];
+  for (const demoUser of demoUsers) {
+    await prisma.user.upsert({
+      where: { email: demoUser.email },
+      create: {
+        name: demoUser.name,
+        email: demoUser.email,
+        passwordHash,
+        role: demoUser.role,
+        isActive: true,
+      },
+      update: { passwordHash, name: demoUser.name, role: demoUser.role, isActive: true },
+    });
+  }
 
   // Demo lead — financing simulation
   const demoVehicle = await prisma.vehicle.findFirst({
