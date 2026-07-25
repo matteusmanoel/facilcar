@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { createSellVehicleLead } from "../server/actions";
+import {
+  publicFormInputSimpleClass,
+  publicFormLabelClass,
+} from "@/lib/theme";
 
 export function SellVehicleForm() {
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
@@ -21,41 +25,56 @@ export function SellVehicleForm() {
       }}
       className="flex flex-col gap-3 max-w-md"
     >
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Nome *
-        <input name="name" required className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="name" required className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Telefone *
-        <input name="phone" type="tel" required className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="phone" type="tel" required className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         E-mail
-        <input name="email" type="email" className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="email" type="email" className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Marca do veículo
-        <input name="brand" className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="brand" className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Modelo
-        <input name="model" className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="model" className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Ano
-        <input name="yearModel" type="number" min={1990} max={2030} className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input
+          name="yearModel"
+          type="number"
+          min={1990}
+          max={2030}
+          className={publicFormInputSimpleClass}
+        />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Quilometragem
-        <input name="mileage" type="number" min={0} className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="mileage" type="number" min={0} className={publicFormInputSimpleClass} />
       </label>
-      <label className="text-sm font-medium">
+      <label className={publicFormLabelClass}>
         Observações
-        <textarea name="observations" rows={4} className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" />
+        <textarea name="observations" rows={4} className={publicFormInputSimpleClass} />
       </label>
-      {status === "success" && <p className="text-sm text-green-600">Enviado! Entraremos em contato para avaliar seu veículo.</p>}
-      {status === "error" && <p className="text-sm text-red-600">{errorMessage}</p>}
-      <button type="submit" className="rounded bg-zinc-900 py-2 text-white hover:bg-zinc-800">
+      {status === "success" && (
+        <p className="text-sm text-green-600 dark:text-green-400">
+          Enviado! Entraremos em contato para avaliar seu veículo.
+        </p>
+      )}
+      {status === "error" && (
+        <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
+      )}
+      <button
+        type="submit"
+        className="rounded bg-zinc-900 py-2 text-white hover:bg-zinc-800 dark:bg-facil-orange dark:hover:bg-facil-orange-hover"
+      >
         Enviar
       </button>
     </form>

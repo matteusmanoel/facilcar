@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { createVehicleInterestLead } from "../server/actions";
+import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
 
 type Props = { vehicleId: string };
 
-const fieldClass =
-  "mt-1.5 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-facil-orange/20";
+const fieldClass = publicFormInputClass;
 
 export function VehicleInterestForm({ vehicleId }: Props) {
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
@@ -27,12 +27,12 @@ export function VehicleInterestForm({ vehicleId }: Props) {
       className="flex flex-col gap-4"
     >
       <input type="hidden" name="vehicleId" value={vehicleId} />
-      <p className="text-sm font-medium text-zinc-800">Preencha os campos com seus dados</p>
-      <label className="text-sm font-medium text-zinc-800">
+      <p className={publicFormLabelClass}>Preencha os campos com seus dados</p>
+      <label className={publicFormLabelClass}>
         Nome completo *
         <input name="name" required autoComplete="name" className={fieldClass} placeholder="Seu nome" />
       </label>
-      <label className="text-sm font-medium text-zinc-800">
+      <label className={publicFormLabelClass}>
         DDD + Celular *
         <input
           name="phone"
@@ -43,11 +43,11 @@ export function VehicleInterestForm({ vehicleId }: Props) {
           placeholder="(00) 00000-0000"
         />
       </label>
-      <label className="text-sm font-medium text-zinc-800">
+      <label className={publicFormLabelClass}>
         E-mail
         <input name="email" type="email" autoComplete="email" className={fieldClass} placeholder="seu@email.com" />
       </label>
-      <label className="text-sm font-medium text-zinc-800">
+      <label className={publicFormLabelClass}>
         Mensagem <span className="font-normal text-facil-muted">(opcional)</span>
         <textarea
           name="message"
@@ -57,14 +57,20 @@ export function VehicleInterestForm({ vehicleId }: Props) {
         />
       </label>
       {status === "success" && (
-        <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
-          Enviado! Entraremos em contato em breve.
+        <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-950/40 dark:text-green-400">
+          Mensagem enviada! Entraremos em contato em breve.
         </p>
       )}
       {status === "error" && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+          {errorMessage}
+        </p>
       )}
-      <button type="submit" className="btn-facil-primary w-full py-3.5 text-base font-bold shadow-md">
+      <button
+        type="submit"
+        className="btn-facil-primary w-full"
+        disabled={status === "success"}
+      >
         Enviar interesse
       </button>
     </form>

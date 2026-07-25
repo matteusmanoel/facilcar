@@ -1,15 +1,13 @@
 import { test, expect } from "@playwright/test";
 
-const email = process.env.E2E_ADMIN_EMAIL;
-const password = process.env.E2E_ADMIN_PASSWORD;
+const email = process.env.E2E_ADMIN_EMAIL ?? "admin@facilcar.demo";
+const password = process.env.E2E_ADMIN_PASSWORD ?? "ChangeMe123!";
 
 test.describe("Admin (autenticado)", () => {
-  test.skip(!email || !password, "Defina E2E_ADMIN_EMAIL e E2E_ADMIN_PASSWORD para rodar estes testes.");
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/admin/login");
-    await page.getByLabel("E-mail").fill(email!);
-    await page.getByLabel("Senha").fill(password!);
+    await page.getByLabel("E-mail").fill(email);
+    await page.getByLabel("Senha").fill(password);
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/admin\/?$/);
   });

@@ -2,6 +2,10 @@
 
 import { useState, useRef, useMemo } from "react";
 import { createFinancingSimulationLead } from "../server/actions";
+import {
+  publicFormInputClass,
+  publicFormLabelClass,
+} from "@/lib/theme";
 
 type Props = {
   vehicleId?: string;
@@ -11,10 +15,8 @@ type Props = {
   whatsappNumber: string;
 };
 
-const inputClass =
-  "mt-1.5 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-facil-orange/20 disabled:opacity-60";
-
-const labelClass = "block text-sm font-medium text-zinc-800";
+const inputClass = publicFormInputClass;
+const labelClass = publicFormLabelClass;
 
 function formatCPF(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -113,7 +115,7 @@ export function FinancingSimulationForm({
         <button
           type="button"
           onClick={() => setStatus("idle")}
-          className="mt-2 text-sm text-zinc-500 underline hover:text-zinc-700"
+          className="mt-2 text-sm text-facil-muted underline hover:text-foreground"
         >
           Preencher novamente
         </button>
@@ -222,7 +224,7 @@ export function FinancingSimulationForm({
         <label className={labelClass}>
           Renda Mensal *
           <div className="relative mt-1.5">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-500">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-facil-muted">
               R$
             </span>
             <input
@@ -241,7 +243,7 @@ export function FinancingSimulationForm({
         <label className={labelClass}>
           Valor de Entrada
           <div className="relative mt-1.5">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-500">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-facil-muted">
               R$
             </span>
             <input
@@ -356,7 +358,7 @@ export function FinancingSimulationForm({
         )}
       </button>
 
-      <p className="text-center text-xs text-zinc-400">
+      <p className="text-center text-xs text-facil-muted">
         100% gratuito · Sem consulta ao SPC/Serasa nesta etapa · Seus dados são protegidos
       </p>
     </form>
