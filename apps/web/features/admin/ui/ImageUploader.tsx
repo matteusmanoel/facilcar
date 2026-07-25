@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, ImageIcon, GripVertical, Link as LinkIcon } from "lucide-react";
+import { Upload, X, ImageIcon, GripVertical, Link as LinkIcon, Camera } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +40,7 @@ function listToUrls(list: string[]): string {
 
 export function ImageUploader({ value, onChange }: ImageUploaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [manualUrl, setManualUrl] = useState("");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -161,39 +162,67 @@ export function ImageUploader({ value, onChange }: ImageUploaderProps) {
 
   return (
     <div className="space-y-4">
-      {/* Drop zone */}
-      <div
-        className={cn(
-          "relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors cursor-pointer",
-          isDraggingOver
-            ? "border-facil-orange bg-facil-orange-light"
-            : "border-zinc-300 hover:border-zinc-400 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-zinc-500",
-        )}
-        onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-        onDragLeave={() => setIsDraggingOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDraggingOver(false);
-          handleFiles(e.dataTransfer.files);
-        }}
-      >
-        <Upload className="h-8 w-8 text-zinc-400" />
-        <div>
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Clique ou arraste imagens aqui
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-            JPG, PNG, WebP · Múltiplos arquivos
-          </p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {/* Drop zone */}
+        <div
+          className={cn(
+            "relative flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors cursor-pointer",
+            isDraggingOver
+              ? "border-facil-orange bg-facil-orange-light"
+              : "border-zinc-300 hover:border-zinc-400 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-zinc-500",
+          )}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDraggingOver(false);
+            handleFiles(e.dataTransfer.files);
+          }}
+        >
+          <Upload className="h-8 w-8 text-zinc-400" />
+          <div>
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Clique ou arraste imagens aqui
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+              JPG, PNG, WebP · Múltiplos arquivos
+            </p>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            onChange={(e) => handleFiles(e.target.files)}
+          />
         </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto min-h-[7rem] flex-col gap-2 md:hidden"
+          title="Capturar foto com a câmera"
+          onClick={(e) => {
+            e.stopPropagation();
+            cameraInputRef.current?.click();
+          }}
+        >
+          <Camera className="h-6 w-6 text-facil-muted" />
+          <span className="text-sm font-medium">Câmera</span>
+          <span className="text-[10px] text-facil-muted">Tirar foto</span>
+        </Button>
         <input
-          ref={fileInputRef}
+          ref={cameraInputRef}
           type="file"
-          multiple
           accept="image/*"
-          className="absolute inset-0 opacity-0 cursor-pointer"
-          onChange={(e) => handleFiles(e.target.files)}
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
       </div>
 

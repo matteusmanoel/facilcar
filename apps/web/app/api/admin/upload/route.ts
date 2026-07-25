@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { auth } from "@/features/auth/server/auth";
 
 const STORAGE_ENDPOINT = process.env.STORAGE_ENDPOINT;
 const STORAGE_ACCESS_KEY = process.env.STORAGE_ACCESS_KEY;
@@ -14,6 +15,11 @@ function isConfigured() {
 }
 
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   if (!isConfigured()) {
     return NextResponse.json(
       { error: "Storage not configured. Set STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STORAGE_BUCKET_NAME." },

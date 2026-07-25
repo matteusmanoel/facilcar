@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +12,14 @@ import { Stepper } from "@/components/ui/stepper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -20,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { ImageUploader } from "@/features/admin/ui/ImageUploader";
 import { VehicleBrandCombobox } from "@/components/admin/VehicleBrandCombobox";
+import { VehicleSuccessPanel } from "./VehicleSuccessPanel";
 import { cn } from "@/lib/cn";
 
 type BrandOption = { id: string; name: string; slug: string };
@@ -40,9 +49,16 @@ type VehicleForForm = {
   transmission: string | null;
   color: string | null;
   doors: number | null;
+  plateFinal: string | null;
   priceCash: unknown;
   priceTradeIn: unknown;
   pricePromotional: unknown;
+  aceitaTroca: boolean;
+  aceitaSemEntrada: boolean;
+  parcelaBase: unknown;
+  entradaMinima: unknown;
+  rendaMinimaSugerida: unknown;
+  prioridade: number;
   city: string | null;
   state: string | null;
   metaTitle: string | null;
@@ -57,6 +73,7 @@ type VehicleForForm = {
 interface VehicleFormProps {
   brands: BrandOption[];
   vehicle?: VehicleForForm | null;
+  readOnly?: boolean;
 }
 
 const STEPS = ["Informações", "Especificações", "Precificação", "Mídia & SEO"];
@@ -100,7 +117,7 @@ const TRANS_LABELS: Record<string, string> = {
 
 const STEP_FIELDS: Record<number, (keyof CreateVehicleInput)[]> = {
   0: ["title", "brandId", "model", "type", "status"],
-  1: ["yearManufacture", "yearModel", "mileage", "fuelType", "transmission", "color", "doors"],
+  1: ["fuelType", "transmission"],
   2: ["priceCash"],
   3: [],
 };
@@ -117,9 +134,9 @@ function FieldLabel({
   htmlFor?: string;
 }) {
   return (
-    <label htmlFor={htmlFor} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+    <label htmlFor={htmlFor} className="block text-sm font-medium text-foreground">
       {children}
-      {required && <span className="ml-0.5 text-facil-orange">*</span>}
+      {required && <span className="ml-1 text-facil-orange">*</span>}
     </label>
   );
 }
@@ -211,7 +228,8 @@ function FormTextarea({
       <textarea
         rows={rows}
         className={cn(
-          "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-facil-orange/30",
+          "box-border w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900",
+          "focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-inset focus:ring-facil-orange/30",
           "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500",
           error && "border-red-400",
         )}
@@ -222,10 +240,22 @@ function FormTextarea({
   );
 }
 
-export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
+export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormProps) {
   const router = useRouter();
   const isEdit = !!vehicle;
   const [step, setStep] = useState(0);
+  const [maxValidatedStep, setMaxValidatedStep] = useState(0);
+  const [stepErrors, setStepErrors] = useState<Record<number, boolean>>({});
+  const [successResult, setSuccessResult] = useState<{
+    slug: string;
+    title: string;
+    priceCash: number | null;
+    thumbnailUrl: string | null;
+    status: string;
+  } | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  const allowNavigationRef = useRef(false);
 
   const {
     register,
@@ -233,7 +263,7 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
     trigger,
     setValue,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<CreateVehicleInput>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(createVehicleSchema) as any,
@@ -251,9 +281,16 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
       transmission: (vehicle?.transmission as CreateVehicleInput["transmission"]) ?? undefined,
       color: vehicle?.color ?? "",
       doors: vehicle?.doors ?? undefined,
+      plateFinal: vehicle?.plateFinal ?? "",
       priceCash: vehicle?.priceCash != null ? Number(vehicle.priceCash) : undefined,
       priceTradeIn: vehicle?.priceTradeIn != null ? Number(vehicle.priceTradeIn) : undefined,
       pricePromotional: vehicle?.pricePromotional != null ? Number(vehicle.pricePromotional) : undefined,
+      aceitaTroca: vehicle?.aceitaTroca ?? false,
+      aceitaSemEntrada: vehicle?.aceitaSemEntrada ?? false,
+      parcelaBase: vehicle?.parcelaBase != null ? Number(vehicle.parcelaBase) : undefined,
+      entradaMinima: vehicle?.entradaMinima != null ? Number(vehicle.entradaMinima) : undefined,
+      rendaMinimaSugerida: vehicle?.rendaMinimaSugerida != null ? Number(vehicle.rendaMinimaSugerida) : undefined,
+      prioridade: vehicle?.prioridade ?? 0,
       city: vehicle?.city ?? "",
       state: vehicle?.state ?? "",
       featured: vehicle?.featured ?? false,
@@ -273,17 +310,110 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
   const fuelType = watch("fuelType");
   const transmission = watch("transmission");
 
+  useEffect(() => {
+    if (readOnly || !isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isDirty, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || !isDirty) return;
+    const onClick = (e: MouseEvent) => {
+      if (allowNavigationRef.current) return;
+      const anchor = (e.target as HTMLElement).closest("a");
+      if (!anchor || anchor.target === "_blank") return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      setPendingNavigation(href);
+      setDiscardOpen(true);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [isDirty, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || !isDirty) return;
+    window.history.pushState(null, "", window.location.href);
+    const onPopState = () => {
+      window.history.pushState(null, "", window.location.href);
+      setPendingNavigation("__back__");
+      setDiscardOpen(true);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isDirty, readOnly]);
+
+  const confirmDiscard = useCallback(() => {
+    allowNavigationRef.current = true;
+    setDiscardOpen(false);
+    if (pendingNavigation === "__back__") {
+      router.back();
+    } else if (pendingNavigation) {
+      router.push(pendingNavigation);
+    }
+    setPendingNavigation(null);
+  }, [pendingNavigation, router]);
+
+  const requestLeave = useCallback(
+    (href: string) => {
+      if (!isDirty) {
+        router.push(href);
+        return;
+      }
+      setPendingNavigation(href);
+      setDiscardOpen(true);
+    },
+    [isDirty, router],
+  );
+
   const goNext = useCallback(async () => {
     const fields = STEP_FIELDS[step] ?? [];
     const valid = fields.length === 0 ? true : await trigger(fields);
-    if (valid) setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    if (valid) {
+      setStepErrors((prev) => ({ ...prev, [step]: false }));
+      setMaxValidatedStep((prev) => Math.max(prev, step + 1));
+      setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    } else {
+      setStepErrors((prev) => ({ ...prev, [step]: true }));
+      toast.error("Corrija os campos obrigatórios desta etapa.");
+    }
   }, [step, trigger]);
 
   const goPrev = useCallback(() => setStep((s) => Math.max(s - 1, 0)), []);
 
-  const handleStepClick = useCallback((index: number) => {
-    if (index < step) setStep(index);
-  }, [step]);
+  const handleStepClick = useCallback(
+    async (index: number) => {
+      if (index === step) return;
+      if (index < step) {
+        setStep(index);
+        return;
+      }
+      for (let i = step; i < index; i++) {
+        const fields = STEP_FIELDS[i] ?? [];
+        if (fields.length > 0) {
+          const valid = await trigger(fields);
+          if (!valid) {
+            setStepErrors((prev) => ({ ...prev, [i]: true }));
+            setStep(i);
+            toast.error("Complete os campos obrigatórios desta etapa.");
+            return;
+          }
+          setStepErrors((prev) => ({ ...prev, [i]: false }));
+        }
+      }
+      setMaxValidatedStep((prev) => Math.max(prev, index));
+      setStep(index);
+    },
+    [step, trigger],
+  );
 
   const onSubmit = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -291,17 +421,38 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
       const typed = data as CreateVehicleInput;
       const formData = new FormData();
       Object.entries(typed).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) formData.set(k, String(v));
+        if (typeof v === "boolean") {
+          formData.set(k, v ? "true" : "false");
+        } else if (v !== undefined && v !== null) {
+          formData.set(k, String(v));
+        }
       });
+      // Ensure booleans are always sent (unchecked checkboxes may be omitted)
+      formData.set("featured", typed.featured ? "true" : "false");
+      formData.set("aceitaTroca", typed.aceitaTroca ? "true" : "false");
+      formData.set("aceitaSemEntrada", typed.aceitaSemEntrada ? "true" : "false");
       if (isEdit) formData.set("id", vehicle!.id);
 
       const result = isEdit ? await updateVehicle(formData) : await createVehicle(formData);
 
       if (result.ok) {
         toast.success(isEdit ? "Veículo atualizado!" : "Veículo criado com sucesso!");
-        if (!isEdit) {
-          router.push(`/admin/veiculos/${result.id}`);
-        } else {
+        if (!isEdit && "slug" in result && typeof result.slug === "string") {
+          const createResult = result as {
+            slug: string;
+            title?: string;
+            thumbnailUrl?: string | null;
+          };
+          const thumb =
+            typed.imageUrls?.split("\n").map((u) => u.trim()).filter(Boolean)[0] ?? null;
+          setSuccessResult({
+            slug: createResult.slug,
+            title: createResult.title ?? typed.title,
+            priceCash: typed.priceCash ?? null,
+            thumbnailUrl: createResult.thumbnailUrl ?? thumb,
+            status: typed.status,
+          });
+        } else if (isEdit) {
           router.refresh();
         }
       } else {
@@ -316,23 +467,48 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
   );
 
   return (
+    <>
+      {successResult ? (
+        <div className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
+          <VehicleSuccessPanel
+            {...successResult}
+            onCreateAnother={() => {
+              setSuccessResult(null);
+              setStep(0);
+              setMaxValidatedStep(0);
+              setStepErrors({});
+              router.refresh();
+            }}
+          />
+        </div>
+      ) : (
     <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-      style={{ height: "calc(100vh - 13rem)" }}
+      onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit(onSubmit)}
+      className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:min-h-0 md:h-[calc(100vh-13rem)]"
     >
+      {readOnly && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          Modo somente leitura — você pode consultar os dados do veículo, mas não alterá-los.
+        </div>
+      )}
+      <fieldset disabled={readOnly} className="flex min-h-0 flex-1 flex-col">
       {/* Stepper header */}
-      <div className="shrink-0 border-b border-zinc-100 px-6 pb-5 pt-5 dark:border-zinc-800">
+      <div className="shrink-0 border-b border-zinc-100 px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5 dark:border-zinc-800">
+        <p className="mb-3 text-center text-xs font-medium text-facil-orange sm:hidden">
+          {STEPS[step]}
+        </p>
         <Stepper
           steps={STEPS}
           currentStep={step}
+          maxValidatedStep={maxValidatedStep}
+          stepErrors={stepErrors}
           onStepClick={handleStepClick}
           className="mx-auto max-w-2xl"
         />
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
         {/* Step 0 — Basic Info */}
         {step === 0 && (
           <div className="space-y-5">
@@ -369,6 +545,7 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
               />
               <FormSelect
                 label="Tipo"
+                required
                 error={errors.type?.message}
                 value={vehicleType}
                 onValueChange={(v) => setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true })}
@@ -376,6 +553,7 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
               />
               <FormSelect
                 label="Status"
+                required
                 error={errors.status?.message}
                 value={vehicleStatus}
                 onValueChange={(v) =>
@@ -417,11 +595,13 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
               />
               <FormSelect
                 label="Combustível"
+                required
+                error={errors.fuelType?.message}
                 value={fuelType ? String(fuelType) : SELECT_NONE}
                 onValueChange={(v) =>
                   setValue(
                     "fuelType",
-                    v === SELECT_NONE ? undefined : (v as CreateVehicleInput["fuelType"]),
+                    (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["fuelType"],
                     { shouldValidate: true },
                   )
                 }
@@ -433,11 +613,13 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
               />
               <FormSelect
                 label="Câmbio"
+                required
+                error={errors.transmission?.message}
                 value={transmission ? String(transmission) : SELECT_NONE}
                 onValueChange={(v) =>
                   setValue(
                     "transmission",
-                    v === SELECT_NONE ? undefined : (v as CreateVehicleInput["transmission"]),
+                    (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["transmission"],
                     { shouldValidate: true },
                   )
                 }
@@ -460,6 +642,12 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
                 placeholder="4"
                 {...register("doors", { valueAsNumber: true })}
               />
+              <FormInput
+                label="Final da placa"
+                placeholder="7"
+                maxLength={1}
+                {...register("plateFinal")}
+              />
             </div>
           </div>
         )}
@@ -471,6 +659,7 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <FormInput
                 label="Preço à vista (R$)"
+                required
                 type="number"
                 step="0.01"
                 placeholder="0,00"
@@ -514,6 +703,64 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
                 Destacar na home
               </span>
             </label>
+
+            <div className="space-y-4 rounded-lg border border-zinc-100 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                Financiamento e comercial
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <FormInput
+                  label="Parcela base (R$)"
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  {...register("parcelaBase", { valueAsNumber: true })}
+                />
+                <FormInput
+                  label="Entrada mínima (R$)"
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  {...register("entradaMinima", { valueAsNumber: true })}
+                />
+                <FormInput
+                  label="Renda mínima sugerida (R$)"
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  {...register("rendaMinimaSugerida", { valueAsNumber: true })}
+                />
+                <FormInput
+                  label="Prioridade (0 = normal)"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  {...register("prioridade", { valueAsNumber: true })}
+                />
+              </div>
+              <div className="flex flex-wrap gap-6">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    {...register("aceitaTroca")}
+                    className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                  />
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Aceita troca
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    {...register("aceitaSemEntrada")}
+                    className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                  />
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Aceita sem entrada
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
         )}
 
@@ -524,7 +771,7 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
               <SectionTitle>Imagens</SectionTitle>
               <ImageUploader
                 value={imageUrls ?? ""}
-                onChange={(urls) => setValue("imageUrls", urls)}
+                onChange={(urls) => setValue("imageUrls", urls, { shouldDirty: true })}
               />
             </div>
 
@@ -564,34 +811,76 @@ export function VehicleForm({ brands, vehicle }: VehicleFormProps) {
       </div>
 
       {/* Footer buttons */}
-      <div className="shrink-0 flex items-center justify-between border-t border-zinc-100 px-6 py-4 dark:border-zinc-800">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={goPrev}
-          disabled={step === 0}
-          className={cn(step === 0 && "invisible")}
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Anterior
-        </Button>
+      {!readOnly && (
+      <div className="shrink-0 flex flex-col gap-3 border-t border-zinc-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 dark:border-zinc-800">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            onClick={() => requestLeave("/admin/veiculos")}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            onClick={goPrev}
+            disabled={step === 0}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Anterior
+          </Button>
+        </div>
 
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+        <span className="text-center text-xs text-zinc-400 dark:text-zinc-500 sm:text-left">
           Etapa {step + 1} de {STEPS.length}
         </span>
 
         {step < STEPS.length - 1 ? (
-          <Button type="button" variant="primary" onClick={goNext}>
+          <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={goNext}>
             Próximo
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" className="w-full sm:w-auto" disabled={isSubmitting}>
             <Save className="h-4 w-4" />
-            {isSubmitting ? "Salvando…" : isEdit ? "Salvar alterações" : "Criar veículo"}
+            {isSubmitting ? "Salvando…" : isEdit ? "Salvar" : "Criar veículo"}
           </Button>
         )}
       </div>
+      )}
+      </fieldset>
     </form>
+      )}
+
+      <Dialog
+        open={discardOpen}
+        onOpenChange={(open) => {
+          setDiscardOpen(open);
+          if (!open) setPendingNavigation(null);
+        }}
+      >
+        <DialogContent className="dark:border-zinc-700 dark:bg-zinc-900">
+          <DialogHeader>
+            <DialogTitle className="dark:text-zinc-100">
+              {isEdit ? "Descartar alterações?" : "Descartar cadastro?"}
+            </DialogTitle>
+            <DialogDescription className="dark:text-zinc-400">
+              As alterações não salvas serão perdidas.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setDiscardOpen(false)}>
+              Continuar editando
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmDiscard}>
+              Descartar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

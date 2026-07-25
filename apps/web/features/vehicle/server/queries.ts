@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, VehicleStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 /** Lista de veículo com marca + imagens (cards / relacionados). Exportado para páginas evitarem `any` com `Promise.all`. */
@@ -56,4 +56,52 @@ export async function getFeaturedVehicles(
       images: { orderBy: { sortOrder: "asc" }, take: 1 },
     },
   });
+}
+
+const ADMIN_VEHICLE_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  status: true,
+  priceCash: true,
+  updatedAt: true,
+  brand: { select: { name: true } },
+  images: { take: 1, orderBy: { sortOrder: "asc" as const }, select: { url: true } },
+} as const;
+
+export type AdminVehicleRow = Prisma.VehicleGetPayload<{ select: typeof ADMIN_VEHICLE_SELECT }>;
+
+export async function listAdminVehicles(opts: {
+  page: number;
+  pageSize: number;
+  status?: VehicleStatus;
+  search?: string;
+}) {
+  const where: Prisma.VehicleWhereInput = {};
+  if (opts.status) where.status = opts.status;
+
+  const q = opts.search?.trim();
+  if (q) {
+    where.OR = [
+      { title: { contains: q, mode: "insensitive" } },
+      { model: { contains: q, mode: "insensitive" } },
+      { slug: { contains: q, mode: "insensitive" } },
+      { brand: { name: { contains: q, mode: "insensitive" } } },
+    ];
+  }
+
+  const skip = (Math.max(1, opts.page) - 1) * opts.pageSize;
+
+  const [totalCount, vehicles] = await Promise.all([
+    prisma.vehicle.count({ where }),
+    prisma.vehicle.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip,
+      take: opts.pageSize,
+      select: ADMIN_VEHICLE_SELECT,
+    }),
+  ]);
+
+  return { vehicles, totalCount };
 }

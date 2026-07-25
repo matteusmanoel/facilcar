@@ -1,8 +1,29 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import {
+  ForbiddenError,
+  UnauthorizedError,
+  VEHICLE_WRITE_ROLES,
+  requireAdminRole,
+} from "@/features/auth/server/rbac";
 import { createVehicleSchema } from "@/schemas/vehicle";
 import type { VehicleStatus } from "@prisma/client";
+
+const QUICK_STATUSES: VehicleStatus[] = ["DRAFT", "PUBLISHED", "RESERVED", "SOLD", "ARCHIVED"];
+
+function parseBooleanField(value: FormDataEntryValue | null | undefined): boolean {
+  return value === "on" || value === "true";
+}
+
+function parseVehicleFormBooleans(raw: Record<string, FormDataEntryValue>) {
+  return {
+    featured: parseBooleanField(raw.featured),
+    aceitaTroca: parseBooleanField(raw.aceitaTroca),
+    aceitaSemEntrada: parseBooleanField(raw.aceitaSemEntrada),
+  };
+}
 
 function slugify(text: string): string {
   return text
@@ -50,10 +71,18 @@ function parseFeatures(value: string | undefined): { label: string; category: "O
 }
 
 export async function createVehicle(formData: FormData) {
+  try {
+    await requireAdminRole(VEHICLE_WRITE_ROLES);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return { ok: false, error: e.message };
+    if (e instanceof ForbiddenError) return { ok: false, error: e.message };
+    throw e;
+  }
+
   const raw = Object.fromEntries(formData.entries());
   const parsed = createVehicleSchema.safeParse({
     ...raw,
-    featured: raw.featured === "on" || raw.featured === "true",
+    ...parseVehicleFormBooleans(raw),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().fieldErrors };
 
@@ -82,12 +111,19 @@ export async function createVehicle(formData: FormData) {
       transmission: data.transmission ?? null,
       color: data.color ?? null,
       doors: data.doors ?? null,
+      plateFinal: data.plateFinal?.trim() || null,
       priceCash: data.priceCash ?? null,
       priceTradeIn: data.priceTradeIn ?? null,
       pricePromotional: data.pricePromotional ?? null,
       city: data.city ?? null,
       state: data.state ?? null,
       featured: data.featured ?? false,
+      aceitaTroca: data.aceitaTroca ?? false,
+      aceitaSemEntrada: data.aceitaSemEntrada ?? false,
+      parcelaBase: data.parcelaBase ?? null,
+      entradaMinima: data.entradaMinima ?? null,
+      rendaMinimaSugerida: data.rendaMinimaSugerida ?? null,
+      prioridade: data.prioridade ?? 0,
       metaTitle: data.metaTitle ?? null,
       metaDescription: data.metaDescription ?? null,
       publishedAt: data.status === "PUBLISHED" ? new Date() : null,
@@ -95,17 +131,25 @@ export async function createVehicle(formData: FormData) {
       features: features.length ? { create: features } : undefined,
     },
   });
-  return { ok: true, id: vehicle.id };
+  return { ok: true, id: vehicle.id, slug: vehicle.slug, title: vehicle.title, priceCash: vehicle.priceCash, status: vehicle.status, thumbnailUrl: images[0]?.url ?? null };
 }
 
 export async function updateVehicle(formData: FormData) {
+  try {
+    await requireAdminRole(VEHICLE_WRITE_ROLES);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return { ok: false, error: e.message };
+    if (e instanceof ForbiddenError) return { ok: false, error: e.message };
+    throw e;
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { ok: false, error: "id obrigatório" };
 
   const raw = Object.fromEntries(formData.entries());
   const parsed = createVehicleSchema.partial().safeParse({
     ...raw,
-    featured: raw.featured === "on" || raw.featured === "true",
+    ...parseVehicleFormBooleans(raw),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().fieldErrors };
 
@@ -131,12 +175,19 @@ export async function updateVehicle(formData: FormData) {
   if (data.transmission !== undefined) updatePayload.transmission = data.transmission ?? null;
   if (data.color !== undefined) updatePayload.color = data.color ?? null;
   if (data.doors !== undefined) updatePayload.doors = data.doors ?? null;
+  if (data.plateFinal !== undefined) updatePayload.plateFinal = data.plateFinal?.trim() || null;
   if (data.priceCash !== undefined) updatePayload.priceCash = data.priceCash ?? null;
   if (data.priceTradeIn !== undefined) updatePayload.priceTradeIn = data.priceTradeIn ?? null;
   if (data.pricePromotional !== undefined) updatePayload.pricePromotional = data.pricePromotional ?? null;
   if (data.city !== undefined) updatePayload.city = data.city ?? null;
   if (data.state !== undefined) updatePayload.state = data.state ?? null;
   if (typeof data.featured === "boolean") updatePayload.featured = data.featured;
+  if (typeof data.aceitaTroca === "boolean") updatePayload.aceitaTroca = data.aceitaTroca;
+  if (typeof data.aceitaSemEntrada === "boolean") updatePayload.aceitaSemEntrada = data.aceitaSemEntrada;
+  if (data.parcelaBase !== undefined) updatePayload.parcelaBase = data.parcelaBase ?? null;
+  if (data.entradaMinima !== undefined) updatePayload.entradaMinima = data.entradaMinima ?? null;
+  if (data.rendaMinimaSugerida !== undefined) updatePayload.rendaMinimaSugerida = data.rendaMinimaSugerida ?? null;
+  if (data.prioridade !== undefined) updatePayload.prioridade = data.prioridade ?? 0;
   if (data.metaTitle !== undefined) updatePayload.metaTitle = data.metaTitle ?? null;
   if (data.metaDescription !== undefined) updatePayload.metaDescription = data.metaDescription ?? null;
 
@@ -162,4 +213,50 @@ export async function updateVehicle(formData: FormData) {
     data: updatePayload as Parameters<typeof prisma.vehicle.update>[0]["data"],
   });
   return { ok: true, id };
+}
+
+export async function quickUpdateVehicleStatusAction(vehicleId: string, status: string) {
+  await requireAdminRole(VEHICLE_WRITE_ROLES);
+
+  if (!QUICK_STATUSES.includes(status as VehicleStatus)) {
+    throw new Error("Status inválido");
+  }
+
+  const vehicleStatus = status as VehicleStatus;
+
+  await prisma.vehicle.update({
+    where: { id: vehicleId },
+    data: {
+      status: vehicleStatus,
+      publishedAt: vehicleStatus === "PUBLISHED" ? new Date() : null,
+    },
+  });
+
+  revalidatePath("/admin/veiculos");
+  revalidatePath(`/admin/veiculos/${vehicleId}`);
+}
+
+export async function archiveVehicleAction(vehicleId: string) {
+  await requireAdminRole(VEHICLE_WRITE_ROLES);
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { id: vehicleId },
+    select: { id: true, status: true },
+  });
+
+  if (!vehicle) {
+    throw new Error("Veículo não encontrado");
+  }
+
+  if (vehicle.status === "ARCHIVED") {
+    return;
+  }
+
+  await prisma.vehicle.update({
+    where: { id: vehicleId },
+    data: { status: "ARCHIVED" },
+  });
+
+  revalidatePath("/admin/veiculos");
+  revalidatePath(`/admin/veiculos/${vehicleId}`);
 }
