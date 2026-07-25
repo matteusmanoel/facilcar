@@ -1,0 +1,23 @@
+{
+  "name": "facilcar",
+  "private": true,
+  "description": "FácilCar — monorepo root. App lives in apps/web.",
+  "scripts": {
+    "postinstall": "npm install --prefix apps/web",
+    "dev": "npm run dev --prefix apps/web",
+    "build": "npm run build --prefix apps/web",
+    "start": "npm run start --prefix apps/web",
+    "lint": "npm run lint --prefix apps/web",
+    "typecheck": "npm run typecheck --prefix apps/web",
+    "test:e2e": "npm run test:e2e --prefix apps/web",
+    "db:up": "docker-compose up -d db",
+    "db:down": "docker-compose down",
+    "db:logs": "docker-compose logs -f db",
+    "db:deploy": "npm run db:deploy --prefix apps/web",
+    "db:push": "npm run db:push --prefix apps/web",
+    "db:seed": "npm run db:seed --prefix apps/web",
+    "db:setup": "npm run db:push && npm run db:seed",
+    "db:reset": "docker-compose down -v && docker-compose up -d db && node scripts/wait-for-postgres.mjs && npm run db:setup",
+    "setup": "npm run db:up && node scripts/wait-for-postgres.mjs && npm run db:setup"
+  }
+}
