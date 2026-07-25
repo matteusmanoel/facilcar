@@ -24,18 +24,17 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-xl border p-5 shadow-sm transition-shadow hover:shadow-md",
-        variant === "default" && "bg-white border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800",
-        variant === "highlight" && "bg-white border-facil-orange/20 ring-1 ring-facil-orange/10 dark:bg-zinc-900 dark:border-facil-orange/30",
-        variant === "warning" && "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50",
+        "admin-card transition-shadow hover:shadow-md",
+        variant === "highlight" && "ring-1 ring-facil-orange/20",
+        variant === "warning" && "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
       )}
     >
       <div className="flex items-start justify-between">
         <p
           className={cn(
             "text-sm font-medium",
-            variant === "default" && "text-zinc-500 dark:text-zinc-400",
-            variant === "highlight" && "text-zinc-600 dark:text-zinc-400",
+            variant === "default" && "text-facil-muted",
+            variant === "highlight" && "text-facil-muted",
             variant === "warning" && "text-amber-700 dark:text-amber-400",
           )}
         >
@@ -45,7 +44,7 @@ export function StatCard({
           <div
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-lg",
-              variant === "default" && "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+              variant === "default" && "bg-facil-surface text-facil-muted",
               variant === "highlight" && "bg-facil-orange-light text-facil-orange",
               variant === "warning" && "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
             )}
@@ -55,9 +54,9 @@ export function StatCard({
         )}
       </div>
       <p
-          className={cn(
+        className={cn(
           "mt-2 text-3xl font-bold tabular-nums",
-          variant === "default" && "text-zinc-900 dark:text-zinc-50",
+          variant === "default" && "text-foreground",
           variant === "highlight" && "text-facil-orange",
           variant === "warning" && "text-amber-800 dark:text-amber-300",
         )}
@@ -65,20 +64,12 @@ export function StatCard({
         {value}
       </p>
       {trend && (
-        <p className={cn("mt-1 text-xs", trend.value >= 0 ? "text-green-600" : "text-red-500")}>
+        <p className={cn("mt-1 text-xs", trend.value >= 0 ? "text-facil-orange" : "text-red-500")}>
           {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}% {trend.label}
         </p>
       )}
       {href && linkLabel && (
-        <Link
-          href={href}
-          className={cn(
-            "mt-3 block text-sm font-medium hover:underline",
-            variant === "highlight" || variant === "warning"
-              ? "text-facil-orange"
-              : "text-facil-orange",
-          )}
-        >
+        <Link href={href} className="mt-3 block text-sm font-medium text-facil-orange hover:underline">
           {linkLabel} →
         </Link>
       )}

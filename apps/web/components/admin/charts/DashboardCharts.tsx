@@ -42,21 +42,21 @@ export function DashboardCharts({
     <>
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="admin-card lg:col-span-3">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-200">{periodTitle}</h2>
+          <h2 className="mb-4 text-sm font-semibold text-foreground">{periodTitle}</h2>
           {periodData.some((d) => d.value > 0) ? (
             <BarChart data={periodData} />
           ) : (
-            <div className="flex h-[220px] items-center justify-center text-sm text-zinc-400">
+            <div className="flex h-[220px] items-center justify-center text-sm text-facil-muted">
               Sem dados no período
             </div>
           )}
         </div>
         <div className="admin-card lg:col-span-2">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-200">Leads por status</h2>
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Leads por status</h2>
           {statusData.length > 0 ? (
             <DonutChart data={statusData} />
           ) : (
-            <div className="flex h-[220px] items-center justify-center text-sm text-zinc-400">
+            <div className="flex h-[220px] items-center justify-center text-sm text-facil-muted">
               Sem dados
             </div>
           )}
@@ -64,11 +64,11 @@ export function DashboardCharts({
       </div>
 
       <div className="admin-card">
-        <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-200">Origem dos leads</h2>
+        <h2 className="mb-4 text-sm font-semibold text-foreground">Origem dos leads</h2>
         {sourceData.length > 0 ? (
           <BarChart data={sourceData} height={180} horizontal />
         ) : (
-          <div className="flex h-[180px] items-center justify-center text-sm text-zinc-400">
+          <div className="flex h-[180px] items-center justify-center text-sm text-facil-muted">
             Sem dados
           </div>
         )}

@@ -1,8 +1,29 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "next-themes";
 import * as echarts from "echarts";
 import { cn } from "@/lib/cn";
+
+const CHART_THEMES = {
+  light: {
+    splitLine: "#f4f4f5",
+    axisLabel: "#71717a",
+    axisLine: "#e4e4e7",
+    fallback: "#e4e4e7",
+  },
+  dark: {
+    splitLine: "#3f3f46",
+    axisLabel: "#a1a1aa",
+    axisLine: "#52525b",
+    fallback: "#52525b",
+  },
+} as const;
+
+function useChartTheme() {
+  const { resolvedTheme } = useTheme();
+  return CHART_THEMES[resolvedTheme === "dark" ? "dark" : "light"];
+}
 
 interface BarChartProps {
   data: { label: string; value: number }[];
@@ -20,6 +41,7 @@ export function BarChart({
   horizontal = false,
 }: BarChartProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const chartTheme = useChartTheme();
 
   useEffect(() => {
     if (!ref.current || data.length === 0) return;
@@ -28,11 +50,15 @@ export function BarChart({
     const option: echarts.EChartsOption = horizontal
       ? {
           grid: { top: 8, right: 16, bottom: 8, left: 8, containLabel: true },
-          xAxis: { type: "value", axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: "#f4f4f5" } } },
+          xAxis: {
+            type: "value",
+            axisLabel: { fontSize: 11, color: chartTheme.axisLabel },
+            splitLine: { lineStyle: { color: chartTheme.splitLine } },
+          },
           yAxis: {
             type: "category",
             data: data.map((d) => d.label),
-            axisLabel: { fontSize: 11, color: "#71717a" },
+            axisLabel: { fontSize: 11, color: chartTheme.axisLabel },
             axisTick: { show: false },
             axisLine: { show: false },
           },
@@ -42,7 +68,12 @@ export function BarChart({
               data: data.map((d) => d.value),
               itemStyle: { color, borderRadius: [0, 4, 4, 0] },
               barMaxWidth: 24,
-              label: { show: true, position: "right", fontSize: 11, color: "#71717a" },
+              label: {
+                show: true,
+                position: "right",
+                fontSize: 11,
+                color: chartTheme.axisLabel,
+              },
             },
           ],
           tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
@@ -52,14 +83,18 @@ export function BarChart({
           xAxis: {
             type: "category",
             data: data.map((d) => d.label),
-            axisLabel: { fontSize: 10, color: "#71717a", rotate: data.length > 10 ? 30 : 0 },
+            axisLabel: {
+              fontSize: 10,
+              color: chartTheme.axisLabel,
+              rotate: data.length > 10 ? 30 : 0,
+            },
             axisTick: { show: false },
-            axisLine: { lineStyle: { color: "#e4e4e7" } },
+            axisLine: { lineStyle: { color: chartTheme.axisLine } },
           },
           yAxis: {
             type: "value",
-            axisLabel: { fontSize: 11 },
-            splitLine: { lineStyle: { color: "#f4f4f5" } },
+            axisLabel: { fontSize: 11, color: chartTheme.axisLabel },
+            splitLine: { lineStyle: { color: chartTheme.splitLine } },
             minInterval: 1,
           },
           series: [
@@ -82,7 +117,7 @@ export function BarChart({
       ro.disconnect();
       chart.dispose();
     };
-  }, [data, color, horizontal]);
+  }, [data, color, horizontal, chartTheme]);
 
   return (
     <div
@@ -111,6 +146,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function DonutChart({ data, height = 220, className }: DonutChartProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const chartTheme = useChartTheme();
 
   useEffect(() => {
     if (!ref.current || data.length === 0) return;
@@ -121,7 +157,7 @@ export function DonutChart({ data, height = 220, className }: DonutChartProps) {
         orient: "vertical",
         right: 0,
         top: "center",
-        textStyle: { fontSize: 11, color: "#71717a" },
+        textStyle: { fontSize: 11, color: chartTheme.axisLabel },
         icon: "circle",
         itemWidth: 8,
         itemHeight: 8,
@@ -134,7 +170,9 @@ export function DonutChart({ data, height = 220, className }: DonutChartProps) {
           data: data.map((d) => ({
             name: d.label,
             value: d.value,
-            itemStyle: { color: d.color ?? STATUS_COLORS[d.label] ?? "#e4e4e7" },
+            itemStyle: {
+              color: d.color ?? STATUS_COLORS[d.label] ?? chartTheme.fallback,
+            },
           })),
           label: { show: false },
           emphasis: {
@@ -152,7 +190,7 @@ export function DonutChart({ data, height = 220, className }: DonutChartProps) {
       ro.disconnect();
       chart.dispose();
     };
-  }, [data]);
+  }, [data, chartTheme]);
 
   return (
     <div ref={ref} className={cn("w-full", className)} style={{ height }} />
