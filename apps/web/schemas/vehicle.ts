@@ -13,6 +13,7 @@ const transmissionEnum = z.enum(["MANUAL", "AUTOMATIC", "AUTOMATED", "CVT", "OTH
 function emptyToUndefined(value: unknown) {
   if (value === "" || value === null || value === undefined) return undefined;
   if (typeof value === "number" && Number.isNaN(value)) return undefined;
+  if (typeof value === "string" && value.trim().toLowerCase() === "nan") return undefined;
   return value;
 }
 
@@ -32,6 +33,13 @@ function optionalNonNegativeInt(message: string) {
   return z.preprocess(
     emptyToUndefined,
     z.coerce.number({ message }).int(message).min(0, message).optional(),
+  );
+}
+
+function optionalNonNegativeNumber(message: string) {
+  return z.preprocess(
+    emptyToUndefined,
+    z.coerce.number({ message }).min(0, message).optional(),
   );
 }
 
@@ -62,21 +70,24 @@ export const createVehicleSchema = z.object({
       .number({ message: "Preço à vista é obrigatório" })
       .min(0, "Preço à vista inválido"),
   ),
-  priceTradeIn: z.coerce.number({ message: "Preço inválido" }).min(0, "Preço inválido").optional(),
-  pricePromotional: z.coerce.number({ message: "Preço inválido" }).min(0, "Preço inválido").optional(),
+  priceTradeIn: optionalNonNegativeNumber("Preço inválido"),
+  pricePromotional: optionalNonNegativeNumber("Preço inválido"),
   city: z.string().optional(),
   state: z.string().optional(),
   featured: z.boolean().optional(),
   aceitaTroca: z.boolean().optional(),
   aceitaSemEntrada: z.boolean().optional(),
-  parcelaBase: z.coerce.number({ message: "Valor inválido" }).min(0, "Valor inválido").optional(),
-  entradaMinima: z.coerce.number({ message: "Valor inválido" }).min(0, "Valor inválido").optional(),
-  rendaMinimaSugerida: z.coerce.number({ message: "Valor inválido" }).min(0, "Valor inválido").optional(),
-  prioridade: z.coerce
-    .number({ message: "Prioridade inválida" })
-    .int("Prioridade inválida")
-    .min(0, "Prioridade inválida")
-    .optional(),
+  parcelaBase: optionalNonNegativeNumber("Valor inválido"),
+  entradaMinima: optionalNonNegativeNumber("Valor inválido"),
+  rendaMinimaSugerida: optionalNonNegativeNumber("Valor inválido"),
+  prioridade: z.preprocess(
+    emptyToUndefined,
+    z.coerce
+      .number({ message: "Prioridade inválida" })
+      .int("Prioridade inválida")
+      .min(0, "Prioridade inválida")
+      .optional(),
+  ),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
   imageUrls: z.string().optional(), // one URL per line

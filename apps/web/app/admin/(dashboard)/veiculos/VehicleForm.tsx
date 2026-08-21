@@ -415,6 +415,39 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
     [step, trigger],
   );
 
+  const fieldStep = useCallback((field: string): number => {
+    for (const [stepKey, fields] of Object.entries(STEP_FIELDS)) {
+      if (fields.includes(field as keyof CreateVehicleInput)) return Number(stepKey);
+    }
+    // SEO / media extras live on the last step
+    if (["imageUrls", "features", "description", "metaTitle", "metaDescription", "shortDescription"].includes(field)) {
+      return 3;
+    }
+    if (["priceTradeIn", "pricePromotional", "parcelaBase", "entradaMinima", "rendaMinimaSugerida", "aceitaTroca", "aceitaSemEntrada", "featured", "prioridade"].includes(field)) {
+      return 2;
+    }
+    if (["yearManufacture", "yearModel", "mileage", "color", "doors", "plateFinal", "city", "state"].includes(field)) {
+      return 1;
+    }
+    return 0;
+  }, []);
+
+  const onInvalid = useCallback(
+    (formErrors: Record<string, unknown>) => {
+      const keys = Object.keys(formErrors);
+      if (!keys.length) {
+        toast.error("Não foi possível validar o formulário.");
+        return;
+      }
+      const targetStep = Math.min(...keys.map(fieldStep));
+      setStepErrors((prev) => ({ ...prev, [targetStep]: true }));
+      setStep(targetStep);
+      const first = formErrors[keys[0]!] as { message?: string } | undefined;
+      toast.error(first?.message || "Corrija os campos obrigatórios para salvar.");
+    },
+    [fieldStep],
+  );
+
   const onSubmit = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (data: any) => {
@@ -423,6 +456,8 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
       Object.entries(typed).forEach(([k, v]) => {
         if (typeof v === "boolean") {
           formData.set(k, v ? "true" : "false");
+        } else if (typeof v === "number" && Number.isNaN(v)) {
+          // skip — empty number inputs become NaN with valueAsNumber
         } else if (v !== undefined && v !== null) {
           formData.set(k, String(v));
         }
@@ -483,7 +518,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
         </div>
       ) : (
     <form
-      onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit(onSubmit)}
+      onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit(onSubmit, onInvalid)}
       className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:min-h-0 md:h-[calc(100vh-13rem)]"
     >
       {readOnly && (

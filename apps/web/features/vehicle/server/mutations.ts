@@ -10,6 +10,8 @@ import {
 } from "@/features/auth/server/rbac";
 import { createVehicleSchema } from "@/schemas/vehicle";
 import type { VehicleStatus } from "@prisma/client";
+import { slugify } from "@/features/vehicle/server/slug";
+import { uniqueSlug } from "@/features/vehicle/server/unique-slug";
 
 const QUICK_STATUSES: VehicleStatus[] = ["DRAFT", "PUBLISHED", "RESERVED", "SOLD", "ARCHIVED"];
 
@@ -23,31 +25,6 @@ function parseVehicleFormBooleans(raw: Record<string, FormDataEntryValue>) {
     aceitaTroca: parseBooleanField(raw.aceitaTroca),
     aceitaSemEntrada: parseBooleanField(raw.aceitaSemEntrada),
   };
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    || "veiculo";
-}
-
-async function uniqueSlug(base: string, excludeId?: string): Promise<string> {
-  let suffix = 0;
-  while (true) {
-    const candidate = suffix === 0 ? base : `${base}-${suffix}`;
-    const existing = await prisma.vehicle.findUnique({
-      where: { slug: candidate },
-      select: { id: true },
-    });
-    if (!existing || existing.id === excludeId) return candidate;
-    suffix++;
-  }
 }
 
 function parseImageUrls(value: string | undefined): { url: string; sortOrder: number; isCover: boolean }[] {
@@ -131,6 +108,8 @@ export async function createVehicle(formData: FormData) {
       features: features.length ? { create: features } : undefined,
     },
   });
+  revalidatePath("/admin/veiculos");
+  revalidatePath(`/admin/veiculos/${vehicle.id}`);
   return { ok: true, id: vehicle.id, slug: vehicle.slug, title: vehicle.title, priceCash: vehicle.priceCash, status: vehicle.status, thumbnailUrl: images[0]?.url ?? null };
 }
 
@@ -208,10 +187,18 @@ export async function updateVehicle(formData: FormData) {
       });
   }
 
-  await prisma.vehicle.update({
-    where: { id },
-    data: updatePayload as Parameters<typeof prisma.vehicle.update>[0]["data"],
-  });
+  try {
+    await prisma.vehicle.update({
+      where: { id },
+      data: updatePayload as Parameters<typeof prisma.vehicle.update>[0]["data"],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erro ao atualizar veículo";
+    return { ok: false, error: msg };
+  }
+  revalidatePath("/admin/veiculos");
+  revalidatePath(`/admin/veiculos/${id}`);
+  revalidatePath("/estoque");
   return { ok: true, id };
 }
 
