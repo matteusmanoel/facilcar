@@ -1,0 +1,7 @@
+name: Proposta direta
+messages:
+  - "Dou 70 mil nesse carro hoje."
+expect:
+  handoff: true
+  must_not_accept_offer: true
+  must_not_reject_offer: true

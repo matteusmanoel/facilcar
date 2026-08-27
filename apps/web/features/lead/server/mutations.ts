@@ -11,6 +11,7 @@ import {
 import { resolveCustomerForLead } from "@/features/customer/server/upsert";
 import { createManualLeadSchema } from "@/schemas/lead";
 import { prisma } from "@/lib/db";
+import { interpretClaimCount } from "./claim-result";
 
 const NOT_DELETED = { deletedAt: null } as const;
 
@@ -124,6 +125,39 @@ export async function updateLeadAssignmentAction(leadId: string, assignedToUserI
   revalidatePath("/admin/leads");
 }
 
+/**
+ * Atomic claim: only succeeds when lead is unassigned and not deleted.
+ * First writer wins under concurrent Assumir clicks.
+ */
+export async function claimLeadAction(leadId: string) {
+  let userId: string;
+  try {
+    const { user } = await requireLeadManager();
+    userId = user.id;
+  } catch (e) {
+    return handleAuthError(e);
+  }
+
+  const result = await prisma.lead.updateMany({
+    where: {
+      id: leadId,
+      assignedToUserId: null,
+      deletedAt: null,
+    },
+    data: { assignedToUserId: userId },
+  });
+
+  const interpreted = interpretClaimCount(result.count);
+  if (!interpreted.ok) return interpreted;
+
+  revalidatePath(`/admin/leads/${leadId}`);
+  revalidatePath("/admin/leads");
+  revalidatePath("/admin/crm");
+  revalidatePath("/admin");
+
+  return { ok: true as const };
+}
+
 export async function createManualLeadAction(input: unknown) {
   await requireLeadManager();
 
@@ -167,7 +201,7 @@ export async function createManualLeadAction(input: unknown) {
   revalidatePath("/admin/leads");
   revalidatePath("/admin/crm");
   revalidatePath("/admin");
-  revalidatePath("/admin/clientes");
+  revalidatePath("/admin/leads");
 
   return { ok: true as const, id: lead.id };
 }

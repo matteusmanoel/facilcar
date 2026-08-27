@@ -27,11 +27,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploader } from "@/features/admin/ui/ImageUploader";
-import { VehicleBrandCombobox } from "@/components/admin/VehicleBrandCombobox";
-import { VehicleSuccessPanel } from "./VehicleSuccessPanel";
+import { VehicleBrandCombobox, type BrandOption } from "@/components/admin/VehicleBrandCombobox";
 import { cn } from "@/lib/cn";
-
-type BrandOption = { id: string; name: string; slug: string };
 
 type VehicleForForm = {
   id: string;
@@ -47,6 +44,7 @@ type VehicleForForm = {
   mileage: number | null;
   fuelType: string | null;
   transmission: string | null;
+  engineDisplacementLiters: unknown;
   color: string | null;
   doors: number | null;
   plateFinal: string | null;
@@ -74,6 +72,7 @@ interface VehicleFormProps {
   brands: BrandOption[];
   vehicle?: VehicleForForm | null;
   readOnly?: boolean;
+  canManageBrands?: boolean;
 }
 
 const STEPS = ["Informações", "Especificações", "Precificação", "Mídia & SEO"];
@@ -117,7 +116,7 @@ const TRANS_LABELS: Record<string, string> = {
 
 const STEP_FIELDS: Record<number, (keyof CreateVehicleInput)[]> = {
   0: ["title", "brandId", "model", "type", "status"],
-  1: ["fuelType", "transmission"],
+  1: ["fuelType", "transmission", "engineDisplacementLiters"],
   2: ["priceCash"],
   3: [],
 };
@@ -240,19 +239,12 @@ function FormTextarea({
   );
 }
 
-export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormProps) {
+export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands = false }: VehicleFormProps) {
   const router = useRouter();
   const isEdit = !!vehicle;
   const [step, setStep] = useState(0);
   const [maxValidatedStep, setMaxValidatedStep] = useState(0);
   const [stepErrors, setStepErrors] = useState<Record<number, boolean>>({});
-  const [successResult, setSuccessResult] = useState<{
-    slug: string;
-    title: string;
-    priceCash: number | null;
-    thumbnailUrl: string | null;
-    status: string;
-  } | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const allowNavigationRef = useRef(false);
@@ -279,6 +271,10 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
       mileage: vehicle?.mileage ?? undefined,
       fuelType: (vehicle?.fuelType as CreateVehicleInput["fuelType"]) ?? undefined,
       transmission: (vehicle?.transmission as CreateVehicleInput["transmission"]) ?? undefined,
+      engineDisplacementLiters:
+        vehicle?.engineDisplacementLiters != null
+          ? Number(vehicle.engineDisplacementLiters)
+          : undefined,
       color: vehicle?.color ?? "",
       doors: vehicle?.doors ?? undefined,
       plateFinal: vehicle?.plateFinal ?? "",
@@ -471,25 +467,10 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
       const result = isEdit ? await updateVehicle(formData) : await createVehicle(formData);
 
       if (result.ok) {
+        allowNavigationRef.current = true;
         toast.success(isEdit ? "Veículo atualizado!" : "Veículo criado com sucesso!");
-        if (!isEdit && "slug" in result && typeof result.slug === "string") {
-          const createResult = result as {
-            slug: string;
-            title?: string;
-            thumbnailUrl?: string | null;
-          };
-          const thumb =
-            typed.imageUrls?.split("\n").map((u) => u.trim()).filter(Boolean)[0] ?? null;
-          setSuccessResult({
-            slug: createResult.slug,
-            title: createResult.title ?? typed.title,
-            priceCash: typed.priceCash ?? null,
-            thumbnailUrl: createResult.thumbnailUrl ?? thumb,
-            status: typed.status,
-          });
-        } else if (isEdit) {
-          router.refresh();
-        }
+        router.push("/admin/veiculos");
+        router.refresh();
       } else {
         const errMsg =
           typeof result.error === "string"
@@ -503,20 +484,6 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
 
   return (
     <>
-      {successResult ? (
-        <div className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
-          <VehicleSuccessPanel
-            {...successResult}
-            onCreateAnother={() => {
-              setSuccessResult(null);
-              setStep(0);
-              setMaxValidatedStep(0);
-              setStepErrors({});
-              router.refresh();
-            }}
-          />
-        </div>
-      ) : (
     <form
       onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit(onSubmit, onInvalid)}
       className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:min-h-0 md:h-[calc(100vh-13rem)]"
@@ -565,6 +532,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
                 error={errors.brandId?.message}
                 label="Marca"
                 required
+                canManage={canManageBrands && !readOnly}
               />
               <FormInput
                 label="Modelo"
@@ -575,7 +543,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
               />
               <FormInput
                 label="Versão"
-                placeholder="XEi 2.0 Flex"
+                placeholder="GLI"
                 {...register("version")}
               />
               <FormSelect
@@ -663,6 +631,16 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
                   { value: SELECT_NONE, label: "—" },
                   ...TRANSMISSION.map((t) => ({ value: t, label: TRANS_LABELS[t] })),
                 ]}
+              />
+              <FormInput
+                label="Cilindrada (litros)"
+                type="number"
+                step="0.1"
+                min={0.6}
+                max={8}
+                placeholder="1.4"
+                error={errors.engineDisplacementLiters?.message}
+                {...register("engineDisplacementLiters", { valueAsNumber: true })}
               />
               <FormInput
                 label="Cor"
@@ -888,7 +866,6 @@ export function VehicleForm({ brands, vehicle, readOnly = false }: VehicleFormPr
       )}
       </fieldset>
     </form>
-      )}
 
       <Dialog
         open={discardOpen}

@@ -1,4 +1,4 @@
-import type { Prisma, VehicleStatus } from "@prisma/client";
+import type { FuelType, Prisma, Transmission, VehicleStatus, VehicleType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 /** Lista de veículo com marca + imagens (cards / relacionados). Exportado para páginas evitarem `any` com `Promise.all`. */
@@ -74,11 +74,42 @@ export type AdminVehicleRow = Prisma.VehicleGetPayload<{ select: typeof ADMIN_VE
 export async function listAdminVehicles(opts: {
   page: number;
   pageSize: number;
-  status?: VehicleStatus;
+  statuses?: VehicleStatus[];
   search?: string;
+  brandIds?: string[];
+  types?: VehicleType[];
+  featuredValues?: boolean[];
+  fuelTypes?: FuelType[];
+  transmissions?: Transmission[];
+  priceMin?: number;
+  priceMax?: number;
+  yearMin?: number;
+  yearMax?: number;
 }) {
   const where: Prisma.VehicleWhereInput = {};
-  if (opts.status) where.status = opts.status;
+  if (opts.statuses?.length) where.status = { in: opts.statuses };
+  if (opts.brandIds?.length) where.brandId = { in: opts.brandIds };
+  if (opts.types?.length) where.type = { in: opts.types };
+  if (opts.fuelTypes?.length) where.fuelType = { in: opts.fuelTypes };
+  if (opts.transmissions?.length) where.transmission = { in: opts.transmissions };
+
+  if (opts.featuredValues?.length === 1) {
+    where.featured = opts.featuredValues[0];
+  }
+
+  if (opts.priceMin != null || opts.priceMax != null) {
+    where.priceCash = {
+      ...(opts.priceMin != null ? { gte: opts.priceMin } : {}),
+      ...(opts.priceMax != null ? { lte: opts.priceMax } : {}),
+    };
+  }
+
+  if (opts.yearMin != null || opts.yearMax != null) {
+    where.yearModel = {
+      ...(opts.yearMin != null ? { gte: opts.yearMin } : {}),
+      ...(opts.yearMax != null ? { lte: opts.yearMax } : {}),
+    };
+  }
 
   const q = opts.search?.trim();
   if (q) {

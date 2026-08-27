@@ -43,6 +43,12 @@ export function VehicleDetailAccordion({ vehicle, siteName }: Props) {
             <span className="font-semibold text-zinc-900">
               {vehicle.fuelType ? fuelLabels[vehicle.fuelType] ?? vehicle.fuelType : "—"}
             </span>
+            <span className="text-facil-muted">Motorização</span>
+            <span className="font-semibold text-zinc-900">
+              {vehicle.engineDisplacementLiters != null
+                ? `${Number(vehicle.engineDisplacementLiters).toFixed(1)} L`
+                : "não informado"}
+            </span>
             <span className="text-facil-muted">Cor</span>
             <span className="font-semibold text-zinc-900">{vehicle.color ?? "—"}</span>
             <span className="text-facil-muted">Quilometragem</span>

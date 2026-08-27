@@ -1,0 +1,16 @@
+flowchart TD
+    Webhook --> Normalize
+    Normalize --> Lock
+    Lock --> Batch
+    Batch --> Media
+    Media --> Understand
+    Understand --> MergeState
+    MergeState --> Decide
+    Decide --> ToolOrKnowledge
+    ToolOrKnowledge --> Compose
+    Compose --> Validate
+    Validate --> Persist
+    Persist --> Send
+    Decide --> Handoff
+    Handoff --> NotifyCRM
+    NotifyCRM --> BlockAI

@@ -102,6 +102,7 @@ export default async function VehicleDetailPage({ params }: Props) {
     mileage: vehicle.mileage,
     color: vehicle.color,
     fuelType: vehicle.fuelType ?? undefined,
+    engineDisplacementLiters: vehicle.engineDisplacementLiters ?? undefined,
     brand: vehicle.brand,
     images: sortedImages,
   });

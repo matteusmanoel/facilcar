@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { normalizeEngineDisplacementLiters } from "@/features/vehicle/lib/engine-displacement";
+import { isSuspiciousVehicleModel } from "@/features/vehicle/lib/suspicious-model";
 
 const vehicleStatusEnum = z.enum(["DRAFT", "PUBLISHED", "RESERVED", "SOLD", "ARCHIVED"]);
 const vehicleTypeEnum = z.enum(["CAR", "MOTORCYCLE", "UTILITY", "OTHER"]);
@@ -54,13 +56,22 @@ export const createVehicleSchema = z.object({
   shortDescription: z.string().optional(),
   description: z.string().optional(),
   brandId: z.string().min(1, "Marca é obrigatória"),
-  model: z.string().min(1, "Modelo é obrigatório"),
+  model: z
+    .string()
+    .min(1, "Modelo é obrigatório")
+    .refine((v) => !isSuspiciousVehicleModel(v), {
+      message: "Modelo inválido — não use placeholders como View",
+    }),
   version: z.string().optional(),
   yearManufacture: optionalIntField("Ano de fabricação inválido", 1900, 2100),
   yearModel: optionalIntField("Ano modelo inválido", 1900, 2100),
   mileage: optionalNonNegativeInt("Quilometragem inválida"),
   fuelType: fuelTypeEnum,
   transmission: transmissionEnum,
+  engineDisplacementLiters: z.preprocess(emptyToUndefined, z.coerce.number().optional()).refine(
+    (n) => n === undefined || normalizeEngineDisplacementLiters(n) != null,
+    { message: "Cilindrada inválida. Use só o número, ex.: 1.4" },
+  ),
   color: z.string().optional(),
   doors: optionalNonNegativeInt("Número de portas inválido"),
   plateFinal: z.string().max(1, "Use apenas um caractere").optional(),

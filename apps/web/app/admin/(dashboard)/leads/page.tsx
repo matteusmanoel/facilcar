@@ -2,8 +2,14 @@ import type { LeadStatus, LeadType } from "@prisma/client";
 import { startOfDay, subDays, format } from "date-fns";
 import { prisma } from "@/lib/db";
 import { guardAdminSection } from "@/features/auth/server/rbac";
-import { listAdminLeads, parseDashboardDateParam } from "@/features/lead/server/queries";
+import {
+  listAdminLeads,
+  listAdminLeadsForKanban,
+  parseDashboardDateParam,
+} from "@/features/lead/server/queries";
+import { parseCsvParam, parseEnumCsv } from "@/lib/query-filters";
 import { LeadsClient } from "./LeadsClient";
+import { LeadsFilterToolbar } from "./LeadsFilterToolbar";
 import { KanbanBoardLoader } from "@/components/admin/Kanban/KanbanBoardLoader";
 import { ViewTabs } from "./ViewTabs";
 import { NewLeadDialog } from "./NewLeadDialog";
@@ -23,24 +29,57 @@ const LEAD_TYPES: LeadType[] = [
   "VEHICLE_INTEREST",
   "FINANCING",
   "SELL_VEHICLE",
+  "REFINANCING",
+  "TRADE_IN",
+  "CONSIGNMENT",
+  "THIRD_PARTY_FINANCING",
 ];
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-function parseLeadStatus(value: string | undefined): LeadStatus | undefined {
-  if (!value) return undefined;
-  return LEAD_STATUSES.includes(value as LeadStatus) ? (value as LeadStatus) : undefined;
-}
+function parseDateRange(
+  params: SearchParams,
+  period: string,
+): { fromD?: Date; toD?: Date; fromKey?: string; toKey?: string } {
+  const customFrom = parseDashboardDateParam(
+    typeof params.from === "string" ? params.from : undefined,
+  );
+  const customTo = parseDashboardDateParam(
+    typeof params.to === "string" ? params.to : undefined,
+  );
 
-function parseLeadType(value: string | undefined): LeadType | undefined {
-  if (!value) return undefined;
-  return LEAD_TYPES.includes(value as LeadType) ? (value as LeadType) : undefined;
-}
+  if (customFrom && customTo) {
+    return {
+      fromD: customFrom,
+      toD: customTo,
+      fromKey: typeof params.from === "string" ? params.from : undefined,
+      toKey: typeof params.to === "string" ? params.to : undefined,
+    };
+  }
 
-function parseAssignee(value: string | undefined): string | null | undefined {
-  if (!value || value === "all") return undefined;
-  if (value === "none") return null;
-  return value;
+  if (period === "7d") {
+    const toD = new Date();
+    const fromD = startOfDay(subDays(toD, 6));
+    return {
+      fromD,
+      toD,
+      fromKey: format(fromD, "yyyy-MM-dd"),
+      toKey: format(startOfDay(toD), "yyyy-MM-dd"),
+    };
+  }
+
+  if (period === "30d") {
+    const toD = new Date();
+    const fromD = startOfDay(subDays(toD, 29));
+    return {
+      fromD,
+      toD,
+      fromKey: format(fromD, "yyyy-MM-dd"),
+      toKey: format(startOfDay(toD), "yyyy-MM-dd"),
+    };
+  }
+
+  return {};
 }
 
 export default async function AdminLeadsPage({
@@ -52,30 +91,41 @@ export default async function AdminLeadsPage({
   const params = await searchParams;
   const view = params.view === "kanban" ? "kanban" : "lista";
 
-  if (view === "kanban") {
-    const leads = await prisma.lead.findMany({
-      where: {
-        status: { in: ["NEW", "IN_PROGRESS", "CONTACTED", "QUALIFIED", "WON", "LOST"] },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 300,
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        type: true,
-        status: true,
-        createdAt: true,
-        vehicle: { select: { title: true } },
-      },
-    });
+  const q = typeof params.q === "string" ? params.q : undefined;
+  const statusParam = typeof params.status === "string" ? params.status : undefined;
+  const typeParam = typeof params.tipo === "string" ? params.tipo : undefined;
+  const assigneeParam = typeof params.responsavel === "string" ? params.responsavel : undefined;
+  const period = typeof params.periodo === "string" ? params.periodo : "all";
 
-    const kanbanVehicles = await prisma.vehicle.findMany({
-      where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
-      orderBy: { updatedAt: "desc" },
-      take: 200,
-      select: { id: true, title: true },
-    });
+  const statuses = parseEnumCsv(statusParam, LEAD_STATUSES);
+  const types = parseEnumCsv(typeParam, LEAD_TYPES);
+  const assignees = parseCsvParam(assigneeParam);
+
+  const { fromD, toD, fromKey, toKey } = parseDateRange(params, period);
+
+  const sellers = await prisma.user.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  if (view === "kanban") {
+    const [leads, kanbanVehicles] = await Promise.all([
+      listAdminLeadsForKanban({
+        statuses,
+        types,
+        assignees,
+        search: q,
+        from: fromD,
+        to: toD,
+      }),
+      prisma.vehicle.findMany({
+        where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+        select: { id: true, title: true },
+      }),
+    ]);
 
     return (
       <div className="admin-page admin-section">
@@ -91,6 +141,20 @@ export default async function AdminLeadsPage({
             <ViewTabs currentView="kanban" />
           </div>
         </div>
+
+        <LeadsFilterToolbar
+          sellers={sellers}
+          statuses={statuses}
+          types={types}
+          assignees={assignees}
+          currentPeriod={period}
+          fromKey={fromKey}
+          toKey={toKey}
+          initialSearch={q ?? ""}
+          totalCount={leads.length}
+          preserveView
+        />
+
         <KanbanBoardLoader initialLeads={leads} />
       </div>
     );
@@ -98,43 +162,17 @@ export default async function AdminLeadsPage({
 
   const page = Math.max(1, parseInt(String(params.page ?? "1"), 10) || 1);
   const pageSize = Math.min(100, Math.max(5, parseInt(String(params.pageSize ?? "20"), 10) || 20));
-  const q = typeof params.q === "string" ? params.q : undefined;
-  const status = parseLeadStatus(typeof params.status === "string" ? params.status : undefined);
-  const type = parseLeadType(typeof params.tipo === "string" ? params.tipo : undefined);
-  const assignee = parseAssignee(typeof params.responsavel === "string" ? params.responsavel : undefined);
-  const period = typeof params.periodo === "string" ? params.periodo : "all";
 
-  let fromD: Date | undefined;
-  let toD: Date | undefined;
-  const customFrom = parseDashboardDateParam(typeof params.from === "string" ? params.from : undefined);
-  const customTo = parseDashboardDateParam(typeof params.to === "string" ? params.to : undefined);
-
-  if (customFrom && customTo) {
-    fromD = customFrom;
-    toD = customTo;
-  } else if (period === "7d") {
-    toD = new Date();
-    fromD = startOfDay(subDays(toD, 6));
-  } else if (period === "30d") {
-    toD = new Date();
-    fromD = startOfDay(subDays(toD, 29));
-  }
-
-  const [{ leads, totalCount }, sellers, vehicles] = await Promise.all([
+  const [{ leads, totalCount }, vehicles] = await Promise.all([
     listAdminLeads({
       page,
       pageSize,
-      status,
-      type,
+      statuses,
+      types,
+      assignees,
       search: q,
       from: fromD,
       to: toD,
-      assignedToUserId: assignee,
-    }),
-    prisma.user.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
     }),
     prisma.vehicle.findMany({
       where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
@@ -148,9 +186,6 @@ export default async function AdminLeadsPage({
     ...l,
     createdAt: l.createdAt.toISOString(),
   }));
-
-  const currentAssignee =
-    assignee === null ? "none" : assignee === undefined ? undefined : assignee;
 
   return (
     <div className="admin-page admin-section">
@@ -172,25 +207,13 @@ export default async function AdminLeadsPage({
         totalCount={totalCount}
         page={page}
         pageSize={pageSize}
-        currentStatus={status}
-        currentType={type}
-        currentAssignee={currentAssignee}
+        statuses={statuses}
+        types={types}
+        assignees={assignees}
         sellers={sellers}
         currentPeriod={period}
-        fromKey={
-          typeof params.from === "string"
-            ? params.from
-            : period === "7d" || period === "30d"
-              ? format(startOfDay(subDays(new Date(), period === "7d" ? 6 : 29)), "yyyy-MM-dd")
-              : undefined
-        }
-        toKey={
-          typeof params.to === "string"
-            ? params.to
-            : period === "7d" || period === "30d"
-              ? format(startOfDay(new Date()), "yyyy-MM-dd")
-              : undefined
-        }
+        fromKey={fromKey}
+        toKey={toKey}
         initialSearch={q ?? ""}
       />
     </div>

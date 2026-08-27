@@ -47,13 +47,25 @@ function creditRatioLabel(ratio: number) {
   return "Entrada baixa";
 }
 
+const TEMPERATURE_LABELS: Record<string, string> = {
+  HOT: "Quente",
+  WARM: "Morno",
+  COLD: "Frio",
+};
+
+const TEMPERATURE_CLASSES: Record<string, string> = {
+  HOT: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
+  WARM: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  COLD: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
+};
+
 export default async function AdminLeadDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await guardAdminSection("leads");
+  const currentUser = await guardAdminSection("leads");
   const [lead, sellers] = await Promise.all([
     prisma.lead.findFirst({
       where: { id, deletedAt: null },
@@ -118,11 +130,31 @@ export default async function AdminLeadDetailPage({
         )}
       </div>
 
-      <h1 className="mt-4 text-2xl font-bold text-zinc-900 dark:text-zinc-50">Lead: {lead.name}</h1>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Lead: {lead.name}</h1>
+        {lead.temperature ? (
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${TEMPERATURE_CLASSES[lead.temperature] ?? "bg-zinc-100 text-zinc-600"}`}
+          >
+            {TEMPERATURE_LABELS[lead.temperature] ?? lead.temperature}
+          </span>
+        ) : null}
+      </div>
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
         Criado em {new Date(lead.createdAt).toLocaleString("pt-BR")} ·{" "}
         {SOURCE_LABELS[lead.source] ?? lead.source}
       </p>
+
+      {lead.juliaSummary ? (
+        <div className="mt-5 rounded-xl border border-facil-orange/30 bg-orange-50/60 p-5 shadow-sm dark:border-facil-orange/20 dark:bg-orange-950/20">
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-facil-orange">
+            Resumo da Júlia
+          </h2>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+            {lead.juliaSummary}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         {/* Card 1 — Identidade */}
@@ -290,6 +322,7 @@ export default async function AdminLeadDetailPage({
               <AssignLeadForm
                 leadId={lead.id}
                 currentAssignedToUserId={lead.assignedToUserId}
+                currentUserId={currentUser.id}
                 sellers={sellers}
               />
               {lead.assignedToUser ? (

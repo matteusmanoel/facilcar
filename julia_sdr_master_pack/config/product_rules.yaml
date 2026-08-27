@@ -1,0 +1,21 @@
+mvp:
+  languages: [pt-BR, es]
+  max_alternatives_per_round: 3
+  handoff_confirmation_messages: 1
+  document_retention_days_non_won: 180
+  won_document_retention: permanent
+  monthly_incremental_cost_brl_max: 500
+inventory:
+  available_status: PUBLISHED
+  allow_inference_for_missing_fields: false
+handoff:
+  automatic_when_actionable: true
+  explicit_vendor_request_bypasses_triage: true
+  explicit_offer_bypasses_triage: true
+  high_purchase_intent_can_bypass_triage: true
+  human_handoff_irreversible_for_active_thread: true
+conversation:
+  preferred_messages_per_turn_min: 1
+  preferred_messages_per_turn_max: 3
+  prefer_one_question_at_a_time: true
+  unknown_is_false: false

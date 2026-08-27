@@ -86,6 +86,10 @@ export async function createVehicle(formData: FormData) {
       mileage: data.mileage ?? null,
       fuelType: data.fuelType ?? null,
       transmission: data.transmission ?? null,
+      engineDisplacementLiters:
+        data.engineDisplacementLiters != null
+          ? data.engineDisplacementLiters
+          : null,
       color: data.color ?? null,
       doors: data.doors ?? null,
       plateFinal: data.plateFinal?.trim() || null,
@@ -152,6 +156,9 @@ export async function updateVehicle(formData: FormData) {
   if (data.mileage !== undefined) updatePayload.mileage = data.mileage ?? null;
   if (data.fuelType !== undefined) updatePayload.fuelType = data.fuelType ?? null;
   if (data.transmission !== undefined) updatePayload.transmission = data.transmission ?? null;
+  if (data.engineDisplacementLiters !== undefined) {
+    updatePayload.engineDisplacementLiters = data.engineDisplacementLiters ?? null;
+  }
   if (data.color !== undefined) updatePayload.color = data.color ?? null;
   if (data.doors !== undefined) updatePayload.doors = data.doors ?? null;
   if (data.plateFinal !== undefined) updatePayload.plateFinal = data.plateFinal?.trim() || null;

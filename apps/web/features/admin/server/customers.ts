@@ -134,7 +134,7 @@ export async function createCustomerAction(input: unknown) {
     select: { id: true },
   });
 
-  revalidatePath("/admin/clientes");
+  revalidatePath("/admin/leads");
   return { ok: true as const, id: customer.id };
 }
 
@@ -169,8 +169,7 @@ export async function updateCustomerAction(id: string, input: unknown) {
     data: { name: parsed.data.name.trim(), phone, email },
   });
 
-  revalidatePath("/admin/clientes");
-  revalidatePath(`/admin/clientes/${id}`);
+  revalidatePath("/admin/leads");
   return { ok: true as const };
 }
 
@@ -192,6 +191,6 @@ export async function deleteCustomerAction(id: string) {
   }
 
   await prisma.customer.delete({ where: { id } });
-  revalidatePath("/admin/clientes");
+  revalidatePath("/admin/leads");
   return { ok: true as const };
 }

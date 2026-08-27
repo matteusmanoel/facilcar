@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import type { VehicleStatus } from "@prisma/client";
+import type { FuelType, Transmission, VehicleStatus, VehicleType } from "@prisma/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ExternalLink, MoreHorizontal, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { quickUpdateVehicleStatusAction } from "@/features/vehicle/server/mutations";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { AdminFilterSheet, FilterFieldLabel } from "@/components/admin/AdminFilterSheet";
 import { ArchiveVehicleButton } from "./ArchiveVehicleButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,13 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { useDebounce } from "@/hooks/useDebounce";
+import { serializeCsvParam } from "@/lib/query-filters";
 import { cn } from "@/lib/cn";
 
 type VehicleRow = {
@@ -38,6 +35,21 @@ type VehicleRow = {
   images: { url: string }[];
 };
 
+type BrandOption = { id: string; name: string; slug: string };
+
+type VehicleListFilters = {
+  statuses?: VehicleStatus[];
+  brandIds?: string[];
+  types?: VehicleType[];
+  featuredValues?: boolean[];
+  fuelTypes?: FuelType[];
+  transmissions?: Transmission[];
+  priceMin?: number;
+  priceMax?: number;
+  yearMin?: number;
+  yearMax?: number;
+};
+
 const STATUS_OPTIONS: { value: VehicleStatus; label: string }[] = [
   { value: "DRAFT", label: "Rascunho" },
   { value: "PUBLISHED", label: "Publicado" },
@@ -46,24 +58,91 @@ const STATUS_OPTIONS: { value: VehicleStatus; label: string }[] = [
   { value: "ARCHIVED", label: "Arquivado" },
 ];
 
-const QUICK_STATUS_OPTIONS: { value: VehicleStatus; label: string }[] = [
-  { value: "DRAFT", label: "Rascunho" },
-  { value: "PUBLISHED", label: "Publicado" },
-  { value: "RESERVED", label: "Reservado" },
-  { value: "SOLD", label: "Vendido" },
-  { value: "ARCHIVED", label: "Arquivado" },
+const TYPE_OPTIONS: { value: VehicleType; label: string }[] = [
+  { value: "CAR", label: "Carro" },
+  { value: "MOTORCYCLE", label: "Moto" },
+  { value: "UTILITY", label: "Utilitário" },
+  { value: "OTHER", label: "Outro" },
 ];
+
+const FUEL_OPTIONS: { value: FuelType; label: string }[] = [
+  { value: "GASOLINE", label: "Gasolina" },
+  { value: "ETHANOL", label: "Etanol" },
+  { value: "FLEX", label: "Flex" },
+  { value: "DIESEL", label: "Diesel" },
+  { value: "ELECTRIC", label: "Elétrico" },
+  { value: "HYBRID", label: "Híbrido" },
+  { value: "OTHER", label: "Outro" },
+];
+
+const TRANSMISSION_OPTIONS: { value: Transmission; label: string }[] = [
+  { value: "MANUAL", label: "Manual" },
+  { value: "AUTOMATIC", label: "Automático" },
+  { value: "AUTOMATED", label: "Automatizado" },
+  { value: "CVT", label: "CVT" },
+  { value: "OTHER", label: "Outro" },
+];
+
+const QUICK_STATUS_OPTIONS = STATUS_OPTIONS;
+
+const FEATURED_OPTIONS = [
+  { value: "true", label: "Em destaque" },
+  { value: "false", label: "Sem destaque" },
+];
+
+type DraftFilters = {
+  statuses: string[];
+  brandIds: string[];
+  types: string[];
+  featured: string[];
+  fuelTypes: string[];
+  transmissions: string[];
+  priceMin: string;
+  priceMax: string;
+  yearMin: string;
+  yearMax: string;
+};
+
+function filtersToDraft(filters: VehicleListFilters): DraftFilters {
+  return {
+    statuses: filters.statuses ?? [],
+    brandIds: filters.brandIds ?? [],
+    types: filters.types ?? [],
+    featured: (filters.featuredValues ?? []).map((v) => (v ? "true" : "false")),
+    fuelTypes: filters.fuelTypes ?? [],
+    transmissions: filters.transmissions ?? [],
+    priceMin: filters.priceMin != null ? String(filters.priceMin) : "",
+    priceMax: filters.priceMax != null ? String(filters.priceMax) : "",
+    yearMin: filters.yearMin != null ? String(filters.yearMin) : "",
+    yearMax: filters.yearMax != null ? String(filters.yearMax) : "",
+  };
+}
+
+function countActiveFilters(filters: VehicleListFilters): number {
+  let n = 0;
+  if (filters.statuses?.length) n++;
+  if (filters.brandIds?.length) n++;
+  if (filters.types?.length) n++;
+  if (filters.featuredValues?.length) n++;
+  if (filters.fuelTypes?.length) n++;
+  if (filters.transmissions?.length) n++;
+  if (filters.priceMin != null) n++;
+  if (filters.priceMax != null) n++;
+  if (filters.yearMin != null) n++;
+  if (filters.yearMax != null) n++;
+  return n;
+}
 
 interface VehiclesClientProps {
   vehicles: VehicleRow[];
   totalCount: number;
   page: number;
   pageSize: number;
-  currentStatus?: VehicleStatus;
+  brands: BrandOption[];
+  filters: VehicleListFilters;
   initialSearch: string;
   canWrite?: boolean;
 }
-
 
 function VehicleActionsMenu({
   vehicle,
@@ -189,7 +268,8 @@ export function VehiclesClient({
   totalCount,
   page,
   pageSize,
-  currentStatus,
+  brands,
+  filters,
   initialSearch,
   canWrite = true,
 }: VehiclesClientProps) {
@@ -199,10 +279,25 @@ export function VehiclesClient({
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState(initialSearch);
   const debouncedSearch = useDebounce(search, 350);
+  const [draft, setDraft] = useState<DraftFilters>(() => filtersToDraft(filters));
+
+  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
+  const hasAdvancedFilters =
+    (filters.featuredValues?.length ?? 0) > 0 ||
+    (filters.fuelTypes?.length ?? 0) > 0 ||
+    (filters.transmissions?.length ?? 0) > 0 ||
+    filters.priceMin != null ||
+    filters.priceMax != null ||
+    filters.yearMin != null ||
+    filters.yearMax != null;
 
   useEffect(() => {
     setSearch(initialSearch);
   }, [initialSearch]);
+
+  useEffect(() => {
+    setDraft(filtersToDraft(filters));
+  }, [filters]);
 
   useEffect(() => {
     const currentQ = searchParams.get("q") ?? "";
@@ -240,16 +335,45 @@ export function VehiclesClient({
     });
   }
 
+  function applyDraftFilters() {
+    pushSearchParams((sp) => {
+      const setCsv = (key: string, values: string[]) => {
+        const serialized = serializeCsvParam(values);
+        if (serialized) sp.set(key, serialized);
+        else sp.delete(key);
+      };
+
+      setCsv("status", draft.statuses);
+      setCsv("brandId", draft.brandIds);
+      setCsv("type", draft.types);
+      setCsv("featured", draft.featured);
+      setCsv("fuelType", draft.fuelTypes);
+      setCsv("transmission", draft.transmissions);
+
+      ["priceMin", "priceMax", "yearMin", "yearMax"].forEach((key) => {
+        const value = draft[key as keyof DraftFilters] as string;
+        if (value?.trim()) sp.set(key, value.trim());
+        else sp.delete(key);
+      });
+
+      sp.set("page", "1");
+    });
+  }
+
   function clearFilters() {
     startTransition(() => {
-      router.push("/admin/veiculos");
-      setSearch("");
+      const sp = new URLSearchParams();
+      const q = search.trim();
+      if (q) sp.set("q", q);
+      const qs = sp.toString();
+      router.push(qs ? `${pathname}?${qs}` : pathname);
+      setDraft(filtersToDraft({}));
     });
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const qActive = (searchParams.get("q") ?? "").trim();
-  const hasActiveFilters = !!(currentStatus || qActive);
+  const hasActiveFilters = activeFilterCount > 0 || !!qActive;
 
   return (
     <div className="flex flex-col gap-3">
@@ -274,27 +398,134 @@ export function VehiclesClient({
           ) : null}
         </div>
 
-        <Select
-          value={currentStatus ?? "all"}
+        <AdminFilterSheet
+          activeCount={activeFilterCount}
           disabled={isPending}
-          onValueChange={(v) => applyFilter({ status: v === "all" ? undefined : v })}
-        >
-          <SelectTrigger className="h-9 w-[180px] border-facil-border bg-facil-card">
-            <span className={cn("truncate", !currentStatus && "text-facil-muted")}>
-              {currentStatus
-                ? STATUS_OPTIONS.find((s) => s.value === currentStatus)?.label ?? currentStatus
-                : "Status"}
-            </span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os status</SelectItem>
-            {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          onApply={applyDraftFilters}
+          onClear={clearFilters}
+          advancedDefaultOpen={hasAdvancedFilters}
+          basicSection={
+            <>
+              <div>
+                <FilterFieldLabel>Status</FilterFieldLabel>
+                <MultiSelect
+                  options={STATUS_OPTIONS}
+                  value={draft.statuses}
+                  onChange={(statuses) => setDraft((d) => ({ ...d, statuses }))}
+                  placeholder="Todos os status"
+                  searchPlaceholder="Buscar status…"
+                />
+              </div>
+              <div>
+                <FilterFieldLabel>Marca</FilterFieldLabel>
+                <MultiSelect
+                  options={brands.map((b) => ({ value: b.id, label: b.name }))}
+                  value={draft.brandIds}
+                  onChange={(brandIds) => setDraft((d) => ({ ...d, brandIds }))}
+                  placeholder="Todas as marcas"
+                  searchPlaceholder="Buscar marca…"
+                />
+              </div>
+              <div>
+                <FilterFieldLabel>Tipo</FilterFieldLabel>
+                <MultiSelect
+                  options={TYPE_OPTIONS}
+                  value={draft.types}
+                  onChange={(types) => setDraft((d) => ({ ...d, types }))}
+                  placeholder="Todos os tipos"
+                  searchPlaceholder="Buscar tipo…"
+                />
+              </div>
+            </>
+          }
+          advancedSection={
+            <>
+              <div>
+                <FilterFieldLabel>Destaque</FilterFieldLabel>
+                <MultiSelect
+                  options={FEATURED_OPTIONS}
+                  value={draft.featured}
+                  onChange={(featured) => setDraft((d) => ({ ...d, featured }))}
+                  placeholder="Todos"
+                />
+              </div>
+              <div>
+                <FilterFieldLabel>Combustível</FilterFieldLabel>
+                <MultiSelect
+                  options={FUEL_OPTIONS}
+                  value={draft.fuelTypes}
+                  onChange={(fuelTypes) => setDraft((d) => ({ ...d, fuelTypes }))}
+                  placeholder="Todos"
+                  searchPlaceholder="Buscar combustível…"
+                />
+              </div>
+              <div>
+                <FilterFieldLabel>Câmbio</FilterFieldLabel>
+                <MultiSelect
+                  options={TRANSMISSION_OPTIONS}
+                  value={draft.transmissions}
+                  onChange={(transmissions) => setDraft((d) => ({ ...d, transmissions }))}
+                  placeholder="Todos"
+                  searchPlaceholder="Buscar câmbio…"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FilterFieldLabel>Preço mín.</FilterFieldLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={draft.priceMin}
+                    onChange={(e) => setDraft((d) => ({ ...d, priceMin: e.target.value }))}
+                    className="h-9 border-facil-border bg-facil-card"
+                  />
+                </div>
+                <div>
+                  <FilterFieldLabel>Preço máx.</FilterFieldLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    placeholder="—"
+                    value={draft.priceMax}
+                    onChange={(e) => setDraft((d) => ({ ...d, priceMax: e.target.value }))}
+                    className="h-9 border-facil-border bg-facil-card"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FilterFieldLabel>Ano mín.</FilterFieldLabel>
+                  <Input
+                    type="number"
+                    min={1900}
+                    max={2100}
+                    inputMode="numeric"
+                    placeholder="—"
+                    value={draft.yearMin}
+                    onChange={(e) => setDraft((d) => ({ ...d, yearMin: e.target.value }))}
+                    className="h-9 border-facil-border bg-facil-card"
+                  />
+                </div>
+                <div>
+                  <FilterFieldLabel>Ano máx.</FilterFieldLabel>
+                  <Input
+                    type="number"
+                    min={1900}
+                    max={2100}
+                    inputMode="numeric"
+                    placeholder="—"
+                    value={draft.yearMax}
+                    onChange={(e) => setDraft((d) => ({ ...d, yearMax: e.target.value }))}
+                    className="h-9 border-facil-border bg-facil-card"
+                  />
+                </div>
+              </div>
+            </>
+          }
+        />
 
         {hasActiveFilters ? (
           <Button variant="ghost" size="sm" disabled={isPending} onClick={clearFilters}>

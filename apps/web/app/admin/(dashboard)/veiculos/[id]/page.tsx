@@ -4,7 +4,7 @@ import { ChevronLeft, ExternalLink } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canWriteVehicles } from "@/features/auth/rbac-config";
-import { getBrandsForFilter } from "@/features/catalog/server/queries";
+import { getBrandsForVehicleForm } from "@/features/catalog/server/queries";
 import { VehicleForm } from "../VehicleForm";
 import { ArchiveVehicleButton } from "../ArchiveVehicleButton";
 
@@ -24,7 +24,7 @@ export default async function AdminVeiculoEditPage({
         features: { orderBy: { sortOrder: "asc" } },
       },
     }),
-    getBrandsForFilter(),
+    getBrandsForVehicleForm(),
   ]);
 
   if (!vehicle) notFound();
@@ -37,6 +37,10 @@ export default async function AdminVeiculoEditPage({
     parcelaBase: vehicle.parcelaBase != null ? Number(vehicle.parcelaBase) : null,
     entradaMinima: vehicle.entradaMinima != null ? Number(vehicle.entradaMinima) : null,
     rendaMinimaSugerida: vehicle.rendaMinimaSugerida != null ? Number(vehicle.rendaMinimaSugerida) : null,
+    engineDisplacementLiters:
+      vehicle.engineDisplacementLiters != null
+        ? Number(vehicle.engineDisplacementLiters)
+        : null,
   };
 
   return (
@@ -82,7 +86,12 @@ export default async function AdminVeiculoEditPage({
         </div>
       </div>
 
-      <VehicleForm brands={brands} vehicle={serializedVehicle} readOnly={readOnly} />
+      <VehicleForm
+        brands={brands}
+        vehicle={serializedVehicle}
+        readOnly={readOnly}
+        canManageBrands={!readOnly}
+      />
     </div>
   );
 }

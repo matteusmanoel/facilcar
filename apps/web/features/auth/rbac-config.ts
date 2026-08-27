@@ -17,9 +17,7 @@ export type AdminSection =
   | "usuarios"
   | "paginas"
   | "blog"
-  | "configuracoes"
-  | "marcas"
-  | "clientes";
+  | "configuracoes";
 
 export type NavItemKey =
   | "dashboard"
@@ -28,16 +26,12 @@ export type NavItemKey =
   | "usuarios"
   | "paginas"
   | "blog"
-  | "configuracoes"
-  | "marcas"
-  | "clientes";
+  | "configuracoes";
 
 export const NAV_ITEM_KEYS: NavItemKey[] = [
   "dashboard",
   "veiculos",
   "leads",
-  "clientes",
-  "marcas",
   "usuarios",
   "paginas",
   "blog",
@@ -52,8 +46,6 @@ const SECTION_ROLES: Record<AdminSection, UserRole[]> = {
   paginas: CONTENT_ROLES,
   blog: CONTENT_ROLES,
   configuracoes: CONTENT_ROLES,
-  marcas: BRAND_READ_ROLES,
-  clientes: CUSTOMER_READ_ROLES,
 };
 
 export function canAccessSection(role: UserRole, section: AdminSection): boolean {
@@ -78,7 +70,7 @@ export function getBottomNavPriority(role: UserRole): NavItemKey[] {
     return ["dashboard", "blog", "paginas", "configuracoes"];
   }
   if (role === "LEAD_MANAGER") {
-    return ["dashboard", "leads", "clientes", "veiculos"];
+    return ["dashboard", "leads", "veiculos"];
   }
   return ["dashboard", "veiculos", "leads", "configuracoes"];
 }
@@ -91,7 +83,5 @@ export function resolveSectionFromPathname(pathname: string): AdminSection | nul
   if (pathname.startsWith("/admin/paginas")) return "paginas";
   if (pathname.startsWith("/admin/blog")) return "blog";
   if (pathname.startsWith("/admin/configuracoes")) return "configuracoes";
-  if (pathname.startsWith("/admin/marcas")) return "marcas";
-  if (pathname.startsWith("/admin/clientes")) return "clientes";
   return null;
 }

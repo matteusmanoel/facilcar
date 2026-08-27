@@ -1,13 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canWriteVehicles } from "@/features/auth/rbac-config";
+import { getBrandsForFilter } from "@/features/catalog/server/queries";
 import { listAdminVehicles } from "@/features/vehicle/server/queries";
+import { parseCsvParam, parseEnumCsv } from "@/lib/query-filters";
 import { Button } from "@/components/ui/button";
 import { VehiclesClient } from "./VehiclesClient";
 
-import type { VehicleStatus } from "@prisma/client";
+import type { FuelType, Transmission, VehicleStatus, VehicleType } from "@prisma/client";
 
 const VEHICLE_STATUSES: VehicleStatus[] = [
   "DRAFT",
@@ -17,11 +18,30 @@ const VEHICLE_STATUSES: VehicleStatus[] = [
   "ARCHIVED",
 ];
 
+const VEHICLE_TYPES: VehicleType[] = ["CAR", "MOTORCYCLE", "UTILITY", "OTHER"];
+const FUEL_TYPES: FuelType[] = [
+  "GASOLINE",
+  "ETHANOL",
+  "FLEX",
+  "DIESEL",
+  "ELECTRIC",
+  "HYBRID",
+  "OTHER",
+];
+const TRANSMISSIONS: Transmission[] = ["MANUAL", "AUTOMATIC", "AUTOMATED", "CVT", "OTHER"];
+
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-function parseVehicleStatus(value: string | undefined): VehicleStatus | undefined {
-  if (!value) return undefined;
-  return VEHICLE_STATUSES.includes(value as VehicleStatus) ? (value as VehicleStatus) : undefined;
+function parseOptionalNumber(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseFeaturedCsv(value: string | undefined): boolean[] {
+  return parseCsvParam(value)
+    .filter((v) => v === "true" || v === "false")
+    .map((v) => v === "true");
 }
 
 export default async function AdminVeiculosPage({
@@ -35,14 +55,44 @@ export default async function AdminVeiculosPage({
   const page = Math.max(1, parseInt(String(params.page ?? "1"), 10) || 1);
   const pageSize = Math.min(100, Math.max(5, parseInt(String(params.pageSize ?? "20"), 10) || 20));
   const q = typeof params.q === "string" ? params.q : undefined;
-  const status = parseVehicleStatus(typeof params.status === "string" ? params.status : undefined);
 
-  const { vehicles, totalCount } = await listAdminVehicles({
-    page,
-    pageSize,
-    status,
-    search: q,
-  });
+  const statusParam = typeof params.status === "string" ? params.status : undefined;
+  const brandParam = typeof params.brandId === "string" ? params.brandId : undefined;
+  const typeParam = typeof params.type === "string" ? params.type : undefined;
+  const featuredParam = typeof params.featured === "string" ? params.featured : undefined;
+  const fuelParam = typeof params.fuelType === "string" ? params.fuelType : undefined;
+  const transmissionParam = typeof params.transmission === "string" ? params.transmission : undefined;
+
+  const statuses = parseEnumCsv(statusParam, VEHICLE_STATUSES);
+  const brandIds = parseCsvParam(brandParam);
+  const types = parseEnumCsv(typeParam, VEHICLE_TYPES);
+  const featuredValues = parseFeaturedCsv(featuredParam);
+  const fuelTypes = parseEnumCsv(fuelParam, FUEL_TYPES);
+  const transmissions = parseEnumCsv(transmissionParam, TRANSMISSIONS);
+
+  const priceMin = parseOptionalNumber(typeof params.priceMin === "string" ? params.priceMin : undefined);
+  const priceMax = parseOptionalNumber(typeof params.priceMax === "string" ? params.priceMax : undefined);
+  const yearMin = parseOptionalNumber(typeof params.yearMin === "string" ? params.yearMin : undefined);
+  const yearMax = parseOptionalNumber(typeof params.yearMax === "string" ? params.yearMax : undefined);
+
+  const [{ vehicles, totalCount }, brands] = await Promise.all([
+    listAdminVehicles({
+      page,
+      pageSize,
+      statuses,
+      search: q,
+      brandIds,
+      types,
+      featuredValues,
+      fuelTypes,
+      transmissions,
+      priceMin,
+      priceMax,
+      yearMin,
+      yearMax,
+    }),
+    getBrandsForFilter(),
+  ]);
 
   const serializedVehicles = vehicles.map((vehicle) => ({
     id: vehicle.id,
@@ -76,7 +126,19 @@ export default async function AdminVeiculosPage({
         totalCount={totalCount}
         page={page}
         pageSize={pageSize}
-        currentStatus={status}
+        brands={brands}
+        filters={{
+          statuses,
+          brandIds,
+          types,
+          featuredValues,
+          fuelTypes,
+          transmissions,
+          priceMin,
+          priceMax,
+          yearMin,
+          yearMax,
+        }}
         initialSearch={q ?? ""}
         canWrite={canWrite}
       />

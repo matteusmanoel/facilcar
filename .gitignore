@@ -32,10 +32,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Env — commit .env.example only
+# Env — commit example templates only
 .env
 .env.*
-.env.example
+!.env.example
+!.env.*.example
+!.env.evolution.example
 
 # Vercel
 .vercel
@@ -56,3 +58,18 @@ lib/generated/prisma/
 !.vscode/settings.json.example
 *.swp
 *.swo
+
+# Local disaster-recovery dumps
+.backups/
+
+# WhatsApp session exports (passkey bridge) — never commit
+wa-session*.json
+*-wa-creds.json
+
+# Local Cursor/agent skill copies (third-party Redis/Iris) — not product runtime
+.agents/
+skills-lock.json
+
+# Supabase CLI link cache (may point at the paused legacy project)
+supabase/.temp/
+apps/web/supabase/.temp/

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { UserRole } from "@prisma/client";
 import { ThemedToaster } from "@/components/admin/themed-toaster";
 import { AdminShell } from "@/components/admin/AdminShell";
+import AdminDashboardLayoutClient from "@/components/admin/AdminDashboardLayoutClient";
 import { ForbiddenToast } from "@/components/admin/ForbiddenToast";
 import { requireAdminSession } from "@/features/auth/server/require-admin-session";
 import { adminSignOutAction } from "./signOutAction";
@@ -16,7 +17,7 @@ export default async function AdminDashboardLayout({
   return (
     <>
       <AdminShell signOutAction={adminSignOutAction} role={user.role as UserRole}>
-        {children}
+        <AdminDashboardLayoutClient>{children}</AdminDashboardLayoutClient>
       </AdminShell>
       <ThemedToaster />
       <Suspense fallback={null}>

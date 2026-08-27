@@ -1,0 +1,8 @@
+name: Compra acionável sem formulário completo
+messages:
+  - "Quero uma Hilux até 250 mil, dou 80 mil de entrada e quero comprar nos próximos 30 dias."
+expect:
+  business_type: PURCHASE
+  actionability: ACTIONABLE
+  handoff: true
+  must_not_ask: [cor, quilometragem, opcionais, versão_exata]

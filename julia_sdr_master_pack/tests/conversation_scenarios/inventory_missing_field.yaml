@@ -1,0 +1,8 @@
+name: Campo ausente no catálogo
+messages:
+  - "Qual a quilometragem desse carro?"
+catalog:
+  status: PUBLISHED
+  mileage: null
+expect:
+  must_not_infer: true

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionPlan",
+  "type": "object",
+  "required": [
+    "action",
+    "handoff",
+    "tool_calls"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "ask_info",
+        "show_offers",
+        "send_photos",
+        "send_location",
+        "register_visit_interest",
+        "handoff_vendor",
+        "smalltalk",
+        "no_reply"
+      ]
+    },
+    "handoff": {
+      "type": "boolean"
+    },
+    "next_question": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "reason_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

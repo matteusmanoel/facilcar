@@ -1,0 +1,6 @@
+name: Pedido explícito de vendedor
+messages:
+  - "Quero falar com um vendedor agora."
+expect:
+  handoff: true
+  bypass_triage: true

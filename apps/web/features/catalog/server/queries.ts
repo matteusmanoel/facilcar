@@ -100,3 +100,23 @@ export async function getBrandsForFilter() {
     select: { id: true, name: true, slug: true },
   });
 }
+
+/** Brands for vehicle form / admin filters, including usage count for inline delete. */
+export async function getBrandsForVehicleForm() {
+  const rows = await prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      _count: { select: { vehicles: true } },
+    },
+  });
+  return rows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    slug: b.slug,
+    vehicleCount: b._count.vehicles,
+  }));
+}

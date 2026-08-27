@@ -1,0 +1,6 @@
+name: Troca com contexto suficiente
+messages:
+  - "Quero um T-Cross de até 110 mil. Tenho um Fox 2018 com 90 mil km, financiado, e queria dar ele na troca."
+expect:
+  business_type: TRADE_IN
+  must_not_repeat_known_fields: true

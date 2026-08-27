@@ -1,16 +1,8 @@
 import { z } from "zod";
 
-export const createBrandSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório"),
-  slug: z
-    .string()
-    .min(1, "Slug é obrigatório")
-    .regex(/^[a-z0-9-]+$/, "Slug deve conter apenas letras minúsculas, números e hífens"),
-  logoUrl: z.string().url("URL inválida").optional().or(z.literal("")),
-  isActive: z.boolean().default(true),
+/** Inline brand create — only the display name is required. */
+export const createBrandInlineSchema = z.object({
+  name: z.string().trim().min(1, "Nome é obrigatório").max(80, "Nome muito longo"),
 });
 
-export const updateBrandSchema = createBrandSchema;
-
-export type CreateBrandInput = z.infer<typeof createBrandSchema>;
-export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
+export type CreateBrandInlineInput = z.infer<typeof createBrandInlineSchema>;

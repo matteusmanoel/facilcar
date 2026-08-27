@@ -1,0 +1,43 @@
+name: "Coalesce three bubbles — one turn"
+description: >
+  Customer sends Oi / quero um Corolla / até 80 mil as separate bubbles.
+  After quiet window they must form one composed InboundTurn (one response).
+
+turns:
+  - role: customer
+    coalesce:
+      - text: "Oi"
+      - text: "quero um Corolla"
+      - text: "até 80 mil"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_vehicle_text
+          value: Corolla
+        - key: budget
+          value: 80000
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.92
+        - key: budget
+          value: 0.9
+
+assertions:
+  no_reintro_after_first_turn: true
+  commercial_intent_recognized: true
+
+turn_assertions:
+  - turn: 1
+    intent: purchase
+    action_not: smalltalk
+    reason_not: greeting_or_chitchat
+    facts_include:
+      desired_vehicle_text: Corolla
+    no_greeting_in_response: false
