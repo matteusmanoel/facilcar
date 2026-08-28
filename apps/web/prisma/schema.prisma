@@ -199,6 +199,7 @@ model Vehicle {
   features          VehicleFeature[]
   leads             Lead[]
   financingRequests FinancingRequest[]
+  vehicleInterests  LeadVehicleInterest[]
 
   @@schema("facilcar")
   @@index([status])
@@ -239,9 +240,11 @@ model Customer {
   name      String
   phone     String   @unique
   email     String?
+  notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   leads     Lead[]
+  documents CustomerDocument[]
 
   @@schema("facilcar")
   @@index([name])
@@ -286,6 +289,7 @@ model Lead {
   visitInterests   VisitInterest[]
   sdrDocuments     SdrDocument[]
   sdrNotifications SdrNotification[]
+  vehicleInterests LeadVehicleInterest[]
 
   @@schema("facilcar")
   @@index([type])
@@ -295,6 +299,38 @@ model Lead {
   @@index([deletedAt])
   @@index([createdAt(sort: Desc)])
   @@index([conversationId])
+}
+
+model LeadVehicleInterest {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([leadId, vehicleId])
+  @@index([leadId])
+  @@index([vehicleId])
+  @@schema("facilcar")
+}
+
+model CustomerDocument {
+  id               String             @id @default(cuid())
+  customerId       String
+  customer         Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fileName         String
+  storageKey       String
+  mimeType         String?
+  byteSize         Int?
+  documentType     String             @default("CONTRACT")
+  retentionPolicy  SdrRetentionPolicy @default(PERMANENT)
+  uploadedByUserId String?
+  createdAt        DateTime           @default(now())
+
+  @@index([customerId])
+  @@schema("facilcar")
 }
 
 model FinancingRequest {
@@ -330,6 +366,8 @@ model SellRequest {
   fuelType        String?
   transmission    String?
   observations    String?
+  saleMode        String?
+  photoUrls       String[] @default([])
 
   @@schema("facilcar")
 }
@@ -376,6 +414,9 @@ model SiteSettings {
   city                String?
   state               String?
   zipCode             String?
+  googleMapsUrl       String?
+  latitude            Float?
+  longitude           Float?
   facebookUrl         String?
   instagramUrl       String?
   youtubeUrl          String?
