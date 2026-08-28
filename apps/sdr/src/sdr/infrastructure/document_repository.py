@@ -165,3 +165,18 @@ class DocumentRepository:
 
         async with self._pool.acquire() as conn:
             return await conn.fetchrow(sql, *args)
+
+    async def attach_orphans_to_lead(self, conversation_id: str, lead_id: str) -> int:
+        """Link conversation-only documents once a lead exists."""
+        sql = f'''
+            UPDATE "{SCHEMA}"."SdrDocument"
+            SET "leadId" = $2
+            WHERE "conversationId" = $1
+              AND "leadId" IS NULL
+        '''
+        async with self._pool.acquire() as conn:
+            status = await conn.execute(sql, conversation_id, lead_id)
+        try:
+            return int(str(status).split()[-1])
+        except (ValueError, IndexError):
+            return 0

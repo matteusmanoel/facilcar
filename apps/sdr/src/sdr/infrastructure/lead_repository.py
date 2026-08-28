@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -15,8 +16,10 @@ from sdr.domain.types import (
     ConversationCanonicalState,
     LeadTemperature,
 )
+from sdr.domain.vendor_summary import build_vendor_summary, is_placeholder_display_name
 
 SCHEMA = "facilcar"
+logger = logging.getLogger(__name__)
 
 INTENT_TO_LEAD_TYPE: dict[BusinessIntent, str] = {
     BusinessIntent.PURCHASE: "VEHICLE_INTEREST",
@@ -37,17 +40,8 @@ def _now() -> datetime:
 
 
 def build_julia_summary(state: ConversationCanonicalState) -> str:
-    parts = [
-        f"Intent: {state.intent.value}",
-        f"Business: {state.business.type.value}",
-        f"Actionability: {state.business.actionability.value}",
-    ]
-    if state.lifecycle.handoff_reason:
-        parts.append(f"Handoff: {state.lifecycle.handoff_reason}")
-    if state.facts:
-        compact = {k: v for k, v in state.facts.items() if v is not None}
-        parts.append(f"Facts: {json.dumps(compact, ensure_ascii=False)}")
-    return " | ".join(parts)
+    """Seller-facing brief persisted on Lead.juliaSummary."""
+    return build_vendor_summary(state)
 
 
 class LeadRepository:
@@ -58,6 +52,44 @@ class LeadRepository:
         sql = f'''SELECT * FROM "{SCHEMA}"."Lead" WHERE "id" = $1'''
         async with self._pool.acquire() as conn:
             return await conn.fetchrow(sql, lead_id)
+
+    async def list_linked_vehicle_titles(self, lead_ids: list[str]) -> list[str]:
+        """Titles already linked in CRM (interest table + primary vehicleId)."""
+        if not lead_ids:
+            return []
+        sql = f'''
+            SELECT title FROM (
+              SELECT i."isPrimary" AS is_primary, i."createdAt" AS created_at, v."title" AS title
+              FROM "{SCHEMA}"."LeadVehicleInterest" i
+              JOIN "{SCHEMA}"."Vehicle" v ON v."id" = i."vehicleId"
+              WHERE i."leadId" = ANY($1::text[])
+              UNION ALL
+              SELECT true AS is_primary, l."createdAt" AS created_at, v."title" AS title
+              FROM "{SCHEMA}"."Lead" l
+              JOIN "{SCHEMA}"."Vehicle" v ON v."id" = l."vehicleId"
+              WHERE l."id" = ANY($1::text[])
+                AND l."vehicleId" IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM "{SCHEMA}"."LeadVehicleInterest" i2
+                  WHERE i2."leadId" = l."id" AND i2."vehicleId" = l."vehicleId"
+                )
+            ) linked
+            ORDER BY is_primary DESC, created_at ASC
+        '''
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(sql, lead_ids)
+        except asyncpg.UndefinedTableError:
+            logger.warning("LeadVehicleInterest not migrated yet; skipping linked titles")
+            return []
+        titles: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            title = str(row["title"] or "").strip()
+            if title and title not in seen:
+                seen.add(title)
+                titles.append(title)
+        return titles
 
     async def create_from_state(
         self,
@@ -116,6 +148,9 @@ class LeadRepository:
                 now,
             )
             await self._upsert_side_tables(conn, lead_id, state)
+            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
+            if not is_placeholder_display_name(name):
+                await self._sync_lead_name(conn, lead_id, name.strip())
             return lead
 
     async def mark_qualified_for_handoff(
@@ -144,6 +179,9 @@ class LeadRepository:
         async with self._pool.acquire() as conn:
             lead = await conn.fetchrow(sql, lead_id, summary, temperature, now)
             await self._upsert_side_tables(conn, lead_id, state)
+            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
+            if not is_placeholder_display_name(state.customer.name):
+                await self._sync_lead_name(conn, lead_id, state.customer.name.strip())
             if lead is not None:
                 await conn.execute(
                     f'''
@@ -156,6 +194,105 @@ class LeadRepository:
                     now,
                 )
             return lead
+
+    async def sync_names_for_customer(self, customer_id: str, name: str) -> None:
+        """Upgrade CRM display names when a real name replaces a placeholder."""
+        cleaned = (name or "").strip()
+        if is_placeholder_display_name(cleaned):
+            return
+        now = _now()
+        sql = f'''
+            UPDATE "{SCHEMA}"."Lead"
+            SET "name" = $2, "updatedAt" = $3
+            WHERE "customerId" = $1
+              AND "deletedAt" IS NULL
+        '''
+        async with self._pool.acquire() as conn:
+            await conn.execute(sql, customer_id, cleaned, now)
+
+    async def _sync_lead_name(
+        self,
+        conn: asyncpg.Connection,
+        lead_id: str,
+        name: str,
+    ) -> None:
+        cleaned = (name or "").strip()
+        if is_placeholder_display_name(cleaned):
+            return
+        await conn.execute(
+            f'''
+            UPDATE "{SCHEMA}"."Lead"
+            SET "name" = $2, "updatedAt" = $3
+            WHERE "id" = $1 AND "deletedAt" IS NULL
+            ''',
+            lead_id,
+            cleaned,
+            _now(),
+        )
+
+    async def _sync_shown_vehicles(
+        self,
+        conn: asyncpg.Connection,
+        lead_id: str,
+        vehicle_ids: list[str],
+    ) -> None:
+        """Persist published vehicles Júlia actually presented — never string-guess."""
+        ids = [str(v).strip() for v in vehicle_ids if str(v).strip()]
+        if not ids:
+            return
+        try:
+            published = await conn.fetch(
+                f'''
+                SELECT "id" FROM "{SCHEMA}"."Vehicle"
+                WHERE "id" = ANY($1::text[])
+                  AND "status" = 'PUBLISHED'::"{SCHEMA}"."VehicleStatus"
+                ''',
+                ids,
+            )
+        except asyncpg.UndefinedTableError:
+            logger.warning("Vehicle table unavailable; skipping CRM vehicle sync")
+            return
+        published_set = {str(row["id"]) for row in published}
+        ordered = [vid for vid in ids if vid in published_set]
+        if not ordered:
+            return
+        primary = ordered[0]
+        await conn.execute(
+            f'''
+            UPDATE "{SCHEMA}"."Lead"
+            SET "vehicleId" = $2, "updatedAt" = $3
+            WHERE "id" = $1
+            ''',
+            lead_id,
+            primary,
+            _now(),
+        )
+        try:
+            await conn.execute(
+                f'''
+                UPDATE "{SCHEMA}"."LeadVehicleInterest"
+                SET "isPrimary" = false
+                WHERE "leadId" = $1
+                ''',
+                lead_id,
+            )
+            for index, vid in enumerate(ordered):
+                await conn.execute(
+                    f'''
+                    INSERT INTO "{SCHEMA}"."LeadVehicleInterest"
+                      ("id", "leadId", "vehicleId", "isPrimary", "createdAt")
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT ("leadId", "vehicleId") DO UPDATE
+                      SET "isPrimary" = EXCLUDED."isPrimary"
+                    ''',
+                    _new_id(),
+                    lead_id,
+                    vid,
+                    index == 0,
+                    _now(),
+                )
+        except asyncpg.UndefinedTableError:
+            logger.warning("LeadVehicleInterest not migrated yet; primary vehicleId still set")
 
     async def _upsert_side_tables(
         self,

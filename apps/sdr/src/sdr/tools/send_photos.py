@@ -68,7 +68,7 @@ async def send_vehicle_photos(
     images = await fetch_vehicle_image_urls(pool, vehicle_id, limit=max_photos)
     message_ids: list[str | None] = []
     for index, image in enumerate(images):
-        cap = caption if index == 0 and caption else ""
+        cap = caption if index == len(images) - 1 and caption else ""
         mid = await evolution.send_media(
             number,
             "image",

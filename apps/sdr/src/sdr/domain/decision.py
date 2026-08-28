@@ -3,13 +3,16 @@
 Priority:
 1. HUMAN_ACTIVE / HANDOFF_SENT → NO_REPLY
 2. Pending OFFER_ALTERNATIVES unresolved → clarify (keep pending)
-3. Explicit gated handoff signals (vendor / offer / visit / immediate close)
-4. Inventory when preference known OR widened scope, and search key changed
-5. Triage actionable → HANDOFF_VENDOR (only after inventory opportunity)
-6. Budget without model → inventory alternatives
-7. Commercial incomplete → ASK_INFO
-8. SMALLTALK → SMALLTALK
-9. UNKNOWN → COMMERCIAL_UNKNOWN
+3. Store location request → SEND_LOCATION (before visit/handoff)
+4. Document received this turn → ack (do not jump to visit)
+5. Explicit gated handoff signals (vendor / offer / visit / immediate close)
+6. Inventory when preference known OR widened scope, and search key changed
+7. Photo request of a shown vehicle → SEND_PHOTOS
+8. Triage actionable → visit invitation, then HANDOFF_VENDOR
+9. Budget without model → inventory alternatives
+10. Commercial incomplete → ASK_INFO
+11. SMALLTALK → SMALLTALK
+12. UNKNOWN → COMMERCIAL_UNKNOWN
 
 Inventory-first: vehicle preference + budget alone must not skip inventory
 and force irreversible handoff. Triage actionability is evaluated only after
@@ -46,6 +49,15 @@ from sdr.domain.types import (
     ConversationCanonicalState,
     LifecycleStatus,
 )
+
+# Intents where a visit invitation is appropriate before handoff.
+_VISIT_ELIGIBLE_INTENTS = frozenset({
+    BusinessIntent.PURCHASE,
+    BusinessIntent.PURCHASE_FINANCING,
+    BusinessIntent.TRADE,
+    BusinessIntent.SALE,
+    BusinessIntent.CONSIGNMENT,
+})
 
 # Re-export for callers that imported inventory_search_key from decision.
 __all__ = ["decide", "inventory_search_key", "inventory_search_key_from_request"]
@@ -107,6 +119,27 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason="Customer reply to alternatives offer was ambiguous or missing",
         )
 
+    # Store location is a capability request — execute before visit/handoff.
+    if state.location_request:
+        return ActionPlan(
+            action=Action.SEND_LOCATION,
+            handoff=False,
+            tool_calls=[{"tool": "send_location"}],
+            ask_field="visit",
+            next_question="visit",
+            reason_code="explicit_location_request",
+            reason="Send store pin and invite a visit",
+        )
+
+    # A received document this turn is acknowledged before visit/handoff.
+    if state.document_received:
+        return ActionPlan(
+            action=Action.ASK_INFO,
+            handoff=False,
+            reason_code="document_received_ack",
+            reason="Acknowledge extracted document; do not jump to visit this turn",
+        )
+
     # Irreversible handoff only from gated explicit signals — never from budget alone.
     if should_handoff_now(state):
         reason = _handoff_reason(state)
@@ -128,10 +161,14 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     # Inventory BEFORE triage handoff — respect preference and widened scope.
     if _needs_inventory_search(state):
         key = _state_search_key(state)
+        ask = next_ask_field(state)
+        follow = ask if ask and ask not in (None, "intent", "desired_model") else None
         return ActionPlan(
             action=Action.SHOW_OFFERS,
             handoff=False,
             tool_calls=[{"tool": "inventory_search", "_search_key": key}],
+            ask_field=follow,
+            next_question=follow,
             reason_code=(
                 "widened_inventory_lookup"
                 if state.alternative_scope != AlternativeScope.NONE
@@ -140,8 +177,33 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason="Show published inventory for current authorized search scope",
         )
 
+    # Explicit photo request of a vehicle already presented — execute, don't ask permission.
+    if state.photo_request and state.last_shown_vehicle_ids:
+        vehicle_id = state.last_shown_vehicle_ids[0]
+        ask = next_ask_field(state)
+        follow = ask if ask and ask not in (None, "intent") else None
+        return ActionPlan(
+            action=Action.SEND_PHOTOS,
+            handoff=False,
+            tool_calls=[{"tool": "send_photos", "vehicle_id": vehicle_id}],
+            ask_field=follow,
+            next_question=follow,
+            reason_code="explicit_photo_request",
+            reason="Send listing photos of the last presented vehicle",
+        )
+
     # Triage actionable only after inventory opportunity has been consumed.
     if is_seller_actionable(state):
+        # Visit invitation before irreversible handoff (non-blocking: max 1 turn).
+        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
+            state.visit_invited = True
+            return ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code="visit_invitation_pre_handoff",
+                reason="Invite customer to visit store before handoff",
+            )
         state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
         state.lifecycle.handoff_reason = "triage_actionable"
         state.business.actionability = Actionability.ACTIONABLE

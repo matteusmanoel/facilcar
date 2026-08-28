@@ -7,23 +7,28 @@ import logging
 from typing import Any, Mapping
 
 from sdr.config import get_settings
+from sdr.domain.introduction import (
+    continuation_smalltalk_bubbles,
+    intro_instruction,
+    introduction_smalltalk_bubbles,
+)
 from sdr.understanding.persona_prompts import (
     HANDOFF_CONFIRMATION_ES,
     HANDOFF_CONFIRMATION_PT,
     JULIA_PERSONA_SYSTEM_PROMPT,
 )
-from sdr.understanding.validator import validate_bubbles
+from sdr.understanding.validator import validate_bubbles, validate_introduction_policy
 
 logger = logging.getLogger(__name__)
 
 _FIELD_QUESTIONS_PT: dict[str, str] = {
     "name": "Me conta seu nome, por favor?",
-    "budget": "Qual valor máximo você pensa em investir?",
-    "budget_max": "Qual valor máximo você pensa em investir?",
     "desired_model": "Qual modelo ou tipo de carro você está buscando?",
     "model": "Qual modelo ou tipo de carro você está buscando?",
-    "down_payment": "Você tem valor de entrada em mente?",
+    "deal_type": "Seria compra ou troca?",
+    "down_payment": "Você teria algum valor de entrada, ou prefere financiar o valor todo?",
     "income": "Qual é a sua renda mensal aproximada? (só pra montar a pré-ficha)",
+    "documents": "Pra montar a pré-ficha, pode me enviar a CNH e um comprovante de renda (holerite)?",
     "vehicle": "Qual modelo ou tipo de carro você está buscando?",
     "vehicle_interest": "Qual modelo ou tipo de carro você está buscando?",
     "brand": "Tem alguma marca de preferência?",
@@ -41,15 +46,16 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "leave_at_store": "Você topa deixar o carro na loja pra consignação?",
     "year": "Qual o ano do veículo?",
     "intent": "Você está buscando comprar, vender, trocar ou refinanciar?",
+    "payment_method": "Seria à vista ou financiado?",
     "alternatives_ok": "Não encontrei exatamente o que você pediu no estoque atual. Quer que eu te mostre alternativas parecidas?",
 }
 
 _FIELD_QUESTIONS_ES: dict[str, str] = {
     "name": "¿Me dices tu nombre, por favor?",
-    "budget": "¿Cuál es el valor máximo que piensas invertir?",
-    "budget_max": "¿Cuál es el valor máximo que piensas invertir?",
-    "down_payment": "¿Tienes un valor de entrada en mente?",
+    "deal_type": "¿Sería compra o permuta?",
+    "down_payment": "¿Tienes un valor de entrada, o prefieres financiar el valor completo?",
     "income": "¿Cuál es tu ingreso mensual aproximado? (solo para armar la pre-ficha)",
+    "documents": "Para armar la pre-ficha, ¿puedes enviarme la licencia y un comprobante de ingresos?",
     "vehicle": "¿Qué modelo o tipo de auto estás buscando?",
     "vehicle_interest": "¿Qué modelo o tipo de auto estás buscando?",
     "brand": "¿Tienes alguna marca de preferencia?",
@@ -57,6 +63,7 @@ _FIELD_QUESTIONS_ES: dict[str, str] = {
     "plate": "Si tienes la placa del vehículo, ¿me la pasas?",
     "location": "¿En qué ciudad estás?",
     "visit": "¿Quieres visitar la tienda? ¿Qué horario te queda mejor?",
+    "payment_method": "¿Sería de contado o financiado?",
     "alternatives_ok": "No encontré exactamente lo que pediste en el stock actual. ¿Quieres que te muestre alternativas parecidas?",
 }
 
@@ -86,7 +93,142 @@ def _language(state: Mapping[str, Any]) -> str:
     return "pt-BR"
 
 
-def _site_location_line(tool_context: Mapping[str, Any] | None) -> str:
+def _first_name(state: Mapping[str, Any]) -> str | None:
+    raw = state.get("customer_name") or (state.get("facts") or {}).get("name")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    token = raw.strip().split()[0]
+    if not token or "@" in token:
+        return None
+    return token[:1].upper() + token[1:]
+
+
+def _required_question(
+    state: Mapping[str, Any],
+    action_plan: Mapping[str, Any],
+    lang: str,
+) -> str | None:
+    questions = _FIELD_QUESTIONS_ES if lang == "es" else _FIELD_QUESTIONS_PT
+    next_q = action_plan.get("next_question") or action_plan.get("ask_field")
+    if isinstance(next_q, str) and next_q.strip():
+        key = next_q.strip()
+        if key in {"budget", "budget_max"}:
+            key = "deal_type"
+        if key == "visit":
+            return None
+        if key in questions:
+            return questions[key]
+        if key not in {"budget", "budget_max"}:
+            return key
+    missing = action_plan.get("missing_fields") or state.get("missing_fields") or []
+    if isinstance(missing, list):
+        for field in missing:
+            if field in {"budget", "budget_max"}:
+                return questions["deal_type"]
+            if isinstance(field, str) and field == "visit":
+                return None
+            if isinstance(field, str) and field in questions:
+                return questions[field]
+    return None
+
+
+def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
+    style = str(state.get("visit_cta_style") or "warm_invite")
+    es = lang == "es"
+    if style == "hot_schedule":
+        if es:
+            return [
+                "Podemos evaluar las condiciones de negociación aquí en la tienda. "
+                "¿Tienes disponibilidad para una visita todavía esta semana?"
+            ]
+        return [
+            "Conseguimos avaliar condições especiais de negociação direto aqui na loja. "
+            "Tem disponibilidade para uma visita ainda esta semana?"
+        ]
+    if es:
+        return [
+            "Nuestra tienda está de puertas abiertas. Pasa a tomar un café, sin compromiso."
+        ]
+    return [
+        "Nossa loja está de portas abertas para recebê-lo. Apareça tomar um café sem compromisso."
+    ]
+
+
+def _ack_followup_bubbles(
+    state: Mapping[str, Any],
+    action_plan: Mapping[str, Any],
+    lang: str,
+) -> list[str] | None:
+    """Warm ack + next roteiro question. None → fall through to question-only."""
+    kind = state.get("ack_kind")
+    if not kind:
+        return None
+    question = _required_question(state, action_plan, lang)
+    name = _first_name(state)
+    es = lang == "es"
+
+    if kind == "deal_purchase":
+        if es:
+            text = "Qué bueno, tenemos buenas condiciones para compra."
+            if question:
+                text = f"{text} {question}"
+            return [text]
+        text = "Ah que bacana, temos boas condições para compra."
+        if question:
+            text = f"{text} {question}"
+        return [text]
+    if kind == "deal_trade":
+        if es:
+            text = "Perfecto, miramos el canje con calma."
+        else:
+            text = "Fechado, vamos olhar a troca com calma."
+        return [text, question] if question else [text]
+    if kind == "payment_financing":
+        if es:
+            text = "Show, financiamiento es un camino bien común por acá."
+        else:
+            text = "Show, financiamento é um caminho bem comum por aqui."
+        return [text, question] if question else [text]
+    if kind == "payment_cash":
+        if es:
+            text = "Show, de contado suele abrir una buena conversación de negociación."
+        else:
+            text = "Show, à vista costuma abrir uma boa conversa de negociação."
+        return [text, question] if question else [text]
+    if kind == "down_payment":
+        if es:
+            text = (
+                "Genial, con un valor de entrada las tasas suelen ser más favorables."
+            )
+        else:
+            text = "Legal, com um valor de entrada as taxas tendem a ser melhores."
+        return [text, question] if question else [text]
+    if kind == "document_received":
+        if es:
+            if name:
+                ack = (
+                    f"Show, {name}! Recibí tu documento y ya lo anexé a tu ficha "
+                    "para la simulación del financiamiento."
+                )
+            else:
+                ack = (
+                    "Show! Recibí tu documento y ya lo anexé a tu ficha "
+                    "para la simulación del financiamiento."
+                )
+        elif name:
+            ack = (
+                f"Show, {name}! Recebi seu documento e já anexei na sua ficha "
+                "para a simulação do financiamento."
+            )
+        else:
+            ack = (
+                "Show! Recebi seu documento e já anexei na sua ficha "
+                "para a simulação do financiamento."
+            )
+        if question:
+            return [ack, question]
+        return [ack]
+    return None
     """Build a location bubble from SiteSettings-like stub in tool_context."""
     ctx = tool_context or {}
     site = ctx.get("site_settings") or ctx.get("SiteSettings") or ctx
@@ -94,7 +236,7 @@ def _site_location_line(tool_context: Mapping[str, Any] | None) -> str:
         site = {}
 
     parts: list[str] = []
-    for key in ("address", "street", "endereco", "endereço"):
+    for key in ("addressLine", "address", "street", "endereco", "endereço"):
         value = site.get(key)
         if isinstance(value, str) and value.strip():
             parts.append(value.strip())
@@ -115,34 +257,80 @@ def _site_location_line(tool_context: Mapping[str, Any] | None) -> str:
     return "Posso te passar o endereço da loja — um instante que confirmo aqui."
 
 
+def _follow_up_bubble(
+    state: Mapping[str, Any],
+    action_plan: Mapping[str, Any],
+    lang: str,
+) -> str:
+    """Single next commercial question. Never solicit budget."""
+    questions = _FIELD_QUESTIONS_ES if lang == "es" else _FIELD_QUESTIONS_PT
+    next_q = action_plan.get("next_question") or action_plan.get("ask_field")
+    if isinstance(next_q, str) and next_q.strip():
+        key = next_q.strip()
+        if key in {"budget", "budget_max"}:
+            key = "deal_type"
+        if key in questions:
+            return questions[key]
+        if key not in {"budget", "budget_max"}:
+            return key
+    missing = action_plan.get("missing_fields") or state.get("missing_fields") or []
+    if isinstance(missing, list):
+        for field in missing:
+            if field in {"budget", "budget_max"}:
+                return questions["deal_type"]
+            if isinstance(field, str) and field in questions:
+                return questions[field]
+    return questions.get("deal_type") or "Seria compra ou troca?"
+
+
 def _ask_info_bubbles(
     state: Mapping[str, Any],
     action_plan: Mapping[str, Any],
 ) -> list[str]:
     lang = _language(state)
-    questions = _FIELD_QUESTIONS_ES if lang == "es" else _FIELD_QUESTIONS_PT
+    combined = _ack_followup_bubbles(state, action_plan, lang)
+    if combined:
+        return [b for b in combined if b][:3]
 
-    next_q = action_plan.get("next_question")
-    if isinstance(next_q, str) and next_q.strip():
-        # If it looks like a field key, map it; else use as natural question.
-        key = next_q.strip()
-        if key in questions:
-            return [questions[key]]
-        return [key]
-
-    missing = (
-        action_plan.get("missing_fields")
-        or state.get("missing_fields")
-        or []
-    )
-    if isinstance(missing, list):
-        for field in missing:
-            if isinstance(field, str) and field in questions:
-                return [questions[field]]
-
+    question = _required_question(state, action_plan, lang)
+    if question:
+        return [question]
     if lang == "es":
         return ["¿Me cuentas un poco más para yo poder te ayudar mejor?"]
     return ["Me conta um pouco mais pra eu te ajudar melhor?"]
+
+
+def _document_ack(content_type: str, lang: str) -> str | None:
+    """Brief acknowledgement when inbound was non-text media."""
+    ct = (content_type or "TEXT").upper()
+    if ct == "TEXT":
+        return None
+    labels_pt = {
+        "IMAGE": "foto",
+        "DOCUMENT": "documento",
+        "AUDIO": "áudio",
+        "VIDEO": "vídeo",
+        "STICKER": "figurinha",
+    }
+    labels_es = {
+        "IMAGE": "foto",
+        "DOCUMENT": "documento",
+        "AUDIO": "audio",
+        "VIDEO": "video",
+        "STICKER": "sticker",
+    }
+    labels = labels_es if lang == "es" else labels_pt
+    label = labels.get(ct, ct.lower())
+    if lang == "es":
+        return f"Recibí tu {label}!"
+    return f"Recebi seu {label}!"
+
+
+def _engagement_prefix(lang: str) -> str:
+    """Empathetic opener when engagement is low."""
+    if lang == "es":
+        return "Claro, con gusto te ayudo."
+    return "Tudo certo, pode contar comigo!"
 
 
 def _template_compose(
@@ -153,6 +341,8 @@ def _template_compose(
     action = str(action_plan.get("action") or "")
     handoff = bool(action_plan.get("handoff"))
     lang = _language(state)
+    engagement_low = bool(state.get("engagement_low", False))
+    inbound_ctype = str(state.get("inbound_content_type") or "TEXT")
 
     if action == "no_reply":
         return []
@@ -162,24 +352,29 @@ def _template_compose(
         return [msg]
 
     if action == "ask_info":
-        return _ask_info_bubbles(state, action_plan)
+        bubbles = _ask_info_bubbles(state, action_plan)
+        if engagement_low and not state.get("ack_kind") and not bubbles:
+            bubbles = [_engagement_prefix(lang)]
+        return bubbles[:3]
 
     if action == "send_location":
-        return [_site_location_line(tool_context)]
+        return _visit_cta_bubbles(state, lang)[:1]
 
     if action == "smalltalk":
         # Introduction eligibility is deterministic — not decided by the Composer.
-        should_introduce = bool(state.get("should_introduce", True))
-        if lang == "es":
-            if should_introduce:
-                return ["¡Hola! Soy Júlia de FacilCar. ¿En qué te puedo ayudar hoy?"]
-            return ["¿En qué te puedo ayudar?"]
+        should_introduce = bool(state.get("should_introduce", False))
+        intro_style = str(state.get("intro_style") or "FULL")
+        if should_introduce and intro_style == "BRIEF":
+            # Intent was clear on first turn — skip full intro, go to first question.
+            follow = _follow_up_bubble(state, action_plan, lang)
+            if lang == "es":
+                brief = "Hola, soy Júlia de FacilCar!"
+            else:
+                brief = "Oi, sou a Júlia da FacilCar!"
+            return [brief, follow] if follow else [brief]
         if should_introduce:
-            return [
-                "Oi! Sou a Júlia da FacilCar, tudo bem?",
-                "Estou aqui para ajudar você a encontrar o carro ideal e facilitar seu financiamento.",
-            ]
-        return ["Como posso ajudar?"]
+            return introduction_smalltalk_bubbles(lang)
+        return continuation_smalltalk_bubbles(lang)
 
     # COMMERCIAL_UNKNOWN: intent was UNKNOWN (not a greeting, not classified).
     # Must never produce a greeting or a generic "Como posso ajudar?".
@@ -246,38 +441,22 @@ def _template_compose(
             return bubbles[:3]
 
         if isinstance(offers, list) and offers:
-            lines = []
+            media_planned = bool((tool_context or {}).get("outbound_media_planned"))
+            follow = _follow_up_bubble(state, action_plan, lang)
+            if media_planned:
+                return [follow] if follow else []
+            from sdr.domain.vehicle_presentation import format_vehicle_caption
+
+            captions: list[str] = []
             for offer in offers[:3]:
                 if isinstance(offer, Mapping):
-                    title = offer.get("title") or offer.get("name") or "opção"
-                    price = offer.get("price") or offer.get("priceCash")
-                    if price is not None:
-                        lines.append(f"{title} — {price}")
-                    else:
-                        lines.append(str(title))
+                    captions.append(format_vehicle_caption(offer, language=lang))
                 elif isinstance(offer, str):
-                    lines.append(offer)
-            if lines:
-                scope = str(
-                    (tool_context or {}).get("alternative_scope")
-                    or state.get("alternative_scope")
-                    or "NONE"
-                )
-                if scope == "ANY_VEHICLE":
-                    intro = (
-                        "Olha algumas opções no estoque publicado:"
-                        if lang != "es"
-                        else "Mira algunas opciones en el stock publicado:"
-                    )
-                elif scope == "SIMILAR":
-                    intro = (
-                        "Olha alternativas parecidas no estoque:"
-                        if lang != "es"
-                        else "Mira alternativas parecidas en el stock:"
-                    )
-                else:
-                    intro = "Olha o que encontrei:" if lang != "es" else "Mira lo que encontré:"
-                return [intro, *lines][:3]
+                    captions.append(offer)
+            bubbles = captions[:2]
+            if follow:
+                bubbles.append(follow)
+            return bubbles[:3]
         # NOT_EXECUTED / unknown — never claim absence.
         if lang == "es":
             return ["Estoy consultando el stock publicado. ¿Tienes alguna preferencia?"]
@@ -285,17 +464,38 @@ def _template_compose(
 
 
     if action == "send_photos":
+        media_planned = bool((tool_context or {}).get("outbound_media_planned"))
+        follow = _follow_up_bubble(state, action_plan, lang)
+        if media_planned:
+            return [follow] if follow else []
         if lang == "es":
-            return ["Te mando las fotos del vehículo en seguida."]
-        return ["Te mando as fotos do veículo já já."]
+            return ["No encontré fotos de ese anuncio ahora.", follow][:2] if follow else [
+                "No encontré fotos de ese anuncio ahora."
+            ]
+        return (
+            ["Não encontrei fotos desse anúncio agora.", follow][:2]
+            if follow
+            else ["Não encontrei fotos desse anúncio agora."]
+        )
 
     if action == "register_visit_interest":
         if lang == "es":
-            return ["Anoté tu interés en visitar. ¿Qué día o período te queda mejor?"]
-        return ["Anotei seu interesse em visitar. Qual dia ou período fica melhor?"]
+            return [
+                "Voy a pasar tus datos al equipo ahora.",
+                "¿Te quedaría mejor visitarnos de mañana o de tarde?",
+            ]
+        return [
+            "Vou encaminhar suas informações para a equipe agora.",
+            "Fica melhor pra você de manhã ou à tarde para dar uma passada aqui na loja?",
+        ]
 
     # Fallback: one gentle clarifying bubble
-    return _ask_info_bubbles(state, action_plan)
+    bubbles_fb: list[str] = []
+    ack_fb = _document_ack(inbound_ctype, lang)
+    if ack_fb:
+        bubbles_fb.append(ack_fb)
+    bubbles_fb.extend(_ask_info_bubbles(state, action_plan))
+    return bubbles_fb[:3]
 
 
 def _is_unittest_mock(client: Any) -> bool:
@@ -333,15 +533,39 @@ def compose_inventory_response(
         "conversational_affordance": affordance_val,
         "alternative_scope": scope_val,
     }
-    plan = {"action": "show_offers", "handoff": False}
+    plan = {
+        "action": "show_offers",
+        "handoff": False,
+        "next_question": getattr(directive, "next_question", None),
+    }
     ctx = dict(tool_context or {})
     ctx["inventory_outcome"] = state["inventory_outcome"]
     ctx["conversational_affordance"] = affordance_val
     ctx["alternative_scope"] = scope_val
     if getattr(directive, "inventory_alternatives", None):
         ctx["alternatives"] = directive.inventory_alternatives
-        if outcome == InventoryOutcome.SUCCESS_FOUND:
+        if outcome == InventoryOutcome.SUCCESS_FOUND and not ctx.get("offers"):
             ctx["offers"] = directive.inventory_alternatives
+    return _template_compose(state, plan, ctx)
+
+
+def compose_photos_response(
+    directive: Any,
+    tool_context: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Deterministic follow-up after listing photos — never permission, never budget."""
+    lang = getattr(directive, "language", "pt-BR") or "pt-BR"
+    state = {
+        "language": lang,
+        "should_introduce": False,
+        "missing_fields": [directive.next_question] if directive.next_question else [],
+    }
+    plan = {
+        "action": "send_photos",
+        "handoff": False,
+        "next_question": getattr(directive, "next_question", None),
+    }
+    ctx = dict(tool_context or {})
     return _template_compose(state, plan, ctx)
 
 
@@ -365,7 +589,17 @@ async def compose_response(
     api_key = (settings.openai_api_key or "").strip()
 
     use_templates = False
-    if client is not None and _is_unittest_mock(client):
+    if action in (
+        "send_photos",
+        "show_offers",
+        "smalltalk",
+        "register_visit_interest",
+        "send_location",
+        "media_failed",
+        "commercial_unknown",
+    ):
+        use_templates = True
+    elif client is not None and _is_unittest_mock(client):
         use_templates = True
     elif client is None and not api_key:
         use_templates = True
@@ -374,19 +608,24 @@ async def compose_response(
 
         client = AsyncOpenAI(api_key=api_key)
 
+    should_introduce = bool(state.get("should_introduce", False))
+    lang = _language(state)
+
     if use_templates:
         bubbles = _template_compose(state, action_plan, tool_context)
-        return validate_bubbles(bubbles)
+        bubbles = validate_bubbles(bubbles, language=lang)
+        bubbles, _ = validate_introduction_policy(
+            bubbles,
+            should_introduce=should_introduce,
+            action=action,
+            language=lang,
+        )
+        return bubbles
 
     model = settings.sdr_response_model
-    should_introduce = bool(state.get("should_introduce", True))
+    objective = str(state.get("response_objective") or intro_instruction(should_introduce))
+    inbound_text = str(state.get("inbound_text") or "")[:500]
 
-    # Build a richer system prompt with deterministic guards.
-    intro_instruction = (
-        "Esta é a primeira mensagem — apresente-se brevemente."
-        if should_introduce
-        else "NÃO se apresente — a Júlia já interagiu nesta conversa anteriormente."
-    )
     inv_outcome = state.get("inventory_outcome") or (tool_context or {}).get("inventory_outcome")
     inventory_rule = ""
     if inv_outcome == "FAILED_RETRYABLE" or inv_outcome == "FAILED_TERMINAL":
@@ -402,13 +641,56 @@ async def compose_response(
             "NÃO diga que a loja não trabalha com essa categoria ou que nunca terá."
         )
     elif inv_outcome == "SUCCESS_FOUND":
-        inventory_rule = (
-            "\nRegra de estoque: há veículos publicados encontrados — apresente até 3."
+        media_planned = bool((tool_context or {}).get("outbound_media_planned"))
+        if media_planned:
+            inventory_rule = (
+                "\nRegra de estoque: as fotos do veículo JÁ serão enviadas com a "
+                "descrição no caption. NÃO liste o carro em texto, NÃO diga "
+                "'Olha o que encontrei', NÃO peça permissão para mandar foto. "
+                "Escreva só a pergunta de follow-up (compra ou troca, se faltar)."
+            )
+        else:
+            inventory_rule = (
+                "\nRegra de estoque: há veículos publicados — descreva com os "
+                "campos do anúncio (preço formatado). NÃO use 'Olha o que encontrei'."
+            )
+    inventory_rule += (
+        "\nNUNCA pergunte orçamento, valor máximo ou quanto o cliente quer investir."
+    )
+    next_q_text = _required_question(state, action_plan, lang)
+    ack_kind = state.get("ack_kind")
+    tone_rule = (
+        "\nTom: informal, empático e com leve entusiasmo. NÃO valide a última fala "
+        "com eco robótico (proibido: 'Anotei:', 'Beleza, então é', 'Recebi seu text'). "
+        "NÃO soe como formulário. Uma pergunta por vez."
+        "\nPagamento: é XOR — à vista OU financiado. NUNCA ofereça 'os dois'."
+    )
+    if ack_kind == "deal_purchase":
+        tone_rule += (
+            "\nO cliente acabou de escolher compra. Traga entusiasmo comercial e "
+            "pergunte à vista ou financiado, sem repetir 'então é compra'."
         )
+    elif ack_kind == "payment_financing":
+        tone_rule += "\nO cliente escolheu financiamento. Avance com calor para a entrada."
+    elif ack_kind == "down_payment":
+        tone_rule += (
+            "\nO cliente informou entrada. Pode dizer que com entrada as taxas tendem "
+            "a ser melhores, SEM citar número de taxa/parcela."
+        )
+    elif ack_kind == "document_received":
+        tone_rule += (
+            "\nDocumento recebido: agradeça pelo nome (se houver) e diga que anexou "
+            "na ficha para a simulação. NÃO reacuse 'financiado'."
+        )
+    if next_q_text:
+        tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
 
     system_prompt = (
-        f"{JULIA_PERSONA_SYSTEM_PROMPT}\n\nRegra de apresentação: {intro_instruction}"
+        f"{JULIA_PERSONA_SYSTEM_PROMPT}\n\n"
+        f"Regra de apresentação: {intro_instruction(should_introduce)}\n"
+        f"Objetivo deste turno: {objective}"
         f"{inventory_rule}"
+        f"{tone_rule}"
     )
 
     payload = {
@@ -419,12 +701,18 @@ async def compose_response(
             "facts": state.get("facts", {}),
             "lifecycle_status": state.get("lifecycle_status", "BOT_ACTIVE"),
             "should_introduce": should_introduce,
+            "response_objective": objective,
+            "inbound_text": inbound_text,
+            "ack_kind": state.get("ack_kind"),
+            "visit_cta_style": state.get("visit_cta_style"),
+            "required_question": next_q_text,
             "claims_forbidden": state.get("claims_forbidden", []),
             "claims_allowed": state.get("claims_allowed", []),
             "inventory_outcome": inv_outcome,
         },
         "action_plan": dict(action_plan),
         "tool_results": dict(tool_context or {}),
+        "inbound_text": inbound_text,
     }
 
     response = await client.chat.completions.create(
@@ -455,4 +743,11 @@ async def compose_response(
         logger.warning("compose_response: invalid JSON; using templates")
         bubbles = _template_compose(state, action_plan, tool_context)
 
-    return validate_bubbles(list(bubbles)[:3])
+    bubbles = validate_bubbles(list(bubbles)[:3], language=lang)
+    bubbles, _ = validate_introduction_policy(
+        bubbles,
+        should_introduce=should_introduce,
+        action=action,
+        language=lang,
+    )
+    return bubbles

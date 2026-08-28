@@ -80,6 +80,18 @@ def test_understanding_summary_with_accumulated_summary() -> None:
     assert "Civic branco" in summary
 
 
+def test_understanding_summary_includes_linked_vehicle_titles() -> None:
+    builder = ConversationContextBuilder()
+    state = _state(intent=BusinessIntent.PURCHASE)
+    summary = builder.build_understanding_summary(
+        state,
+        linked_vehicle_titles=["Honda Civic 2020", "  ", "Toyota Corolla"],
+    )
+    assert "Honda Civic 2020" in summary
+    assert "Toyota Corolla" in summary
+    assert "não perguntar de novo" in summary
+
+
 def test_build_composition_payload_keys() -> None:
     builder = ConversationContextBuilder()
     state = _state(
@@ -114,6 +126,8 @@ def test_build_composition_payload_should_introduce_false_on_second_turn() -> No
     )
     assert payload["context"]["should_introduce"] is False
     assert "NÃO se apresente" in payload["context"]["intro_instruction"]
+    assert payload["context"]["inbound_text"] == "Quero comprar um carro"
+    assert "Continuação" in payload["context"]["response_objective"]
 
 
 def test_build_composition_payload_should_introduce_true_on_first_turn() -> None:

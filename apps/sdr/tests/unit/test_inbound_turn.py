@@ -128,6 +128,8 @@ async def test_process_turn_media_failed_does_not_produce_greeting() -> None:
     assert result.action_plan.action.value == "media_failed"
     assert result.outbound_texts, "Must produce a recovery response for media failure"
     text_lower = " ".join(result.outbound_texts).lower()
+    assert "text" not in text_lower.split()
+    assert "áudio" in text_lower or "audio" in text_lower
     greeting_phrases = ["sou a júlia", "soy júlia", "como posso ajudar você hoje"]
     for phrase in greeting_phrases:
         assert phrase not in text_lower, (
@@ -193,3 +195,66 @@ async def test_process_turn_unknown_intent_does_not_produce_generic_greeting_res
     assert "procurando" in text_lower or "posso ajudar" in text_lower, (
         f"COMMERCIAL_UNKNOWN response must be a clarifying question. Got: {result.outbound_texts}"
     )
+
+
+@pytest.mark.asyncio
+async def test_process_turn_injects_crm_linked_vehicles_as_known_facts() -> None:
+    from sdr.application.process_turn import process_turn
+    from sdr.domain.types import (
+        BusinessIntent,
+        ConversationCanonicalState,
+        CustomerState,
+        TurnFacts,
+    )
+
+    state = ConversationCanonicalState(
+        thread_id="t1",
+        customer=CustomerState(phone="5511999999999"),
+        assistant_turn_count=1,
+    )
+    captured: dict[str, object] = {}
+
+    async def understand(text, current):
+        captured["crm"] = current.facts.get("crm_linked_vehicles")
+        return TurnFacts(intent=BusinessIntent.SMALLTALK)
+
+    result = await process_turn(
+        state=state,
+        inbound_text="ainda quero aquele",
+        understand=understand,
+        linked_vehicle_titles=["Honda Civic 2020", " ", "Toyota Corolla"],
+    )
+    assert captured["crm"] == "Honda Civic 2020, Toyota Corolla"
+    assert result.state.facts.get("crm_linked_vehicles") == "Honda Civic 2020, Toyota Corolla"
+
+
+@pytest.mark.asyncio
+async def test_process_turn_media_failed_production_is_silent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production must not send a customer-facing media failure message."""
+    from sdr.application.process_turn import process_turn
+    from sdr.config import get_settings
+    from sdr.domain.types import ConversationCanonicalState, CustomerState
+
+    monkeypatch.setenv("SDR_ENVIRONMENT", "production")
+    get_settings.cache_clear()
+    try:
+        state = ConversationCanonicalState(
+            thread_id="t1",
+            customer=CustomerState(phone="5511999999999"),
+        )
+        inbound = make_media_failed_inbound(
+            "t1",
+            MediaFailureCode.EXTRACTION_FAILED,
+            content_type=ContentType.DOCUMENT,
+        )
+
+        async def understand(text, s):
+            raise AssertionError("understand must not be called for media-failed inbound")
+
+        result = await process_turn(state=state, inbound=inbound, understand=understand)
+        assert result.action_plan.action.value == "no_reply"
+        assert result.outbound_texts == []
+    finally:
+        get_settings.cache_clear()

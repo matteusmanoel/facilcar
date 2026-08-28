@@ -94,3 +94,31 @@ def test_unknown_fact_does_not_delete() -> None:
     )
     merged = deterministic_merge(prev, facts)
     assert merged.facts["birth_date"] == "1990-01-01"
+
+
+def test_merge_preserves_operational_protocol_fields() -> None:
+    """pending_question / visit_invited must survive merge — omission is not reset."""
+    prev = _state(intent=BusinessIntent.PURCHASE, facts={"desired_model": "Corolla"})
+    prev.pending_question = "deal_type"
+    prev.visit_invited = True
+    prev.documents_asked = True
+    prev.engagement_low_streak = 2
+    facts = TurnFacts(intent=BusinessIntent.PURCHASE, facts={"deal_type": "purchase"})
+    merged = deterministic_merge(prev, facts)
+    assert merged.pending_question == "deal_type"
+    assert merged.visit_invited is True
+    assert merged.documents_asked is True
+    assert merged.engagement_low_streak == 2
+
+
+def test_document_name_replaces_whatsapp_placeholder() -> None:
+    prev = _state(
+        customer=CustomerState(phone="554588230845", name="WhatsApp 0845"),
+    )
+    facts = TurnFacts(
+        intent=BusinessIntent.PURCHASE,
+        facts={"name": "João Souza", "desired_model": "corolla"},
+    )
+    merged = deterministic_merge(prev, facts)
+    assert merged.customer.name == "João Souza"
+

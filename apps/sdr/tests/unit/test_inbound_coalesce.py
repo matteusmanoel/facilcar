@@ -121,6 +121,25 @@ def test_failed_audio_does_not_become_greeting_text() -> None:
     turn = compose_inbound_turn(thread_id="t", segments=segs, batch_id="b")
     assert turn.is_media_failed
     assert turn.effective_text == ""
+    assert turn.content_type == ContentType.AUDIO
+
+
+def test_failed_document_keeps_document_content_type() -> None:
+    segs = [
+        InboundSegment(
+            message_id="1",
+            content_type=ContentType.DOCUMENT,
+            text=None,
+            media_status=MediaStatus.FAILED,
+            failure_code=MediaFailureCode.EXTRACTION_FAILED,
+            mime_type="application/pdf",
+            order=0,
+        )
+    ]
+    turn = compose_inbound_turn(thread_id="t", segments=segs, batch_id="b")
+    assert turn.is_media_failed
+    assert turn.content_type == ContentType.DOCUMENT
+    assert turn.effective_text == ""
 
 
 def test_merge_turn_facts_preserves_sdr_media() -> None:

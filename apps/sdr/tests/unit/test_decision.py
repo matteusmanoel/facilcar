@@ -88,7 +88,7 @@ def test_inventory_not_repeated_when_search_key_matches() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "budget"
+    assert plan.ask_field == "deal_type"
 
 
 def test_inventory_re_searched_when_preference_changes() -> None:
@@ -115,8 +115,18 @@ def test_inventory_search_key_changes_with_budget() -> None:
     assert key1 != key2
 
 
+def test_inventory_search_key_ignores_qualification_status_without_budget() -> None:
+    """Entrada / financing status must not retrigger SHOW_OFFERS."""
+    from sdr.domain.budget_status import BudgetStatus
+
+    facts = {"desired_model": "Corolla"}
+    key1 = inventory_search_key(facts)
+    key2 = inventory_search_key(facts, budget_status=BudgetStatus.PROVIDED)
+    assert key1 == key2
+
+
 def test_ask_info_after_inventory_already_searched() -> None:
-    """After inventory, progress to qualification (budget) on next turn."""
+    """After inventory, progress to qualification (deal type), never budget."""
     facts = {"desired_model": "Civic"}
     state = _state(
         intent=BusinessIntent.PURCHASE,
@@ -125,7 +135,62 @@ def test_ask_info_after_inventory_already_searched() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "budget"
+    assert plan.ask_field == "deal_type"
+
+
+def test_photo_request_sends_photos_of_last_shown_vehicle() -> None:
+    facts = {"desired_model": "Civic"}
+    state = _state(
+        intent=BusinessIntent.PURCHASE,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        last_shown_vehicle_ids=["veh-civic-1"],
+        photo_request=True,
+    )
+    plan = decide(state)
+    assert plan.action == Action.SEND_PHOTOS
+    assert any(tc.get("tool") == "send_photos" for tc in plan.tool_calls)
+    assert plan.ask_field != "budget"
+
+
+def test_location_request_interrupts_visit_and_handoff() -> None:
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 20000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        location_request=True,
+    )
+    plan = decide(state)
+    assert plan.action == Action.SEND_LOCATION
+    assert plan.ask_field == "visit"
+    assert any(tc.get("tool") == "send_location" for tc in plan.tool_calls)
+    assert plan.handoff is False
+
+
+def test_document_received_acks_instead_of_visit() -> None:
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "down_payment": 20000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        document_received=True,
+    )
+    plan = decide(state)
+    assert plan.action == Action.ASK_INFO
+    assert plan.reason_code == "document_received_ack"
+    assert plan.handoff is False
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +209,11 @@ def test_explicit_vendor_handoff() -> None:
 
 
 def test_actionable_purchase_handoff() -> None:
-    """Vehicle + budget is triage-actionable only AFTER inventory opportunity."""
+    """Vehicle + deal_type triggers visit invitation, then handoff."""
     facts = {
         "desired_model": "Hilux",
-        "budget": 250000,
-        "down_payment": 80000,
-        "timeline": "30 days",
+        "deal_type": "purchase",
+        "payment_method": "cash",
     }
     from sdr.domain.decision import inventory_search_key
 
@@ -158,10 +222,17 @@ def test_actionable_purchase_handoff() -> None:
         facts=facts,
         last_inventory_search_key=inventory_search_key(facts),
     )
+    # First: visit invitation (pre-handoff step for eligible intents).
     plan = decide(state)
-    assert plan.action == Action.HANDOFF_VENDOR
-    assert plan.handoff is True
-    assert plan.reason_code == "triage_actionable"
+    assert plan.action == Action.REGISTER_VISIT_INTEREST
+    assert plan.handoff is False
+    assert state.visit_invited is True
+
+    # Second: actual handoff after visit invitation was sent.
+    plan2 = decide(state)
+    assert plan2.action == Action.HANDOFF_VENDOR
+    assert plan2.handoff is True
+    assert plan2.reason_code == "triage_actionable"
 
 
 def test_vehicle_and_budget_inventory_before_handoff() -> None:

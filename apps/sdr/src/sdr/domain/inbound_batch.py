@@ -271,6 +271,9 @@ def compose_inbound_turn(
         if seg.media_status == MediaStatus.FAILED:
             any_failed = True
             failure_code = seg.failure_code or failure_code
+            if seg.content_type != ContentType.TEXT and dominant == ContentType.TEXT:
+                dominant = seg.content_type
+                mime_type = seg.mime_type
             continue
         resolved = seg.resolved_text()
         if resolved:

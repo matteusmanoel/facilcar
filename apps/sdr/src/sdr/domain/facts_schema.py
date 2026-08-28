@@ -52,7 +52,7 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "monthly_income",
         # Preferences
         "use_type",
-        "payment_type",
+        "payment_method",
         "timeline",
         "city",
         "name",
@@ -66,6 +66,8 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "mileage",
         "leave_at_store",
         "vehicle_status",
+        # Commercial mode: purchase vs trade (never inferred from mere "quero comprar").
+        "deal_type",
     }
 )
 
@@ -98,6 +100,11 @@ FACT_KEY_ALIASES: dict[str, str] = {
     "km": "mileage",
     "type": "vehicle_type",
     "intent_detail": "desired_vehicle_text",  # free-text detail, not a signal
+    "compra_ou_troca": "deal_type",
+    "deal_mode": "deal_type",
+    "payment_type": "payment_method",
+    "financing": "payment_method",
+    "pagamento": "payment_method",
 }
 
 # Fields that must be numeric after normalization.
@@ -190,6 +197,61 @@ def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip())
 
 
+_DEAL_TYPE_PURCHASE = frozenset(
+    {"purchase", "compra", "comprar", "buy", "buying", "so compra", "só compra"}
+)
+_DEAL_TYPE_TRADE = frozenset(
+    {"trade", "troca", "trocar", "trade-in", "trade_in", "na troca"}
+)
+_DEAL_TYPE_BOTH = frozenset({"both", "ambos", "compra e troca", "compra_e_troca"})
+
+
+def _normalize_deal_type(raw: Any) -> str | None:
+    """Canonical deal_type: purchase | trade | both. Generic purchase interest is not this."""
+    if raw is None:
+        return None
+    text = _normalize_whitespace(str(raw)).lower()
+    if not text or text in {"unknown", "n/a", "na", "?"}:
+        return None
+    if text in _DEAL_TYPE_BOTH or "e troca" in text or "and trade" in text:
+        return "both"
+    if text in _DEAL_TYPE_TRADE:
+        return "trade"
+    if text in _DEAL_TYPE_PURCHASE:
+        return "purchase"
+    return None
+
+
+_PAYMENT_CASH = frozenset(
+    {"cash", "vista", "a vista", "à vista", "avista", "dinheiro", "pix"}
+)
+_PAYMENT_FINANCING = frozenset(
+    {
+        "financing",
+        "financ",
+        "financiar",
+        "financiado",
+        "financiamento",
+        "compra financiada",
+        "purchase_financing",
+    }
+)
+
+
+def _normalize_payment_method(raw: Any) -> str | None:
+    """Canonical payment_method: cash | financing."""
+    if raw is None:
+        return None
+    text = _normalize_whitespace(str(raw)).lower()
+    if not text or text in {"unknown", "n/a", "na", "?"}:
+        return None
+    if text in _PAYMENT_FINANCING or "financ" in text:
+        return "financing"
+    if text in _PAYMENT_CASH or "vista" in text:
+        return "cash"
+    return None
+
+
 def _looks_like_free_vehicle_text(value: str) -> bool:
     """True when value is multi-token free description, not a short type token."""
     tokens = value.lower().split()
@@ -272,6 +334,18 @@ def normalize_facts(
                 rejected.append(f"{raw_key}:malformed_money")
                 continue
             value = money
+        elif canonical == "deal_type":
+            mapped = _normalize_deal_type(value)
+            if mapped is None:
+                rejected.append(f"{raw_key}:invalid_deal_type")
+                continue
+            value = mapped
+        elif canonical == "payment_method":
+            mapped = _normalize_payment_method(value)
+            if mapped is None:
+                rejected.append(f"{raw_key}:invalid_payment_method")
+                continue
+            value = mapped
         elif isinstance(value, str):
             value = _normalize_whitespace(value)
 

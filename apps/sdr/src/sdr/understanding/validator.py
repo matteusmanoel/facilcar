@@ -11,6 +11,11 @@ from sdr.domain.inventory_outcome import (
     contains_policy_claim,
     inventory_fallback_bubbles,
 )
+from sdr.domain.introduction import (
+    continuation_smalltalk_bubbles,
+    is_first_contact_reopen,
+    strip_greeting_opener,
+)
 from sdr.domain.pending_interaction import PendingInteraction
 from sdr.domain.types import InventoryOutcome
 
@@ -73,9 +78,42 @@ _RIGID_ORIGINAL_MODEL_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def validate_bubbles(bubbles: list[str]) -> list[str]:
-    """Return bubbles with prohibited promise phrasing softened."""
+_BUDGET_ASK_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bor[cç]amento\b", re.I),
+    re.compile(r"valor m[aá]ximo\s+voc[eê]\s+pensa\s+em\s+investir", re.I),
+    re.compile(r"qual(?:\s+é)?\s+o\s+seu\s+or[cç]amento", re.I),
+    re.compile(r"quanto\s+voc[eê]\s+(?:quer|pensa|pode)\s+investir", re.I),
+    re.compile(r"or[cç]amento\s+para\s+o\s+", re.I),
+]
+
+# Questions the Decision Engine never plans — Composer must not invent them.
+_OFF_ROTEIRO_ASK_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bcons[oó]rcio\b", re.I),
+    re.compile(r"uso\s+pessoal\s+ou\s+(?:para\s+)?empresa", re.I),
+    re.compile(r"para\s+uso\s+pessoal\s+ou", re.I),
+]
+
+_PAYMENT_BOTH_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r",?\s*ou os dois\??", re.I),
+    re.compile(r",?\s*o los dos\??", re.I),
+]
+
+_ROBOTIC_ACK_LINE = re.compile(
+    r"^\s*(?:anotei\b.*|anoté\b.*|"
+    r"beleza,\s*então é compra\.?|"
+    r"perfecto,\s*entonces es (?:compra|permuta)\.?)\s*$",
+    re.I,
+)
+_DEAL_TYPE_FALLBACK_PT = "Seria compra ou troca?"
+_DEAL_TYPE_FALLBACK_ES = "¿Sería compra o permuta?"
+
+
+def validate_bubbles(bubbles: list[str], *, language: str = "pt-BR") -> list[str]:
+    """Return bubbles with prohibited promise/budget-ask phrasing rewritten."""
     cleaned: list[str] = []
+    deal_fallback = (
+        _DEAL_TYPE_FALLBACK_ES if str(language).lower().startswith("es") else _DEAL_TYPE_FALLBACK_PT
+    )
     for bubble in bubbles:
         if not isinstance(bubble, str):
             continue
@@ -83,10 +121,22 @@ def validate_bubbles(bubbles: list[str]) -> list[str]:
         if not text:
             continue
         original = text
+        if _ROBOTIC_ACK_LINE.match(text):
+            continue
         for pattern, replacement in _PROMISE_PATTERNS:
             if pattern.search(text):
                 text = pattern.sub(replacement, text)
-        if text != original:
+        for pattern in _PAYMENT_BOTH_PATTERNS:
+            text = pattern.sub("", text).rstrip(" ,")
+        if not text:
+            continue
+        if any(pattern.search(text) for pattern in _BUDGET_ASK_PATTERNS):
+            logger.warning("validate_bubbles: stripped budget solicitation: %r", original)
+            text = deal_fallback
+        if any(pattern.search(text) for pattern in _OFF_ROTEIRO_ASK_PATTERNS):
+            logger.warning("validate_bubbles: stripped off-roteiro question: %r", original)
+            continue
+        if text != original and text != deal_fallback:
             logger.warning(
                 "validate_bubbles: softened promise language: %r -> %r",
                 original,
@@ -203,4 +253,49 @@ def validate_inventory_policy(
         return fallback, result
 
     result["fallback_used"] = False
-    return validate_bubbles(bubbles), result
+    return validate_bubbles(bubbles, language=language), result
+
+
+def validate_introduction_policy(
+    bubbles: list[str],
+    *,
+    should_introduce: bool,
+    action: str = "",
+    language: str = "pt-BR",
+) -> tuple[list[str], dict[str, Any]]:
+    """Reject first-contact reopenings when the assistant has already spoken.
+
+    Continuation turns must not open as a new greeting. This is protocol
+    (conversation phase), not a product-term heuristic.
+    """
+    result: dict[str, Any] = {
+        "pass": True,
+        "violations": [],
+        "fallback_used": False,
+    }
+    if should_introduce or not is_first_contact_reopen(bubbles):
+        return bubbles, result
+
+    result["pass"] = False
+    result["violations"].append("first_contact_reopen")
+    result["fallback_used"] = True
+    logger.warning(
+        "validate_introduction_policy: first-contact reopen action=%s text=%r",
+        action,
+        " ".join(bubbles)[:200],
+    )
+    if action == "smalltalk":
+        return continuation_smalltalk_bubbles(language), result
+
+    stripped: list[str] = []
+    for i, bubble in enumerate(bubbles):
+        text = bubble.strip() if isinstance(bubble, str) else ""
+        if not text:
+            continue
+        if i == 0:
+            text = strip_greeting_opener(text)
+        if text and not is_first_contact_reopen([text]):
+            stripped.append(text)
+    if stripped:
+        return stripped, result
+    return continuation_smalltalk_bubbles(language), result

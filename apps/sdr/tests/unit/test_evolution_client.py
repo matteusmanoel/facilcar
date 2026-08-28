@@ -79,6 +79,27 @@ async def test_send_media_success() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_send_location_success() -> None:
+    route = respx.post("http://evolution.test/message/sendLocation/facilcar-sdr").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "LOC-1"}})
+    )
+    async with EvolutionClient(settings=_settings()) as client:
+        mid = await client.send_location(
+            "5545988432998",
+            latitude=-24.9378,
+            longitude=-53.4200,
+            name="FacilCar",
+            address="Av. Brasil, 1000",
+        )
+    assert mid == "LOC-1"
+    assert route.called
+    body = route.calls.last.request.content
+    assert b"-24.9378" in body
+    assert b"-53.42" in body
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_download_media_base64_post() -> None:
     route = respx.post(
         "http://evolution.test/chat/getBase64FromMediaMessage/facilcar-sdr"

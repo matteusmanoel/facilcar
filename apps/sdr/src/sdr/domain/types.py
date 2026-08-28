@@ -120,6 +120,10 @@ class TurnFacts:
     budget_status: BudgetStatus | None = None
     pending_resolution: PendingResolution | None = None
     alternative_scope: AlternativeScope | None = None
+    # Protocol: customer asked to send listing photos this turn.
+    photo_request: bool | None = None
+    # Protocol: customer asked for the store location this turn.
+    location_request: bool | None = None
 
 
 @dataclass(slots=True)
@@ -175,6 +179,24 @@ class ConversationCanonicalState:
     alternative_scope: AlternativeScope = AlternativeScope.NONE
     # Budget qualification status (paired with facts.budget when PROVIDED).
     budget_status: BudgetStatus = BudgetStatus.UNKNOWN
+    # Last published vehicles presented this thread (ids only).
+    last_shown_vehicle_ids: list[str] = field(default_factory=list)
+    # Turn-scoped protocol flag — True only when this inbound asked for photos.
+    photo_request: bool = False
+    # Turn-scoped protocol flag — True only when this inbound asked for the store.
+    location_request: bool = False
+    # Field asked in the previous bot turn (for "sim/não" resolution).
+    pending_question: str | None = None
+    # Consecutive inbound turns with ≤3 words and no new facts extracted.
+    engagement_low_streak: int = 0
+    # Whether the visit invitation question has already been sent this thread.
+    visit_invited: bool = False
+    # Customer's expressed visit preference (e.g. "manhã", "às 10h").
+    visit_preferred_time: str | None = None
+    # Documents (CNH / holerite) already requested or received this thread.
+    documents_asked: bool = False
+    # Turn-scoped: inbound this turn was a successfully processed document.
+    document_received: bool = False
 
 
 @dataclass(slots=True)
@@ -189,6 +211,10 @@ class ResponseDirective:
     reason_code: str | None = None
     # Deterministic introduction eligibility — never rely on prompt alone.
     should_introduce: bool = False
+    # Current inbound (Composer must answer this; never compose SMALLTALK blind).
+    inbound_text: str = ""
+    # Deterministic "what to say" — Composer only decides how to say it.
+    response_objective: str = ""
     intent: BusinessIntent = BusinessIntent.UNKNOWN
     customer_name: str | None = None
     language: str = "pt-BR"
@@ -213,6 +239,21 @@ class ResponseDirective:
     # Original preference still in state (Composer must not treat it as rigid
     # requirement once alternative_scope widens).
     original_desired_model: str | None = None
+    # "FULL" = full intro (first turn, SMALLTALK intent); "BRIEF" = one-liner + pivot.
+    intro_style: str = "FULL"
+    # True when ≥2 consecutive turns had ≤3 words without new facts.
+    engagement_low: bool = False
+    # Content type of the current inbound (for document ack prefix in Composer).
+    inbound_content_type: str = "TEXT"
+    # Semantic ack the Composer must phrase warmly — never a canned "Anotei:".
+    # deal_purchase | deal_trade | payment_financing | payment_cash | down_payment | document_received
+    ack_kind: str | None = None
+    # After SEND_LOCATION: warm_invite (morno) | hot_schedule (quente). Pin carries the address.
+    visit_cta_style: str | None = None
+    # When True, Composer may include failure_code (sandbox only).
+    expose_errors: bool = False
+    # Media / tool failure code for sandbox recovery copy.
+    failure_code: str | None = None
 
 
 @dataclass(slots=True)

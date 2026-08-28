@@ -22,6 +22,7 @@ from sdr.domain.types import (
     LifecycleStatus,
     TurnFacts,
 )
+from sdr.domain.vendor_summary import is_placeholder_display_name
 
 _UNKNOWN_TOKENS = frozenset({"unknown", "unk", "n/a", "na", "?"})
 
@@ -267,6 +268,15 @@ def deterministic_merge(
         pending_interaction=prev.pending_interaction,
         alternative_scope=prev.alternative_scope,
         budget_status=prev.budget_status,
+        last_shown_vehicle_ids=list(prev.last_shown_vehicle_ids),
+        photo_request=False,
+        location_request=False,
+        document_received=False,
+        pending_question=prev.pending_question,
+        engagement_low_streak=prev.engagement_low_streak,
+        visit_invited=prev.visit_invited,
+        visit_preferred_time=prev.visit_preferred_time,
+        documents_asked=prev.documents_asked,
     )
 
     state.language = _merge_language(state.language, facts.language)
@@ -275,20 +285,23 @@ def deterministic_merge(
         state.intent, state.business.type
     )
 
-    # Customer name from facts when present.
+    # Customer name from facts when present. Placeholders are not real names.
     if not _is_unknown(facts.facts.get("name")):
-        name = facts.facts.get("name")
-        if name:
+        incoming = str(facts.facts.get("name") or "").strip()
+        if incoming and not is_placeholder_display_name(incoming):
+            current = (state.customer.name or "").strip()
+            current_is_placeholder = is_placeholder_display_name(current)
             if (
-                state.customer.name
+                current
+                and not current_is_placeholder
                 and state.customer.name_confirmed
-                and str(name) != state.customer.name
+                and incoming != current
                 and "name" not in facts.explicit_corrections
             ):
                 if "name" not in state.pending_confirmation:
                     state.pending_confirmation.append("name")
             else:
-                state.customer.name = str(name)
+                state.customer.name = incoming
                 if "name" in facts.explicit_corrections:
                     state.customer.name_confirmed = True
 
@@ -301,6 +314,9 @@ def deterministic_merge(
         facts.explicit_corrections,
         state.pending_confirmation,
     )
+    if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:
+        state.intent = BusinessIntent.PURCHASE_FINANCING
+        state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE_FINANCING]
     if facts.facts.get("desired_engine_any") is True:
         state.facts.pop("desired_engine_displacement_liters", None)
         state.facts["desired_engine_any"] = True
@@ -332,6 +348,12 @@ def deterministic_merge(
     ):
         # Later explicit numeric value after UNDEFINED/DECLINED/FLEXIBLE → PROVIDED.
         state.budget_status = BudgetStatus.PROVIDED
+
+    # Photo / location requests are turn-scoped protocol; omission never invents True.
+    if facts.photo_request is True:
+        state.photo_request = True
+    if facts.location_request is True:
+        state.location_request = True
 
     _apply_pending_and_scope(state, facts)
     _bump_lifecycle(state)

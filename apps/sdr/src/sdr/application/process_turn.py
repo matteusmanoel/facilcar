@@ -15,16 +15,24 @@ Conversational affordances:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import asyncpg
 
 from sdr.application.tool_executor import execute_tool_calls, tool_results_to_context
-from sdr.context_builder import ConversationContextBuilder
 from sdr.domain.decision import decide, inventory_search_key
-from sdr.domain.handoff import confirmation_message, mark_handoff_sent
-from sdr.domain.inbound import InboundTurn, inbound_from_text_compat
+from sdr.domain.handoff import (
+    compute_temperature,
+    confirmation_message,
+    mark_handoff_sent,
+)
+from sdr.domain.inbound import InboundTurn, MediaStatus, inbound_from_text_compat
+from sdr.domain.introduction import (
+    continuation_smalltalk_bubbles,
+    introduction_smalltalk_bubbles,
+    response_objective_for,
+)
 from sdr.domain.inventory_outcome import (
     claims_for_inventory_outcome,
     extract_inventory_outcome,
@@ -33,16 +41,23 @@ from sdr.domain.inventory_outcome import (
 )
 from sdr.domain.merge import deterministic_merge
 from sdr.domain.pending_interaction import PendingInteraction
+from sdr.domain.vendor_summary import build_vendor_summary
+from sdr.domain.vehicle_presentation import (
+    OutboundMedia,
+    media_items_from_images,
+    media_items_from_vehicles,
+    format_vehicle_caption,
+    shown_vehicle_ids,
+)
 from sdr.domain.types import (
     Action,
     ActionPlan,
     ConversationCanonicalState,
     InventoryOutcome,
+    LeadTemperature,
     ResponseDirective,
     TurnFacts,
 )
-
-_context_builder = ConversationContextBuilder()
 
 
 class UnderstandingFn(Protocol):
@@ -62,15 +77,131 @@ class ProcessTurnResult:
     tool_results: list[dict[str, Any]]
     validator_result: dict[str, Any] | None = None
     response_directive: ResponseDirective | None = None
+    outbound_media: list[OutboundMedia] = field(default_factory=list)
+    outbound_location: dict[str, Any] | None = None
+
+
+def _build_handoff_summary(state: ConversationCanonicalState) -> str:
+    """Vendor + WhatsApp handoff brief — same contract as Lead.juliaSummary."""
+    return build_vendor_summary(state)
+
+
+def _track_engagement(
+    merged: ConversationCanonicalState,
+    inbound_text: str,
+    turn_facts: TurnFacts,
+) -> None:
+    """Update engagement_low_streak based on current turn quality."""
+    word_count = len(inbound_text.strip().split()) if inbound_text.strip() else 0
+    has_new_facts = bool(turn_facts.facts)
+    if word_count <= 3 and not has_new_facts:
+        merged.engagement_low_streak = merged.engagement_low_streak + 1
+    else:
+        merged.engagement_low_streak = 0
+
+
+def _extract_visit_preference(turn_facts: TurnFacts) -> str | None:
+    """Extract visit time preference from facts if present."""
+    for key in ("visit_time", "visit_preferred_time", "preferred_time", "timeline"):
+        val = turn_facts.facts.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def _is_sandbox() -> bool:
+    from sdr.config import get_settings
+
+    return get_settings().sdr_environment != "production"
+
+
+def _ack_kind_from_facts(
+    facts: TurnFacts,
+    pending_question: str | None,
+) -> str | None:
+    """Which field was just answered — Composer owns the wording."""
+    if not pending_question:
+        return None
+    collected = facts.facts or {}
+    if pending_question == "down_payment" and "down_payment" in collected:
+        return "down_payment"
+    if pending_question == "payment_method":
+        payment = collected.get("payment_method")
+        if payment == "financing":
+            return "payment_financing"
+        if payment in {"cash", "a_vista"}:
+            return "payment_cash"
+        return None
+    if pending_question == "deal_type":
+        deal = collected.get("deal_type")
+        if deal == "purchase":
+            return "deal_purchase"
+        if deal == "trade":
+            return "deal_trade"
+        return None
+    return None
+
+
+def _visit_cta_style(merged: ConversationCanonicalState) -> str:
+    """HOT gets a scheduling ask; WARM/COLD get a low-pressure invite."""
+    temp = merged.temperature or compute_temperature(merged)
+    if temp == LeadTemperature.HOT:
+        return "hot_schedule"
+    return "warm_invite"
+
+
+def _location_pin_from_tools(tool_results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for result in tool_results:
+        if result.get("tool") != "send_location":
+            continue
+        pin = result.get("pin")
+        if isinstance(pin, dict) and pin.get("latitude") is not None and pin.get("longitude") is not None:
+            return pin
+    return None
+
+
+def _should_silence_tool_failure(
+    plan: ActionPlan,
+    tool_results: list[dict[str, Any]],
+) -> bool:
+    """Production: do not tell the customer that a tool failed — stay silent."""
+    if _is_sandbox():
+        return False
+    if plan.action == Action.SEND_LOCATION:
+        # Visit CTA does not depend on pin/address; only silence a hard miss.
+        loc = next((r for r in tool_results if r.get("tool") == "send_location"), None)
+        return loc is None
+    if plan.action == Action.SHOW_OFFERS:
+        outcome = extract_inventory_outcome(tool_results)
+        return outcome in (
+            InventoryOutcome.FAILED_RETRYABLE,
+            InventoryOutcome.FAILED_TERMINAL,
+        )
+    return False
 
 
 def _build_response_directive(
     merged: ConversationCanonicalState,
     plan: ActionPlan,
     tool_results: list[dict[str, Any]],
+    inbound_text: str = "",
+    inbound_content_type: str = "TEXT",
+    turn_facts: TurnFacts | None = None,
+    prev_pending_question: str | None = None,
 ) -> ResponseDirective:
     """Build ResponseDirective — single source of truth for Composer inputs."""
     should_introduce = merged.assistant_turn_count == 0
+
+    # intro_style: BRIEF when intent was already clear on first turn (not a pure greeting).
+    intro_style = "FULL"
+    if should_introduce and merged.intent.value not in ("unknown", "smalltalk"):
+        intro_style = "BRIEF"
+
+    engagement_low = merged.engagement_low_streak >= 2
+
+    objective = response_objective_for(
+        action=plan.action, should_introduce=should_introduce
+    )
 
     lang = merged.language
     if not lang or lang == "unknown":
@@ -102,6 +233,7 @@ def _build_response_directive(
         "rate_promise",
         "price_guarantee",
         "assert_engine_from_title",
+        "ask_budget",
         *forbidden,
     ]
     if merged.lifecycle.status.value in ("HANDOFF_SENT", "HUMAN_ACTIVE"):
@@ -123,12 +255,36 @@ def _build_response_directive(
     if not isinstance(original_model, str):
         original_model = None
 
+    if inbound_content_type == "DOCUMENT":
+        ack_kind = "document_received"
+    elif turn_facts:
+        ack_kind = _ack_kind_from_facts(turn_facts, prev_pending_question)
+    else:
+        ack_kind = None
+
+    visit_cta = None
+    if plan.action == Action.SEND_LOCATION:
+        merged.temperature = compute_temperature(merged)
+        visit_cta = _visit_cta_style(merged)
+
+    if ack_kind == "down_payment" and "down_payment_may_improve_conditions" not in allowed:
+        allowed = [*allowed, "down_payment_may_improve_conditions"]
+
     return ResponseDirective(
         action=plan.action,
         reason_code=plan.reason_code,
         should_introduce=should_introduce,
+        inbound_text=inbound_text,
+        response_objective=objective,
         intent=merged.intent,
-        customer_name=merged.customer.name,
+        customer_name=(
+            merged.customer.name
+            or (
+                str(facts_context["name"]).strip()
+                if isinstance(facts_context.get("name"), str) and str(facts_context["name"]).strip()
+                else None
+            )
+        ),
         language=lang,
         next_question=plan.next_question or plan.ask_field,
         tool_results=tool_ctx,
@@ -143,6 +299,12 @@ def _build_response_directive(
         alternative_scope=merged.alternative_scope,
         budget_status=merged.budget_status,
         original_desired_model=original_model,
+        intro_style=intro_style,
+        engagement_low=engagement_low,
+        inbound_content_type=inbound_content_type,
+        ack_kind=ack_kind,
+        visit_cta_style=visit_cta,
+        expose_errors=_is_sandbox(),
     )
 
 
@@ -153,6 +315,13 @@ def _directive_to_state_and_plan_maps(
     state_map: dict[str, Any] = {
         "language": directive.language,
         "should_introduce": directive.should_introduce,
+        "intro_style": directive.intro_style,
+        "engagement_low": directive.engagement_low,
+        "inbound_content_type": directive.inbound_content_type,
+        "ack_kind": directive.ack_kind,
+        "visit_cta_style": directive.visit_cta_style,
+        "inbound_text": directive.inbound_text,
+        "response_objective": directive.response_objective,
         "intent": directive.intent.value,
         "customer_name": directive.customer_name,
         "facts": directive.facts_context,
@@ -221,6 +390,61 @@ def _apply_pending_after_offers(
         merged.pending_interaction = PendingInteraction.OFFER_ALTERNATIVES
 
 
+def _record_shown_vehicles(
+    merged: ConversationCanonicalState,
+    tool_results: list[dict[str, Any]],
+) -> None:
+    """Persist last presented published vehicle ids after a semantic inventory hit."""
+    from sdr.domain.inventory_outcome import extract_inventory_outcome
+
+    if extract_inventory_outcome(tool_results) != InventoryOutcome.SUCCESS_FOUND:
+        return
+    for result in tool_results:
+        if result.get("tool") != "inventory_search":
+            continue
+        vehicles = result.get("vehicles") or []
+        ids = shown_vehicle_ids(vehicles)
+        if ids:
+            merged.last_shown_vehicle_ids = ids
+        return
+
+
+def _outbound_media_from_tools(
+    plan: ActionPlan,
+    tool_results: list[dict[str, Any]],
+    *,
+    language: str,
+) -> list[OutboundMedia]:
+    """Build WhatsApp image items from executed tools. Caption goes on the last photo."""
+    if plan.action == Action.SEND_PHOTOS:
+        for result in tool_results:
+            if result.get("tool") != "send_photos":
+                continue
+            vehicle = result.get("vehicle") or {}
+            images = result.get("images") or []
+            if not images:
+                return []
+            caption = format_vehicle_caption(vehicle, language=language) if vehicle else ""
+            vid = str(result.get("vehicle_id") or vehicle.get("id") or "") or None
+            return media_items_from_images(
+                images,
+                caption=caption,
+                vehicle_id=vid,
+            )
+        return []
+
+    if plan.action != Action.SHOW_OFFERS:
+        return []
+    for result in tool_results:
+        if result.get("tool") != "inventory_search":
+            continue
+        if result.get("outcome") != InventoryOutcome.SUCCESS_FOUND.value:
+            return []
+        vehicles = result.get("vehicles") or []
+        return media_items_from_vehicles(vehicles, language=language)
+    return []
+
+
 async def process_turn(
     *,
     state: ConversationCanonicalState,
@@ -228,38 +452,95 @@ async def process_turn(
     inbound: InboundTurn | None = None,
     understand: UnderstandingFn,
     pool: asyncpg.Pool | None = None,
+    linked_vehicle_titles: list[str] | None = None,
 ) -> ProcessTurnResult:
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
 
     if inbound.is_media_failed:
-        plan = ActionPlan(
-            action=Action.MEDIA_FAILED,
-            reason_code="media_processing_failed",
-            reason=f"Media could not be processed: {inbound.failure_code}",
-        )
+        failure = inbound.failure_code.value if inbound.failure_code else "unknown"
+        if not _is_sandbox():
+            plan = ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="media_processing_failed_silent",
+                reason=f"Media could not be processed: {failure}",
+            )
+            outbound: list[str] = []
+        else:
+            plan = ActionPlan(
+                action=Action.MEDIA_FAILED,
+                reason_code="media_processing_failed",
+                reason=f"Media could not be processed: {failure}",
+            )
+            outbound = _compose_media_failed_response(inbound)
         return ProcessTurnResult(
             action_plan=plan,
             state=state,
-            outbound_texts=_compose_media_failed_response(inbound),
+            outbound_texts=outbound,
             turn_facts=TurnFacts(),
             tool_results=[],
         )
 
+    if linked_vehicle_titles:
+        titles = [t.strip() for t in linked_vehicle_titles if t and str(t).strip()]
+        if titles:
+            state.facts = {
+                **state.facts,
+                "crm_linked_vehicles": ", ".join(titles),
+            }
+
     facts = await understand(inbound.effective_text, state)
+    from sdr.domain.pending_question import overlay_pending_question
+
+    facts = overlay_pending_question(facts, state, inbound.effective_text)
+    prev_pending = state.pending_question
     merged = deterministic_merge(state, facts)
+    if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
+        merged.document_received = True
+
+    # Extract visit time preference from this turn's facts before deciding.
+    visit_pref = _extract_visit_preference(facts)
+    if visit_pref and not merged.visit_preferred_time:
+        merged.visit_preferred_time = visit_pref
+
     plan = decide(merged)
 
+    # After deciding, persist the field being asked so the next turn can resolve
+    # short confirmations ("sim", "exato") against the right context.
+    asked = plan.ask_field or plan.next_question
+    if asked and plan.action in (
+        Action.ASK_INFO,
+        Action.SHOW_OFFERS,
+        Action.SEND_PHOTOS,
+        Action.SEND_LOCATION,
+    ):
+        merged.pending_question = asked
+        if asked == "documents":
+            merged.documents_asked = True
+        if asked == "visit":
+            merged.visit_invited = True
+    elif plan.action not in (Action.ASK_INFO, Action.SHOW_OFFERS, Action.SEND_PHOTOS):
+        merged.pending_question = None
+
+    # Track engagement quality based on this turn.
+    _track_engagement(merged, inbound.effective_text, facts)
+
     outbound: list[str] = []
+    outbound_media: list[OutboundMedia] = []
+    outbound_location: dict[str, Any] | None = None
     tool_results: list[dict[str, Any]] = []
     validator_result: dict[str, Any] | None = None
     directive: ResponseDirective | None = None
+
+    inbound_ctype = inbound.content_type.value if inbound.content_type else "TEXT"
 
     if plan.action == Action.HANDOFF_VENDOR and plan.handoff:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
-        outbound.append(confirmation_message(merged))
+            _record_shown_vehicles(merged, tool_results)
+        summary = _build_handoff_summary(merged)
+        outbound.append(_handoff_message(merged, summary))
         mark_handoff_sent(merged, plan.reason_code)
     elif plan.action == Action.NO_REPLY:
         pass
@@ -267,9 +548,43 @@ async def process_turn(
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
+            _record_shown_vehicles(merged, tool_results)
 
-        directive = _build_response_directive(merged, plan, tool_results)
+        if _should_silence_tool_failure(plan, tool_results):
+            silent = ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="tool_failed_silent",
+                reason=plan.reason or "tool failed in production",
+            )
+            return ProcessTurnResult(
+                action_plan=silent,
+                state=merged,
+                outbound_texts=[],
+                turn_facts=facts,
+                tool_results=tool_results,
+            )
+
+        outbound_location = _location_pin_from_tools(tool_results)
+
+        outbound_media = _outbound_media_from_tools(
+            plan, tool_results, language=merged.language or "pt-BR"
+        )
+        if outbound_media or plan.action == Action.SEND_PHOTOS:
+            merged.photo_request = False
+
+        directive = _build_response_directive(
+            merged,
+            plan,
+            tool_results,
+            inbound.effective_text,
+            inbound_ctype,
+            facts,
+            prev_pending,
+        )
         state_map, plan_map, tool_ctx = _directive_to_state_and_plan_maps(directive, plan)
+        tool_ctx = dict(tool_ctx or {})
+        tool_ctx["outbound_media_planned"] = bool(outbound_media)
+        tool_ctx["outbound_media_count"] = len(outbound_media)
 
         # Prefer deterministic inventory templates when outcome is known —
         # prevents LLM from inventing stock absence on tool failure.
@@ -291,6 +606,18 @@ async def process_turn(
             )
             outbound.extend(outbound_texts)
             _apply_pending_after_offers(merged, directive)
+        elif plan.action == Action.SEND_PHOTOS:
+            from sdr.understanding.response_composer import compose_photos_response
+            from sdr.understanding.validator import validate_inventory_policy
+
+            bubbles = compose_photos_response(directive, tool_ctx)
+            outbound_texts, validator_result = validate_inventory_policy(
+                bubbles,
+                inventory_outcome=inv_outcome,
+                language=directive.language,
+                conversational_affordance=directive.conversational_affordance,
+            )
+            outbound.extend(outbound_texts)
         else:
             try:
                 from sdr.understanding.response_composer import compose_response
@@ -321,13 +648,43 @@ async def process_turn(
         tool_results=tool_results,
         validator_result=validator_result,
         response_directive=directive,
+        outbound_media=outbound_media,
+        outbound_location=outbound_location,
+    )
+
+
+def _handoff_message(state: ConversationCanonicalState, summary: str) -> str:
+    """Personalised handoff confirmation with narrative summary."""
+    name = state.customer.name
+    lang = state.language or "pt-BR"
+
+    if lang.startswith("es"):
+        greeting = f"Perfecto, {name}!" if name else "Perfecto!"
+        return (
+            f"{greeting} Ya organicé la información y voy a pasar tu caso a nuestro equipo "
+            f"para que continúen contigo por aquí."
+        )
+
+    greeting = f"Legal, {name}!" if name else "Legal!"
+    return (
+        f"{greeting} Já organizei tudo — {summary}. "
+        "Um dos nossos especialistas vai continuar com você por aqui."
     )
 
 
 def _compose_media_failed_response(inbound: InboundTurn) -> list[str]:
-    content_label = inbound.content_type.value.lower()
+    labels = {
+        "IMAGE": "foto",
+        "DOCUMENT": "documento",
+        "AUDIO": "áudio",
+        "VIDEO": "vídeo",
+        "STICKER": "figurinha",
+        "TEXT": "arquivo",
+    }
+    label = labels.get(inbound.content_type.value, "arquivo")
+    code = inbound.failure_code.value if inbound.failure_code else "unknown"
     return [
-        f"Recebi seu {content_label}, mas tive um problema para processar. "
+        f"Recebi seu {label}, mas tive um problema para processar ({code}). "
         "Pode tentar novamente ou me contar o que precisa em texto?"
     ]
 
@@ -342,8 +699,8 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
         return [plan.next_question]
     if action == Action.SMALLTALK:
         if directive.should_introduce:
-            return ["Oi! Sou a Júlia da FacilCar. Como posso te ajudar?"]
-        return ["Como posso ajudar?"]
+            return introduction_smalltalk_bubbles(directive.language)
+        return continuation_smalltalk_bubbles(directive.language)
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
     if action == Action.MEDIA_FAILED:

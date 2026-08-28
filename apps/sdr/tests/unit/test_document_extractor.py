@@ -157,3 +157,33 @@ async def test_processor_propagates_conflict() -> None:
     assert result.conflict is not None
     assert result.conflict.needs_confirmation is True
     assert result.conflict.action == "ask_confirmation"
+
+
+@pytest.mark.asyncio
+async def test_pdf_is_rasterized_before_vision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vision only accepts image MIME types — PDFs must be rasterized first."""
+    jpeg = b"\xff\xd8\xfffakejpeg"
+    monkeypatch.setattr(
+        "sdr.media.document_extractor.rasterize_pdf_first_page",
+        lambda data, **kwargs: jpeg,
+    )
+    client = _vision_client(
+        {
+            "name": "Maria Silva",
+            "cpf": "52998224725",
+            "birth_date": "1990-01-01",
+            "plate": None,
+            "document_type": "CNH",
+        }
+    )
+    extracted, _conflict = await extract_document(
+        b"%PDF-fake",
+        mime_type="application/pdf",
+        client=client,
+    )
+    assert extracted.name == "Maria Silva"
+    kwargs = client.chat.completions.create.call_args.kwargs
+    content = kwargs["messages"][1]["content"]
+    image_url = content[1]["image_url"]["url"]
+    assert image_url.startswith("data:image/jpeg;base64,")
+    assert "application/pdf" not in image_url

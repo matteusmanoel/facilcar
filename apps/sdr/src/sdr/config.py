@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     sdr_understanding_model: str = "gpt-4.1-mini"
     sdr_response_model: str = "gpt-4.1-mini"
     sdr_vision_model: str = "gpt-4o"
+    # sandbox: may include failure_code in customer-facing recovery.
+    # production: tool/media failures stay silent so a human can take over.
+    sdr_environment: Literal["sandbox", "production"] = "sandbox"
 
     sdr_debounce_ms: int = Field(default=1500)
     sdr_lock_ttl_seconds: int = Field(default=60)

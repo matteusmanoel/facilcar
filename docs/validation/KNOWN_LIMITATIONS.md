@@ -24,11 +24,10 @@ Q5 2.0 TFSI and other compound labels remain NULL.
 
 ## Open conversational / go-live limitations
 
-1. Photo request is not sent (outbound media not wired).
-2. Live replay of “Tem automático?” must be repeated after the SQL VehicleType guard.
-3. `vehicle_type` still collides semantically with transmission (propulsion vs Prisma `Vehicle.type`).
-4. `ConversationContextBuilder` is not fully wired into the composer/understanding path.
-5. Debounce / late-arrival rebatch is pending.
-6. Seed `model`/`version`/`type` are inconsistent (e.g. Corolla stored as `GLI`).
-7. Origin of the 912 Lead rows is not classified.
-8. RLS remains a go-live gate (`facilcar.Vehicle` has RLS off; anon/authenticated have no table GRANT).
+1. Live replay of “Tem automático?” must be repeated after the SQL VehicleType guard.
+2. `vehicle_type` still collides semantically with transmission (propulsion vs Prisma `Vehicle.type`).
+3. `ConversationContextBuilder` is not fully wired into the composer/understanding path.
+4. Debounce / late-arrival rebatch is pending.
+5. Seed `model`/`version`/`type` are inconsistent (e.g. Corolla stored as `GLI`).
+6. Origin of the 912 Lead rows is not classified.
+7. RLS remains a go-live gate (`facilcar.Vehicle` has RLS off; anon/authenticated have no table GRANT).

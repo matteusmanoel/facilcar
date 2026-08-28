@@ -82,6 +82,12 @@ facts_entries — use SOMENTE estas chaves canônicas (value sempre string):
 - vehicle_model / vehicle_year / mileage / amount_needed: veículo próprio
   (venda, troca, refinanciamento, consignação).
 - leave_at_store: "true" se topa deixar na loja.
+- deal_type: SOMENTE quando o cliente esclarecer compra vs troca
+  ("é compra", "vou dar o meu na troca", "os dois"). NÃO extraia deal_type
+  só porque disse "quero comprar um X" — isso é interesse, não o modo comercial.
+- payment_method: cash (à vista) ou financing. Extraia quando o cliente disser
+  "financiar", "à vista", "compra financiada". NÃO invente consórcio nem uso
+  pessoal/empresa.
 
 Nunca invente chaves fora desta lista. Lista vazia se nada concreto.
 Não pergunte motorização na triagem — só extraia se o cliente informar.
@@ -157,7 +163,7 @@ TURN_FACTS_JSON_SCHEMA: dict = {
                                 "budget, max_price, use_type, down_payment, "
                                 "timeline, city, name, year, color, "
                                 "vehicle_model, vehicle_year, mileage, "
-                                "amount_needed, leave_at_store"
+                                "amount_needed, leave_at_store, deal_type, payment_method"
                             ),
                         },
                         "value": {"type": "string"},

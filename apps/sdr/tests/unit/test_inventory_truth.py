@@ -147,7 +147,9 @@ async def test_success_found_updates_search_key(monkeypatch) -> None:
     assert result.state.last_inventory_search_key is not None
     assert result.state.last_inventory_outcome == "SUCCESS_FOUND"
     joined = " ".join(result.outbound_texts).lower()
-    assert "encontrei" in joined or "olha" in joined
+    assert "encontrei" not in joined
+    assert "olha o que" not in joined
+    assert "orçamento" not in joined and "orcamento" not in joined
 
 
 @pytest.mark.asyncio

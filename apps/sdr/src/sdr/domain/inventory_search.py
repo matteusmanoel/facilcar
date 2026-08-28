@@ -231,7 +231,6 @@ def inventory_search_key_from_request(req: InventorySearchRequest) -> str:
         "vehicle_type": req.vehicle_type,
         "alternative_scope": req.alternative_scope.value,
         "budget": req.budget if req.apply_budget_filter else None,
-        "budget_status": req.budget_status.value,
         "apply_budget_filter": req.apply_budget_filter,
         "engine_displacement_liters": [
             format_engine_token(v) for v in req.engine_displacement_liters

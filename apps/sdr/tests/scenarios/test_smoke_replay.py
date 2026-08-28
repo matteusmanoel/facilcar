@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from sdr.application.process_turn import process_turn
+from sdr.domain.introduction import is_first_contact_reopen
 from sdr.domain.types import (
     Action,
     BusinessIntent,
@@ -111,6 +112,10 @@ async def test_no_repeated_greeting_after_first_turn() -> None:
     assert "sou a júlia da facilcar" not in bubbles, (
         f"Turn 2 produced introduction: {r2.outbound_texts}"
     )
+    assert not is_first_contact_reopen(r2.outbound_texts), (
+        f"Turn 2 reopened as first contact: {r2.outbound_texts}"
+    )
+    assert "como posso ajudar você hoje" not in bubbles
 
 
 @pytest.mark.asyncio

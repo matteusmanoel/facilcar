@@ -115,19 +115,66 @@ async def _run_send_location(
     state: ConversationCanonicalState,
     pool: asyncpg.Pool | None,
 ) -> dict[str, Any]:
-    return {
-        "tool": "send_location",
-        "site_settings": {},
-    }
+    from sdr.tools.location import get_store_location
+
+    if pool is None:
+        return {"tool": "send_location", "site_settings": {}, "text": None, "pin": None}
+    try:
+        data = await get_store_location(pool)
+        return {
+            "tool": "send_location",
+            "site_settings": data.get("site_settings") or {},
+            "text": data.get("text"),
+            "pin": data.get("pin"),
+        }
+    except Exception:
+        logger.exception("_run_send_location: failed to fetch site settings")
+        return {"tool": "send_location", "site_settings": {}, "text": None, "pin": None}
 
 
 async def _run_register_visit_interest(
     state: ConversationCanonicalState,
     pool: asyncpg.Pool | None,
 ) -> dict[str, Any]:
+    preferred_time = state.visit_preferred_time
     return {
         "tool": "register_visit_interest",
         "registered": True,
+        "preferred_time": preferred_time,
+    }
+
+
+async def _run_send_photos(
+    state: ConversationCanonicalState,
+    pool: asyncpg.Pool | None,
+    *,
+    vehicle_id: str | None = None,
+) -> dict[str, Any]:
+    """Resolve listing images for a previously shown vehicle. Does not send."""
+    from sdr.tools.inventory import get_vehicle_by_id
+    from sdr.tools.send_photos import fetch_vehicle_image_urls
+
+    vid = (vehicle_id or "").strip() or (
+        state.last_shown_vehicle_ids[0] if state.last_shown_vehicle_ids else ""
+    )
+    if not vid:
+        return {"tool": "send_photos", "error": "no_shown_vehicle", "images": [], "vehicle": None}
+    if pool is None:
+        return {
+            "tool": "send_photos",
+            "error": "no_db_pool",
+            "vehicle_id": vid,
+            "images": [],
+            "vehicle": None,
+        }
+    vehicle = await get_vehicle_by_id(pool, vid)
+    images = await fetch_vehicle_image_urls(pool, vid) if vehicle is not None else []
+    return {
+        "tool": "send_photos",
+        "vehicle_id": vid,
+        "vehicle": vehicle.to_dict() if vehicle is not None else None,
+        "images": images,
+        "count": len(images),
     }
 
 
@@ -135,6 +182,7 @@ _TOOL_REGISTRY: dict[str, Any] = {
     "inventory_search": _run_inventory_search,
     "send_location": _run_send_location,
     "register_visit_interest": _run_register_visit_interest,
+    "send_photos": _run_send_photos,
 }
 
 
@@ -174,8 +222,15 @@ async def execute_tool_calls(
                     )
                 )
                 continue
-            if pool is not None or tool_name in ("send_location", "register_visit_interest"):
-                result = await fn(state, pool)
+            if pool is not None or tool_name in (
+                "send_location",
+                "register_visit_interest",
+                "send_photos",
+            ):
+                if tool_name == "send_photos":
+                    result = await fn(state, pool, vehicle_id=tc.get("vehicle_id"))
+                else:
+                    result = await fn(state, pool)
             else:
                 results.append({"tool": tool_name, "error": "no_db_pool"})
                 continue
@@ -243,6 +298,15 @@ def tool_results_to_context(results: list[dict[str, Any]]) -> dict[str, Any]:
             ctx["inventory_search_params"] = r.get("search_params", {})
         elif tool == "send_location":
             ctx["site_settings"] = r.get("site_settings", {})
+            ctx["location_text"] = r.get("text")
+            ctx["location_pin"] = r.get("pin")
         elif tool == "register_visit_interest":
             ctx["visit_registered"] = r.get("registered", False)
+            ctx["visit_preferred_time"] = r.get("preferred_time")
+        elif tool == "send_photos":
+            ctx["photo_vehicle"] = r.get("vehicle")
+            ctx["photo_images"] = r.get("images") or []
+            ctx["photo_count"] = int(r.get("count") or 0)
+            if r.get("error"):
+                ctx["photo_error"] = r["error"]
     return ctx

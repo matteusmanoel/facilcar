@@ -111,7 +111,11 @@ async def test_image_as_document_routes_to_extractor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_pdf_routes_to_extractor() -> None:
+async def test_document_pdf_routes_to_extractor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "sdr.media.document_extractor.rasterize_pdf_first_page",
+        lambda data, **kwargs: b"\xff\xd8\xfffakejpeg",
+    )
     payload = (
         '{"name":null,"cpf":null,"birth_date":null,"plate":"ABC1D23",'
         '"document_type":"CRLV"}'

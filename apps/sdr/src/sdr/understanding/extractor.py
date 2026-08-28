@@ -32,6 +32,8 @@ from sdr.domain.pending_interaction import (
     parse_alternative_scope,
     parse_pending_resolution,
 )
+from sdr.domain.location_request import has_store_location_request_evidence
+from sdr.domain.photo_request import has_photo_request_evidence
 from sdr.domain.types import BusinessIntent, HandoffSignals, TurnFacts
 from sdr.understanding.prompts import TURN_FACTS_JSON_SCHEMA, TURN_FACTS_SYSTEM_PROMPT
 
@@ -302,6 +304,8 @@ def _heuristic_extract(text: str, state_summary: str | None = None) -> TurnFacts
         facts=canonical,
         signals=signals,
         confidence={"intent": 0.55 if intent != BusinessIntent.UNKNOWN else 0.2},
+        photo_request=True if has_photo_request_evidence(normalized) else None,
+        location_request=True if has_store_location_request_evidence(normalized) else None,
     )
 
 
@@ -382,6 +386,8 @@ def _parse_llm_payload(payload: Mapping[str, Any], *, source_text: str = "") -> 
     budget_status = parse_budget_status(payload.get("budget_status"))
     pending_resolution = parse_pending_resolution(payload.get("pending_resolution"))
     alternative_scope = parse_alternative_scope(payload.get("alternative_scope"))
+    photo_request = True if has_photo_request_evidence(source_text) else None
+    location_request = True if has_store_location_request_evidence(source_text) else None
 
     _set_meta(
         path="structured",
@@ -393,6 +399,8 @@ def _parse_llm_payload(payload: Mapping[str, Any], *, source_text: str = "") -> 
         budget_status=budget_status.value if budget_status else None,
         pending_resolution=pending_resolution.value if pending_resolution else None,
         alternative_scope=alternative_scope.value if alternative_scope else None,
+        photo_request=photo_request,
+        location_request=location_request,
     )
 
     return TurnFacts(
@@ -404,6 +412,8 @@ def _parse_llm_payload(payload: Mapping[str, Any], *, source_text: str = "") -> 
         budget_status=budget_status,
         pending_resolution=pending_resolution,
         alternative_scope=alternative_scope,
+        photo_request=photo_request,
+        location_request=location_request,
     )
 
 

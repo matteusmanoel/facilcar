@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from sdr.domain.inbound import InboundTurn
+from sdr.domain.introduction import intro_instruction, response_objective_for
 from sdr.domain.types import ActionPlan, ConversationCanonicalState
 
 # Customer-facing safe fact keys (exclude operational and sensitive fields).
@@ -37,11 +38,13 @@ _SAFE_FACT_KEYS = frozenset({
     "budget",
     "max_price",
     "payment_type",
+    "payment_method",
     "use_type",
     "trade_in",
     "consignment",
     "name",
     "city",
+    "crm_linked_vehicles",
 })
 
 
@@ -67,6 +70,7 @@ class ConversationContextBuilder:
         *,
         accumulated_summary: str | None = None,
         recent_turns: list[dict[str, Any]] | None = None,
+        linked_vehicle_titles: list[str] | None = None,
     ) -> str:
         """Build a concise state summary for the Understanding Engine.
 
@@ -100,6 +104,14 @@ class ConversationContextBuilder:
             for k, v in safe.items():
                 lines.append(f"  {k}: {v}")
 
+        if linked_vehicle_titles:
+            titles = [t.strip() for t in linked_vehicle_titles if t and str(t).strip()]
+            if titles:
+                lines.append(
+                    "Veículos já vinculados a este negócio (não perguntar de novo se o cliente só confirmar): "
+                    + ", ".join(titles)
+                )
+
         if state.pending_confirmation:
             lines.append(f"Aguardando confirmação de: {', '.join(state.pending_confirmation)}")
 
@@ -107,6 +119,14 @@ class ConversationContextBuilder:
             lines.append(
                 "Oferta pendente: o cliente deve aceitar/recusar alternativas. "
                 "Preencha pending_resolution (ACCEPT|REJECT|AMBIGUOUS)."
+            )
+
+        if state.pending_question:
+            lines.append(
+                f"Última pergunta feita pela Júlia: '{state.pending_question}'. "
+                "Se a resposta do cliente for 'sim', 'não', 'exato', 'isso', 'pode', 'claro' "
+                "ou similar, interprete-a como confirmação/negação desta pergunta e preencha "
+                "o campo correspondente nos facts."
             )
 
         if recent_turns:
@@ -133,12 +153,10 @@ class ConversationContextBuilder:
         process_turn and compose_response. One payload, one builder.
         """
         should_introduce = state.assistant_turn_count == 0
-
-        intro_instruction = (
-            "Esta é a primeira mensagem — apresente-se brevemente como Júlia da FacilCar."
-            if should_introduce
-            else "NÃO se apresente — Júlia já interagiu nesta conversa anteriormente."
+        objective = response_objective_for(
+            action=plan.action, should_introduce=should_introduce
         )
+        inbound_text = inbound.effective_text
 
         payload: dict[str, Any] = {
             "context": {
@@ -148,7 +166,9 @@ class ConversationContextBuilder:
                 "facts": _safe_facts(state.facts),
                 "lifecycle_status": state.lifecycle.status.value,
                 "should_introduce": should_introduce,
-                "intro_instruction": intro_instruction,
+                "intro_instruction": intro_instruction(should_introduce),
+                "response_objective": objective,
+                "inbound_text": inbound_text,
                 "pending_confirmation": state.pending_confirmation,
                 "claims_forbidden": [
                     "aprovação garantida",
@@ -170,6 +190,7 @@ class ConversationContextBuilder:
                 "content_type": inbound.content_type.value,
                 "media_status": inbound.media_status.value,
                 "failure_code": inbound.failure_code.value if inbound.failure_code else None,
+                "text": inbound_text,
             },
         }
 

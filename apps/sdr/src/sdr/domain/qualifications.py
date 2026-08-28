@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from sdr.domain.budget_status import BUDGET_RESOLVED, BudgetStatus
 from sdr.domain.types import (
     Actionability,
     BusinessIntent,
@@ -37,35 +36,6 @@ def _desired_vehicle(facts: dict[str, Any]) -> bool:
     )
 
 
-def _budget_or_price(facts: dict[str, Any], budget_status: BudgetStatus) -> bool:
-    """Budget question resolved enough for triage / not blocking inventory."""
-    if budget_status in (
-        BudgetStatus.PROVIDED,
-        BudgetStatus.UNDEFINED,
-        BudgetStatus.DECLINED,
-        BudgetStatus.FLEXIBLE,
-    ):
-        if budget_status == BudgetStatus.PROVIDED:
-            return _has(
-                facts,
-                "budget",
-                "max_price",
-                "price_range",
-                "valor",
-                "faixa_valor",
-            )
-        # UNDEFINED / DECLINED / FLEXIBLE — resolved without a number.
-        return True
-    return _has(
-        facts,
-        "budget",
-        "max_price",
-        "price_range",
-        "valor",
-        "faixa_valor",
-    )
-
-
 def _own_vehicle_identity(facts: dict[str, Any]) -> bool:
     has_model = _has(facts, "trade_model", "sell_model", "vehicle_model", "model", "brand")
     has_year = _has(facts, "trade_year", "sell_year", "vehicle_year", "year", "year_model")
@@ -80,22 +50,25 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
     """
     facts = state.facts
     intent = state.intent
-    budget_status = state.budget_status
 
     if intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
         return False
 
     if intent == BusinessIntent.PURCHASE:
-        # Model/category + budget band (or resolved non-numeric status) is enough.
-        return _desired_vehicle(facts) and _budget_or_price(facts, budget_status)
+        # Model + commercial mode + cash vs financing. Budget is never required.
+        return (
+            _desired_vehicle(facts)
+            and _has(facts, "deal_type")
+            and _has(facts, "payment_method")
+        )
 
     if intent == BusinessIntent.PURCHASE_FINANCING:
-        # Vehicle + value; down payment helps but income/CPF are not blockers.
+        # Vehicle + deal type + down payment (0 = sem entrada). Documents are
+        # requested once, then visit — they do not block a commercial handoff.
         has_vehicle = _desired_vehicle(facts)
-        has_value = _budget_or_price(facts, budget_status) or _has(
-            facts, "down_payment", "entrada"
-        )
-        return has_vehicle and has_value
+        has_mode = _has(facts, "deal_type")
+        has_down = _has(facts, "down_payment")
+        return has_vehicle and has_mode and has_down and state.documents_asked
 
     if intent == BusinessIntent.TRADE:
         # Desired + trade-in identity (brand/model + year) is enough.
@@ -152,19 +125,18 @@ def refresh_actionability(state: ConversationCanonicalState) -> ConversationCano
 ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
     BusinessIntent.PURCHASE: [
         "desired_model",
-        "budget",
+        "deal_type",
         "payment_method",
-        "timeline",
     ],
     BusinessIntent.PURCHASE_FINANCING: [
         "desired_model",
-        "budget",
+        "deal_type",
         "down_payment",
-        "timeline",
+        "documents",
     ],
     BusinessIntent.TRADE: [
         "desired_model",
-        "budget",
+        "deal_type",
         "trade_model",
         "trade_year",
         "mileage",
@@ -208,6 +180,7 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
             "category",
             "brand",
         ),
+        "deal_type": ("deal_type",),
         "budget": ("budget", "max_price", "price_range", "valor"),
         "trade_model": ("trade_model", "vehicle_model", "model", "brand"),
         "trade_year": ("trade_year", "vehicle_year", "year", "year_model"),
@@ -217,7 +190,7 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
         "asking_price": ("asking_price", "desired_price"),
         "amount_needed": ("amount_needed", "raise_amount", "valor_levantar"),
         "down_payment": ("down_payment", "entrada"),
-        "payment_method": ("payment_method", "financing"),
+        "payment_method": ("payment_method", "payment_type"),
         "timeline": ("timeline", "urgency", "purchase_timeline"),
         "city": ("city", "location"),
         "leave_at_store": ("leave_at_store", "consign_ok"),
@@ -230,12 +203,12 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
                 return "intent"
             continue
         if field == "budget":
-            # Do not re-ask when budget status is already resolved.
-            if state.budget_status in BUDGET_RESOLVED:
+            # Budget is sensitive — extract if volunteered, never solicit.
+            continue
+        if field == "documents":
+            if state.documents_asked:
                 continue
-            if _has(facts, *aliases["budget"]):
-                continue
-            return "budget"
+            return "documents"
         keys = aliases.get(field, (field,))
         if not _has(facts, *keys):
             return field

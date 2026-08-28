@@ -306,6 +306,14 @@ def _print_turn_summary(
             print(f"    > {b}")
     else:
         print("  response  : [no reply]")
+    media = getattr(result, "outbound_media", None) or []
+    if media:
+        print(f"  media     : {len(media)} image(s)")
+        last = media[-1]
+        cap = getattr(last, "caption", "") or ""
+        if cap:
+            preview = cap.replace("\n", " | ")
+            print(f"  caption   : {preview[:180]}")
 
 
 def _check_turn_assertions(
@@ -417,6 +425,32 @@ def _check_turn_assertions(
                 f"{prefix}: must not ask budget again; got {result.outbound_texts!r}"
             )
 
+    if turn_assertion.get("no_olha_o_que_encontrei"):
+        if "olha o que encontrei" in bubbles_lower or "mira lo que encontré" in bubbles_lower:
+            failures.append(
+                f"{prefix}: must not use listing intro; got {result.outbound_texts!r}"
+            )
+
+    if turn_assertion.get("has_outbound_media"):
+        media = getattr(result, "outbound_media", None) or []
+        if not media:
+            failures.append(f"{prefix}: expected outbound_media photos, got none")
+        else:
+            last = media[-1]
+            cap = (getattr(last, "caption", None) or "").strip()
+            if turn_assertion.get("caption_on_last") and not cap:
+                failures.append(f"{prefix}: expected caption on last photo")
+            if len(media) > 1:
+                first_cap = (getattr(media[0], "caption", None) or "").strip()
+                if first_cap:
+                    failures.append(f"{prefix}: caption must be on last photo only")
+
+    if turn_assertion.get("follow_up_deal_type"):
+        if "compra ou troca" not in bubbles_lower and "compra o permuta" not in bubbles_lower:
+            failures.append(
+                f"{prefix}: expected deal_type follow-up; got {result.outbound_texts!r}"
+            )
+
     if turn_assertion.get("no_rigid_corolla_requirement"):
         rigid = (
             "que legal que você quer um corolla",
@@ -431,13 +465,13 @@ def _check_turn_assertions(
 
     # no_greeting_in_response assertion
     if turn_assertion.get("no_greeting_in_response"):
-        greeting_phrases = ["sou a júlia da facilcar", "soy júlia de facilcar", "sou a júlia"]
-        for phrase in greeting_phrases:
-            if phrase in bubbles_lower:
-                failures.append(
-                    f"{prefix}: response must not introduce Júlia; found {phrase!r} in {result.outbound_texts!r}"
-                )
-                break
+        from sdr.domain.introduction import is_first_contact_reopen
+
+        if is_first_contact_reopen(result.outbound_texts):
+            failures.append(
+                f"{prefix}: response must not reopen as first contact; "
+                f"found {result.outbound_texts!r}"
+            )
 
     # no_generic_restart assertion
     if turn_assertion.get("no_generic_restart"):
@@ -461,11 +495,14 @@ def _check_global_assertions(
         return failures
 
     if assertions.get("no_reintro_after_first_turn"):
+        from sdr.domain.introduction import is_first_contact_reopen
+
         for i, h in enumerate(history[1:], start=2):
-            bl = " ".join(h["outbound"]).lower()
-            if "sou a júlia" in bl or "soy júlia" in bl:
+            outbound = h["outbound"]
+            if is_first_contact_reopen(outbound):
                 failures.append(
-                    f"no_reintro_after_first_turn: turn {i} contained introduction"
+                    f"no_reintro_after_first_turn: turn {i} reopened as first contact: "
+                    f"{outbound!r}"
                 )
 
     if assertions.get("commercial_intent_recognized"):
@@ -612,7 +649,7 @@ async def run_replay(
                 understand=understand,
                 pool=pool,
             )
-            if result.outbound_texts:
+            if result.outbound_texts or getattr(result, "outbound_media", None):
                 result.state.assistant_turn_count = state.assistant_turn_count + 1
             state = result.state
 

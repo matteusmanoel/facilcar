@@ -149,6 +149,31 @@ class EvolutionClient:
         )
         return _extract_message_id(payload)
 
+    async def send_location(
+        self,
+        number: str,
+        *,
+        latitude: float,
+        longitude: float,
+        name: str = "",
+        address: str = "",
+        delay_ms: int = 800,
+    ) -> str | None:
+        """Send a WhatsApp location pin via Evolution ``/message/sendLocation``."""
+        payload = await self._request(
+            "POST",
+            f"/message/sendLocation/{self.instance}",
+            json={
+                "number": number,
+                "name": name or "FacilCar",
+                "address": address or "",
+                "latitude": float(latitude),
+                "longitude": float(longitude),
+                "delay": delay_ms,
+            },
+        )
+        return _extract_message_id(payload)
+
     async def send_media(
         self,
         number: str,

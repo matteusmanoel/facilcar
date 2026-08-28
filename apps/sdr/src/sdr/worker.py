@@ -32,6 +32,38 @@ class LiveEvolutionSender:
         _ = instance
         return await self._client.send_text(phone, text)
 
+    async def send_media(
+        self,
+        phone: str,
+        mediatype: str,
+        url: str,
+        mimetype: str,
+        caption: str = "",
+        *,
+        instance: str,
+    ) -> str | None:
+        _ = instance
+        return await self._client.send_media(phone, mediatype, url, mimetype, caption)
+
+    async def send_location(
+        self,
+        phone: str,
+        *,
+        latitude: float,
+        longitude: float,
+        name: str = "",
+        address: str = "",
+        instance: str,
+    ) -> str | None:
+        _ = instance
+        return await self._client.send_location(
+            phone,
+            latitude=latitude,
+            longitude=longitude,
+            name=name,
+            address=address,
+        )
+
 
 def _default_evolution(settings: Settings):
     if (settings.evolution_api_key or "").strip():

@@ -129,7 +129,16 @@ def upload_document(
             byte_size=size,
         )
 
-    client = _s3_client()
+    try:
+        client = _s3_client()
+    except RuntimeError:
+        logger.warning("storage_client: boto3 missing; stubbing upload key=%s", key)
+        return UploadResult(
+            storage_key=f"stub/{key}",
+            bucket=bucket,
+            stub=True,
+            byte_size=size,
+        )
     extra: dict[str, Any] = {}
     if mime_type:
         extra["ContentType"] = mime_type

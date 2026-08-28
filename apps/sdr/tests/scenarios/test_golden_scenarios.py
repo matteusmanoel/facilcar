@@ -110,7 +110,9 @@ async def test_golden_scenario(stem: str, data: dict[str, Any]) -> None:
         assert state.business.type.value == expect["business_type"]
 
     if expect.get("handoff") is True:
-        assert saw_handoff or last.action_plan.handoff is True
+        # REGISTER_VISIT_INTEREST is a valid pre-handoff step before the actual handoff.
+        visit_pre_handoff = last.action_plan.action == Action.REGISTER_VISIT_INTEREST
+        assert saw_handoff or last.action_plan.handoff is True or visit_pre_handoff
 
     if expect.get("handoff_if_actionable") is True:
         if state.business.actionability in (
@@ -124,12 +126,13 @@ async def test_golden_scenario(stem: str, data: dict[str, Any]) -> None:
                     for tc in last.action_plan.tool_calls
                 )
             )
-            # Inventory-first policy may defer irreversible handoff until stock
-            # lookup has been attempted for the current search key.
+            # Inventory-first or visit-invitation may defer irreversible handoff.
+            visit_pending = last.action_plan.action == Action.REGISTER_VISIT_INTEREST
             assert (
                 saw_handoff
                 or state.lifecycle.status.value == "HANDOFF_SENT"
                 or inventory_pending
+                or visit_pending
             )
 
     if expect.get("actionability") == "ACTIONABLE":

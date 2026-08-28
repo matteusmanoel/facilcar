@@ -98,12 +98,18 @@ def test_visit_intent_handoff() -> None:
 
 
 def test_triage_actionable_after_inventory_key_set() -> None:
-    facts = {"desired_model": "Civic", "budget": 70000}
+    facts = {"desired_model": "Civic", "deal_type": "purchase", "payment_method": "cash"}
     state = _state(
         intent=BusinessIntent.PURCHASE,
         facts=facts,
         last_inventory_search_key=inventory_search_key(facts),
     )
+    # Visit invitation comes first for eligible intents.
     plan = decide(state)
-    assert plan.action == Action.HANDOFF_VENDOR
-    assert plan.reason_code == "triage_actionable"
+    assert plan.action == Action.REGISTER_VISIT_INTEREST
+    assert state.visit_invited is True
+
+    # After visit invitation, handoff follows.
+    plan2 = decide(state)
+    assert plan2.action == Action.HANDOFF_VENDOR
+    assert plan2.reason_code == "triage_actionable"

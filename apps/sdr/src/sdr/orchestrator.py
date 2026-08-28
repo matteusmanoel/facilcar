@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from typing import Protocol
+from typing import Any, Protocol
 
 import asyncpg
 import redis.asyncio as redis
@@ -18,6 +18,7 @@ from sdr.application.coalesce import (
     segment_from_row,
     utc_now_naive,
 )
+from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
 from sdr.application.process_turn import ProcessTurnResult, process_turn
 from sdr.config import Settings, get_settings
 from sdr.debounce import wait_until_quiet
@@ -40,6 +41,7 @@ from sdr.domain.inbound_batch import (
     new_batch_id,
 )
 from sdr.domain.phone import normalize_phone
+from sdr.domain.vendor_summary import is_placeholder_display_name
 from sdr.domain.types import (
     Action,
     ActionPlan,
@@ -54,7 +56,10 @@ from sdr.infrastructure.conversation_repository import (
     canonical_state_from_json,
 )
 from sdr.infrastructure.customer_repository import CustomerRepository
+from sdr.infrastructure.document_repository import DocumentRepository
+from sdr.infrastructure.evolution_client import EvolutionError
 from sdr.infrastructure.lead_repository import LeadRepository
+from sdr.infrastructure.storage_client import upload_document
 from sdr.locks import phone_lock
 from sdr.trace import make_tracer
 
@@ -64,15 +69,83 @@ logger = logging.getLogger(__name__)
 class EvolutionSender(Protocol):
     async def send_text(self, phone: str, text: str, *, instance: str) -> None: ...
 
+    async def send_media(
+        self,
+        phone: str,
+        mediatype: str,
+        url: str,
+        mimetype: str,
+        caption: str = "",
+        *,
+        instance: str,
+    ) -> str | None: ...
+
+    async def send_location(
+        self,
+        phone: str,
+        *,
+        latitude: float,
+        longitude: float,
+        name: str = "",
+        address: str = "",
+        instance: str,
+    ) -> str | None: ...
+
 
 class StubEvolutionSender:
     """Wave 1 stub — no network calls."""
 
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, str]] = []
+        self.sent_media: list[dict[str, str]] = []
+        self.sent_locations: list[dict[str, Any]] = []
 
     async def send_text(self, phone: str, text: str, *, instance: str) -> None:
         self.sent.append((phone, text, instance))
+
+    async def send_media(
+        self,
+        phone: str,
+        mediatype: str,
+        url: str,
+        mimetype: str,
+        caption: str = "",
+        *,
+        instance: str,
+    ) -> str | None:
+        self.sent_media.append(
+            {
+                "phone": phone,
+                "mediatype": mediatype,
+                "url": url,
+                "mimetype": mimetype,
+                "caption": caption,
+                "instance": instance,
+            }
+        )
+        return None
+
+    async def send_location(
+        self,
+        phone: str,
+        *,
+        latitude: float,
+        longitude: float,
+        name: str = "",
+        address: str = "",
+        instance: str,
+    ) -> str | None:
+        self.sent_locations.append(
+            {
+                "phone": phone,
+                "latitude": latitude,
+                "longitude": longitude,
+                "name": name,
+                "address": address,
+                "instance": instance,
+            }
+        )
+        return None
 
 
 async def default_understand(
@@ -80,25 +153,19 @@ async def default_understand(
     state: ConversationCanonicalState,
 ) -> TurnFacts:
     """Wire understanding extractor (heuristic or OpenAI per config)."""
+    from sdr.context_builder import ConversationContextBuilder
     from sdr.understanding.extractor import extract_turn_facts
 
-    # Richer state summary so the LLM has meaningful context.
-    parts = [
-        f"intent={state.intent.value}",
-        f"lifecycle={state.lifecycle.status.value}",
-    ]
-    if state.customer.name:
-        parts.append(f"customer_name={state.customer.name}")
-    if state.language and state.language != "unknown":
-        parts.append(f"language={state.language}")
-    if state.facts:
-        known = ", ".join(
-            f"{k}={v}" for k, v in list(state.facts.items())[:8]
-            if not k.startswith("_")
-        )
-        if known:
-            parts.append(f"known_facts=[{known}]")
-    summary = "; ".join(parts)
+    linked = state.facts.get("crm_linked_vehicles")
+    titles = (
+        [part.strip() for part in str(linked).split(",") if part.strip()]
+        if linked
+        else None
+    )
+    summary = ConversationContextBuilder().build_understanding_summary(
+        state,
+        linked_vehicle_titles=titles,
+    )
     return await extract_turn_facts(text, summary)
 
 
@@ -120,6 +187,7 @@ class Orchestrator:
         self.conversations = ConversationRepository(pool)
         self.customers = CustomerRepository(pool)
         self.leads = LeadRepository(pool)
+        self.documents = DocumentRepository(pool)
 
     # ------------------------------------------------------------------
     # Audio enrichment
@@ -179,6 +247,123 @@ class Orchestrator:
         except Exception:
             logger.exception("audio message %s: transcription failed", message_id)
             return None
+
+    async def _download_media_bytes(
+        self,
+        message_id: str,
+        *,
+        media_ref: dict | None,
+    ) -> tuple[bytes | None, str | None]:
+        if media_ref is None:
+            logger.info("media message %s: no media_ref stored; cannot download", message_id)
+            return None, None
+        try:
+            evolution_client = getattr(self.evolution, "_client", None)
+            if evolution_client is None:
+                logger.warning(
+                    "media message %s: evolution client not available for download",
+                    message_id,
+                )
+                return None, None
+            media_data = await evolution_client.download_media_base64(media_ref)
+            raw_b64 = media_data.get("base64") or ""
+            if not raw_b64:
+                logger.warning("media message %s: empty base64 from Evolution", message_id)
+                return None, None
+            data = base64.b64decode(raw_b64)
+            mime = media_data.get("mimetype")
+            return (data or None), (str(mime) if mime else None)
+        except Exception:
+            logger.exception("media message %s: download failed", message_id)
+            return None, None
+
+    async def _enrich_document_row(
+        self,
+        *,
+        message_id: str,
+        row: asyncpg.Record,
+        caption: str,
+    ) -> InboundTurn:
+        """Download, extract, persist, then expose extracted text as InboundTurn."""
+        media_ref = media_ref_from_row(row)
+        mime_type = row.get("mediaMimeType")
+        conversation_id = str(row.get("conversationId") or "")
+        data, downloaded_mime = await self._download_media_bytes(
+            message_id, media_ref=media_ref
+        )
+        mime = mime_type or downloaded_mime
+        if not data:
+            failure = (
+                MediaFailureCode.NO_MEDIA_REF
+                if media_ref is None
+                else MediaFailureCode.DOWNLOAD_FAILED
+            )
+            return make_media_failed_inbound(
+                thread_id=message_id,
+                failure_code=failure,
+                content_type=ContentType.DOCUMENT,
+                provider_message_id=str(row.get("providerMessageId") or ""),
+            )
+
+        from sdr.media.processor import MediaContentType, process_media
+
+        try:
+            processed = await process_media(
+                data,
+                content_type=MediaContentType.DOCUMENT,
+                mime_type=mime,
+            )
+        except Exception:
+            logger.exception("document message %s: extraction failed", message_id)
+            processed = None
+
+        extracted = processed.extracted if processed is not None else None
+        inbound_text = document_inbound_text(extracted, caption)
+        doc_type = "OTHER"
+        if extracted is not None:
+            doc_type = extracted.document_type or "OTHER"
+
+        lead_id: str | None = None
+        if conversation_id:
+            conv = await self.conversations.get_by_id(conversation_id)
+            ids = list((conv["activeLeadIds"] if conv else None) or [])
+            lead_id = str(ids[0]) if ids else None
+
+        try:
+            uploaded = upload_document(
+                data,
+                lead_id=lead_id or conversation_id or "unknown",
+                document_type=doc_type,
+                mime_type=mime,
+            )
+            await self.documents.insert(
+                storage_key=uploaded.storage_key,
+                document_type=doc_type,
+                lead_id=lead_id,
+                conversation_id=conversation_id or None,
+                mime_type=mime,
+                byte_size=uploaded.byte_size,
+                extracted_json=extracted.as_dict() if extracted is not None else None,
+                extraction_status="DONE" if extracted is not None else "FAILED",
+            )
+        except Exception:
+            logger.exception("document message %s: persist failed", message_id)
+
+        if not inbound_text:
+            return make_media_failed_inbound(
+                thread_id=message_id,
+                failure_code=MediaFailureCode.EXTRACTION_FAILED,
+                content_type=ContentType.DOCUMENT,
+                provider_message_id=str(row.get("providerMessageId") or ""),
+            )
+        return InboundTurn(
+            thread_id=message_id,
+            content_type=ContentType.DOCUMENT,
+            text=inbound_text,
+            media_status=MediaStatus.OK,
+            provider_message_id=str(row.get("providerMessageId") or ""),
+            mime_type=mime,
+        )
 
     # ------------------------------------------------------------------
     # Batch processing (closed snapshot after quiet window)
@@ -559,13 +744,10 @@ class Orchestrator:
             )
 
         if content_type == "DOCUMENT":
-            return InboundTurn(
-                thread_id=message_id,
-                content_type=ContentType.DOCUMENT,
-                text=(text or "").strip() or None,
-                media_status=MediaStatus.OK if (text or "").strip() else MediaStatus.NONE,
-                provider_message_id=str(row.get("providerMessageId") or ""),
-                mime_type=row.get("mediaMimeType"),
+            return await self._enrich_document_row(
+                message_id=message_id,
+                row=row,
+                caption=text,
             )
 
         return make_text_inbound(
@@ -605,6 +787,14 @@ class Orchestrator:
         )
         if not state.customer.phone:
             state.customer = CustomerState(phone=phone, name=state.customer.name)
+
+        existing_customer = await self.customers.find_by_phone(phone)
+        if existing_customer is not None:
+            existing_name = str(existing_customer["name"] or "").strip()
+            if is_placeholder_display_name(state.customer.name) and not is_placeholder_display_name(
+                existing_name
+            ):
+                state.customer.name = existing_name
 
         if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
             await self.conversations.finalize_batch_messages(
@@ -659,11 +849,15 @@ class Orchestrator:
                 failure_code=inbound.failure_code.value if inbound.failure_code else None,
             )
 
+            linked_titles = await self.leads.list_linked_vehicle_titles(
+                list(state.active_lead_ids or [])
+            )
             result = await process_turn(
                 state=state,
                 inbound=inbound,
                 understand=self.understand,
                 pool=self.pool,
+                linked_vehicle_titles=linked_titles or None,
             )
 
             tracer.understanding(
@@ -705,40 +899,129 @@ class Orchestrator:
                     alternative_scope=d.alternative_scope.value,
                 )
             tracer.outbound(result.outbound_texts)
+            if result.outbound_media and hasattr(tracer, "media_actions"):
+                tracer.media_actions([m.to_dict() for m in result.outbound_media])
 
         customer = await self.customers.upsert_by_phone(
             phone, name=result.state.customer.name
         )
+        if not is_placeholder_display_name(result.state.customer.name):
+            await self.leads.sync_names_for_customer(
+                customer["id"], result.state.customer.name
+            )
         if result.action_plan.handoff or result.state.intent not in (
             BusinessIntent.UNKNOWN,
             BusinessIntent.SMALLTALK,
         ):
             lead_id = result.state.active_lead_ids[0] if result.state.active_lead_ids else None
             if lead_id is None:
+                display_name = result.state.customer.name
+                if is_placeholder_display_name(display_name):
+                    display_name = customer["name"]
                 lead = await self.leads.create_from_state(
                     result.state,
                     customer_id=customer["id"],
                     conversation_id=conversation_id,
-                    name=result.state.customer.name or customer["name"],
+                    name=display_name,
                 )
                 if lead is not None:
                     lead_id = lead["id"]
                     result.state.active_lead_ids = [lead_id]
+            if lead_id:
+                await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
             if lead_id and result.action_plan.handoff:
                 await self.leads.mark_qualified_for_handoff(lead_id, result.state)
 
-        # Idempotent outbound: one send per batch_id.
+        # Pin, then media, then text. A later send failure must not retry the
+        # pin — that duplicated location cards when sendText returned 400.
         provider_ids: list[str | None] = []
         turns_sent = 0
-        for outbound in result.outbound_texts:
+        send_failures = 0
+        pin = getattr(result, "outbound_location", None)
+        send_pin = getattr(self.evolution, "send_location", None)
+        if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
             provider_id = None
-            send = getattr(self.evolution, "send_text", None)
-            if send is not None:
-                maybe = await self.evolution.send_text(
-                    phone, outbound, instance=instance
+            try:
+                maybe = await send_pin(
+                    phone,
+                    latitude=float(pin["latitude"]),
+                    longitude=float(pin["longitude"]),
+                    name=str(pin.get("name") or "FacilCar"),
+                    address=str(pin.get("address") or ""),
+                    instance=instance,
                 )
                 if isinstance(maybe, str):
                     provider_id = maybe
+            except Exception:
+                send_failures += 1
+                logger.exception(
+                    "send_location pin failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch.batch_id,
+                )
+            else:
+                await self.conversations.insert_bot_outbound(
+                    conversation_id=conversation_id,
+                    instance_name=instance,
+                    provider_message_id=provider_id
+                    or f"bot-batch-{batch.batch_id}-location-{turns_sent}",
+                    text=str(pin.get("address") or pin.get("name") or "location"),
+                )
+                provider_ids.append(provider_id)
+                turns_sent += 1
+
+        send_media = getattr(self.evolution, "send_media", None)
+        for media in result.outbound_media:
+            provider_id = None
+            try:
+                if send_media is not None:
+                    maybe = await self.evolution.send_media(
+                        phone,
+                        media.mediatype,
+                        media.url,
+                        media.mimetype,
+                        media.caption,
+                        instance=instance,
+                    )
+                    if isinstance(maybe, str):
+                        provider_id = maybe
+            except Exception:
+                send_failures += 1
+                logger.exception(
+                    "send_media failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch.batch_id,
+                )
+                continue
+            await self.conversations.insert_bot_outbound(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                provider_message_id=provider_id
+                or f"bot-batch-{batch.batch_id}-media-{turns_sent}",
+                text=media.caption or media.url,
+                content_type="IMAGE",
+            )
+            provider_ids.append(provider_id)
+            turns_sent += 1
+
+        for outbound in result.outbound_texts:
+            provider_id = None
+            send = getattr(self.evolution, "send_text", None)
+            try:
+                if send is not None:
+                    maybe = await self.evolution.send_text(
+                        phone, outbound, instance=instance
+                    )
+                    if isinstance(maybe, str):
+                        provider_id = maybe
+            except Exception:
+                send_failures += 1
+                logger.exception(
+                    "send_text failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch.batch_id,
+                )
+                continue
             await self.conversations.insert_bot_outbound(
                 conversation_id=conversation_id,
                 instance_name=instance,
@@ -747,6 +1030,14 @@ class Orchestrator:
             )
             provider_ids.append(provider_id)
             turns_sent += 1
+
+        planned_outbound = (
+            bool(isinstance(pin, dict) and pin.get("latitude") is not None)
+            or bool(result.outbound_media)
+            or bool(result.outbound_texts)
+        )
+        if planned_outbound and turns_sent == 0 and send_failures:
+            raise EvolutionError("all outbound sends failed")
 
         if turns_sent > 0:
             result.state.assistant_turn_count = state.assistant_turn_count + 1

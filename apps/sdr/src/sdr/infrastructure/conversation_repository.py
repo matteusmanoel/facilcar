@@ -70,6 +70,13 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "pending_interaction": state.pending_interaction.value,
         "alternative_scope": state.alternative_scope.value,
         "budget_status": state.budget_status.value,
+        "last_shown_vehicle_ids": list(state.last_shown_vehicle_ids),
+        "photo_request": bool(state.photo_request),
+        "pending_question": state.pending_question,
+        "engagement_low_streak": int(state.engagement_low_streak),
+        "visit_invited": bool(state.visit_invited),
+        "visit_preferred_time": state.visit_preferred_time,
+        "documents_asked": bool(state.documents_asked),
     }
     return json.dumps(payload)
 
@@ -162,6 +169,15 @@ def canonical_state_from_json(
         alternative_scope=parse_alternative_scope(data.get("alternative_scope"))
         or AlternativeScope.NONE,
         budget_status=parse_budget_status(data.get("budget_status")) or BudgetStatus.UNKNOWN,
+        last_shown_vehicle_ids=[
+            str(v) for v in (data.get("last_shown_vehicle_ids") or []) if v
+        ],
+        photo_request=bool(data.get("photo_request") or False),
+        pending_question=data.get("pending_question") or None,
+        engagement_low_streak=int(data.get("engagement_low_streak") or 0),
+        visit_invited=bool(data.get("visit_invited") or False),
+        visit_preferred_time=data.get("visit_preferred_time") or None,
+        documents_asked=bool(data.get("documents_asked") or False),
     )
 
 
@@ -648,6 +664,7 @@ class ConversationRepository:
         instance_name: str,
         text: str,
         provider_message_id: str | None = None,
+        content_type: str = "TEXT",
     ) -> str:
         """Persist bot outbound before/after Evolution send for fromMe dedupe."""
         import uuid
@@ -655,6 +672,9 @@ class ConversationRepository:
         now = _now()
         msg_id = str(uuid.uuid4())
         provider_id = provider_message_id or f"bot-{msg_id}"
+        ctype = (content_type or "TEXT").upper()
+        if ctype not in {"TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "STICKER"}:
+            ctype = "TEXT"
         sql = f'''
             INSERT INTO "{SCHEMA}"."Message"
               ("id", "conversationId", "providerMessageId", "instanceName",
@@ -663,7 +683,7 @@ class ConversationRepository:
             VALUES (
               $1, $2, $3, $4,
               'OUTBOUND'::"{SCHEMA}"."MessageDirection",
-              'TEXT'::"{SCHEMA}"."MessageContentType",
+              $7::"{SCHEMA}"."MessageContentType",
               $5, true, false, true, 'DONE', $6, $6
             )
             ON CONFLICT ("instanceName", "providerMessageId") DO NOTHING
@@ -671,6 +691,6 @@ class ConversationRepository:
         '''
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                sql, msg_id, conversation_id, provider_id, instance_name, text, now
+                sql, msg_id, conversation_id, provider_id, instance_name, text, now, ctype
             )
             return str(row["id"]) if row else msg_id

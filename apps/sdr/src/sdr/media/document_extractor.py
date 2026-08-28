@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import re
@@ -154,6 +155,55 @@ def check_extraction_conflicts(
     )
 
 
+def rasterize_pdf_first_page(data: bytes, *, scale: float = 2.0) -> bytes | None:
+    """Render the first PDF page to JPEG. Vision APIs reject application/pdf."""
+    if not data:
+        return None
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.warning("pypdfium2 is required to rasterize PDFs for vision")
+        return None
+    try:
+        pdf = pdfium.PdfDocument(data)
+        try:
+            if len(pdf) < 1:
+                return None
+            page = pdf[0]
+            bitmap = page.render(scale=scale)
+            pil_image = bitmap.to_pil()
+            if pil_image.mode != "RGB":
+                pil_image = pil_image.convert("RGB")
+            buf = io.BytesIO()
+            pil_image.save(buf, format="JPEG", quality=85)
+            return buf.getvalue()
+        finally:
+            pdf.close()
+    except Exception:
+        logger.exception("rasterize_pdf_first_page failed")
+        return None
+
+
+def prepare_vision_payload(
+    data: bytes,
+    mime_type: str | None,
+) -> tuple[bytes, str] | None:
+    """Return image bytes + MIME suitable for Vision image_url.
+
+    PDFs are rasterized; other bytes pass through as an image MIME.
+    """
+    mime = (mime_type or "image/jpeg").lower().split(";", 1)[0].strip()
+    looks_pdf = mime in {"application/pdf", "image/pdf"} or mime.endswith("/pdf")
+    if looks_pdf or data[:4] == b"%PDF":
+        raster = rasterize_pdf_first_page(data)
+        if not raster:
+            return None
+        return raster, "image/jpeg"
+    if not mime.startswith("image/"):
+        mime = "image/jpeg"
+    return data, mime
+
+
 def _parse_payload(payload: Mapping[str, Any]) -> ExtractedDocument:
     doc_type_raw = str(payload.get("document_type") or "OTHER").upper()
     doc_type: DocumentType
@@ -190,7 +240,11 @@ async def extract_document(
 
     settings = get_settings()
     api_key = (settings.openai_api_key or "").strip()
-    mime = mime_type or "image/jpeg"
+    prepared = prepare_vision_payload(data, mime_type)
+    if prepared is None:
+        logger.warning("extract_document: could not prepare a vision image from %s", mime_type)
+        return empty, check_extraction_conflicts(state_facts, empty)
+    data, mime = prepared
 
     if client is None:
         if not api_key:

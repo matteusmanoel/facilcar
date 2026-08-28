@@ -11,7 +11,8 @@ from sdr.tools.inventory import (
 from sdr.tools.location import (
     fetch_site_settings,
     format_location_text,
-    get_store_location_text,
+    get_store_location,
+    extract_coords_from_maps_url,
 )
 from sdr.tools.send_photos import fetch_vehicle_image_urls, send_vehicle_photos
 
@@ -24,7 +25,8 @@ __all__ = [
     "search_published_vehicles",
     "fetch_site_settings",
     "format_location_text",
-    "get_store_location_text",
+    "get_store_location",
+    "extract_coords_from_maps_url",
     "fetch_vehicle_image_urls",
     "send_vehicle_photos",
 ]

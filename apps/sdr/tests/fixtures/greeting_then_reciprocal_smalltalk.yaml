@@ -1,0 +1,61 @@
+name: "Greeting then reciprocal smalltalk — no first-contact reopen"
+description: >
+  Observed 27/08/2026: after /deletar and Olá, Júlia introduced correctly.
+  "Tudo bem e você?" was answered as a new first contact
+  ("Oi! Como posso ajudar você hoje?"). Continuation SMALLTALK must
+  receive inbound text and must not reopen as greeting.
+  Product terms appear only in fixtures — no runtime keyword for this phrase.
+
+turns:
+  - role: customer
+    text: "Olá"
+    content_type: TEXT
+
+  - role: customer
+    text: "Tudo bem e você?"
+    content_type: TEXT
+    understanding:
+      intent: smalltalk
+      language: pt-BR
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "Tudo ótimo, e aí?"
+    content_type: TEXT
+    understanding:
+      intent: smalltalk
+      language: pt-BR
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+
+turn_assertions:
+  - turn: 2
+    intent: smalltalk
+    no_greeting_in_response: true
+    no_generic_restart: true
+
+  - turn: 3
+    intent: smalltalk
+    no_greeting_in_response: true
+    no_generic_restart: true
