@@ -93,6 +93,17 @@ export async function listPublicVehicles(filters: CatalogFilters = {}) {
   };
 }
 
+export async function getPublicPriceBounds() {
+  const agg = await prisma.vehicle.aggregate({
+    where: { status: "PUBLISHED", priceCash: { not: null } },
+    _min: { priceCash: true },
+    _max: { priceCash: true },
+  });
+  const min = agg._min.priceCash != null ? Math.floor(Number(agg._min.priceCash)) : 0;
+  const max = agg._max.priceCash != null ? Math.ceil(Number(agg._max.priceCash)) : 300000;
+  return { min, max: Math.max(min, max) };
+}
+
 export async function getBrandsForFilter() {
   return prisma.brand.findMany({
     where: { isActive: true },

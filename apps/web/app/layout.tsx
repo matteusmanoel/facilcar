@@ -4,6 +4,7 @@ import { PostHogInit } from "@/components/analytics/PostHogInit";
 import { AppThemeProvider } from "@/components/app-theme-provider";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import { BRAND } from "@/lib/brand";
+import { SITE_URL } from "@/lib/seo";
 import { normalizePublicTheme } from "@/lib/theme";
 import "./globals.css";
 
@@ -14,27 +15,45 @@ const outfit = Outfit({
   display: "swap",
 });
 
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSiteSettings();
+  const title = settings?.seoDefaultTitle?.trim() || BRAND.name;
+  const description =
+    settings?.seoDefaultDescription?.trim() || BRAND.defaultDescription;
+  const siteName = settings?.siteName?.trim() || BRAND.name;
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: {
-    default: BRAND.name,
-    template: `%s | ${BRAND.name}`,
-  },
-  description: BRAND.defaultDescription,
-  icons: {
-    icon: "/facilcar-logo.jpg",
-    apple: "/facilcar-logo.jpg",
-  },
-  openGraph: {
-    title: BRAND.name,
-    description: BRAND.defaultDescription,
-    locale: "pt_BR",
-    type: "website",
-  },
-};
+  return {
+    metadataBase: new URL(SITE_URL),
+    title: {
+      default: title,
+      template: `%s | ${siteName}`,
+    },
+    description,
+    icons: {
+      icon: "/facilcar-logo.jpg",
+      apple: "/facilcar-logo.jpg",
+    },
+    openGraph: {
+      title,
+      description,
+      locale: "pt_BR",
+      type: "website",
+      siteName,
+      url: SITE_URL,
+      images: [{ url: "/facilcar-logo.jpg", alt: siteName }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: ["/facilcar-logo.jpg"],
+    },
+    robots: {
+      index: true,
+      follow: true,
+    },
+  };
+}
 
 export default async function RootLayout({
   children,

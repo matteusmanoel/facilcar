@@ -53,7 +53,6 @@ export type FinancingSimulationValues = z.infer<typeof financingSimulationSchema
 export const sellVehicleFormSchema = z.object({
   name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
   phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),
-  email: z.string().email("E-mail inválido").optional().or(z.literal("")),
   observations: z.string().max(2000).optional(),
   brand: z.string().optional(),
   model: z.string().optional(),
@@ -63,6 +62,7 @@ export const sellVehicleFormSchema = z.object({
   mileage: z.coerce.number().int().min(0).optional(),
   fuelType: z.string().optional(),
   transmission: z.string().optional(),
+  saleMode: z.enum(["CONSIGNMENT", "DIRECT_PURCHASE"]).optional(),
 });
 
 const leadTypeEnum = z.enum([

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { createFinancingSimulationLead } from "../server/actions";
 import {
   publicFormInputClass,
   publicFormLabelClass,
 } from "@/lib/theme";
+import { formatCPF, formatPhoneBR } from "@/lib/input-masks";
 
 type Props = {
   vehicleId?: string;
@@ -17,14 +18,6 @@ type Props = {
 
 const inputClass = publicFormInputClass;
 const labelClass = publicFormLabelClass;
-
-function formatCPF(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  return digits
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
-}
 
 const INSTALLMENT_OPTIONS = [36, 48];
 
@@ -38,29 +31,16 @@ export function FinancingSimulationForm({
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [cpfValue, setCpfValue] = useState("");
-  const [birthDay, setBirthDay] = useState("");
-  const [birthMonth, setBirthMonth] = useState("");
-  const [birthYear, setBirthYear] = useState("");
+  const [phoneValue, setPhoneValue] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
-  const birthDateValue = birthDay && birthMonth && birthYear
-    ? `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`
-    : "";
-
-  const MONTHS = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-  ];
-
-  const currentYear = new Date().getFullYear();
-  const years = useMemo(
-    () => Array.from({ length: 80 }, (_, i) => currentYear - 18 - i),
-    [currentYear],
-  );
-  const daysInMonth = useMemo(() => {
-    if (!birthMonth || !birthYear) return 31;
-    return new Date(Number(birthYear), Number(birthMonth), 0).getDate();
-  }, [birthMonth, birthYear]);
+  const today = new Date();
+  const maxBirth = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate())
+    .toISOString()
+    .slice(0, 10);
+  const minBirth = new Date(today.getFullYear() - 100, today.getMonth(), today.getDate())
+    .toISOString()
+    .slice(0, 10);
 
   const hasVehicle = Boolean(vehicleId);
 
@@ -74,9 +54,7 @@ export function FinancingSimulationForm({
       setStatus("success");
       formRef.current?.reset();
       setCpfValue("");
-      setBirthDay("");
-      setBirthMonth("");
-      setBirthYear("");
+      setPhoneValue("");
       if (result.whatsappUrl && result.whatsappUrl !== "#") {
         setTimeout(() => {
           window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
@@ -161,61 +139,32 @@ export function FinancingSimulationForm({
         />
       </label>
 
-      <div>
-        <span className={labelClass}>Data de Nascimento *</span>
-        <input type="hidden" name="birthDate" value={birthDateValue} />
-        <div className="mt-1.5 grid grid-cols-3 gap-2">
-          <select
-            aria-label="Dia"
-            value={birthDay}
-            onChange={(e) => setBirthDay(e.target.value)}
-            required
-            className={inputClass}
-            disabled={status === "submitting"}
-          >
-            <option value="" disabled>Dia</option>
-            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => (
-              <option key={d} value={d}>{String(d).padStart(2, "0")}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Mês"
-            value={birthMonth}
-            onChange={(e) => setBirthMonth(e.target.value)}
-            required
-            className={inputClass}
-            disabled={status === "submitting"}
-          >
-            <option value="" disabled>Mês</option>
-            {MONTHS.map((m, i) => (
-              <option key={i + 1} value={i + 1}>{m}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Ano"
-            value={birthYear}
-            onChange={(e) => setBirthYear(e.target.value)}
-            required
-            className={inputClass}
-            disabled={status === "submitting"}
-          >
-            <option value="" disabled>Ano</option>
-            {years.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <label className={labelClass}>
+        Data de Nascimento *
+        <input
+          name="birthDate"
+          type="date"
+          required
+          autoComplete="bday"
+          min={minBirth}
+          max={maxBirth}
+          className={inputClass}
+          disabled={status === "submitting"}
+        />
+      </label>
 
       <label className={labelClass}>
         DDD + Celular *
         <input
           name="phone"
           type="tel"
-          required
+          inputMode="numeric"
           autoComplete="tel"
+          required
           className={inputClass}
           placeholder="(00) 00000-0000"
+          value={phoneValue}
+          onChange={(e) => setPhoneValue(formatPhoneBR(e.target.value))}
           disabled={status === "submitting"}
         />
       </label>

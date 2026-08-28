@@ -1,5 +1,10 @@
 import { getPageBySlug } from "@/features/content/server/queries";
+import { cmsPageMetadata } from "@/features/content/server/page-metadata";
 import { notFound } from "next/navigation";
+
+export async function generateMetadata() {
+  return cmsPageMetadata("trabalhe-conosco", "Trabalhe conosco");
+}
 
 export default async function TrabalheConoscoPage() {
   const page = await getPageBySlug("trabalhe-conosco");

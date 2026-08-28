@@ -1,14 +1,11 @@
 import { getPageBySlug } from "@/features/content/server/queries";
+import { cmsPageMetadata } from "@/features/content/server/page-metadata";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 export async function generateMetadata() {
-  const page = await getPageBySlug("quem-somos");
-  return {
-    title: page?.metaTitle ?? page?.title ?? "Quem somos",
-    description: page?.metaDescription ?? page?.excerpt ?? undefined,
-  };
+  return cmsPageMetadata("quem-somos", "Quem somos");
 }
 
 export default async function QuemSomosPage() {
@@ -40,21 +37,22 @@ export default async function QuemSomosPage() {
             Agende uma visita ou fale pelo WhatsApp.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-4">
-            <Link
-              href="/contato"
-              className="rounded-xl bg-facil-orange px-6 py-3 font-bold text-white hover:bg-facil-orange-hover"
-            >
-              Contato
-            </Link>
-            {wa && (
+            {wa ? (
               <a
                 href={`https://wa.me/${wa}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border-2 border-facil-orange px-6 py-3 font-bold text-facil-orange hover:bg-facil-orange hover:text-white"
+                className="rounded-xl bg-facil-orange px-6 py-3 font-bold text-white hover:bg-facil-orange-hover"
               >
                 WhatsApp
               </a>
+            ) : (
+              <Link
+                href="/estoque"
+                className="rounded-xl bg-facil-orange px-6 py-3 font-bold text-white hover:bg-facil-orange-hover"
+              >
+                Ver estoque
+              </Link>
             )}
           </div>
         </div>

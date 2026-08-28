@@ -3,6 +3,9 @@
 import { prisma } from "@/lib/db";
 import { sendLeadNotification } from "@/lib/email";
 import { upsertCustomerByPhone } from "@/features/customer/server/upsert";
+import { normalizePhone } from "@/features/customer/server/phone";
+import { uploadVehicleImageBuffer } from "@/features/storage/server/upload-vehicle-image";
+import { isVehicleStorageConfigured } from "@/features/storage/server/s3-client";
 import {
   contactFormSchema,
   vehicleInterestFormSchema,
@@ -140,12 +143,57 @@ export async function createFinancingLead(formData: FormData): Promise<FormResul
   return { success: true };
 }
 
+const SELL_PHOTO_MAX_FILES = 5;
+const SELL_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+const SELL_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function sellPhotoExt(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
+}
+
+async function uploadSellPhotos(formData: FormData): Promise<{ urls: string[]; error?: string }> {
+  const files = formData
+    .getAll("photos")
+    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+
+  if (files.length === 0) return { urls: [] };
+  if (files.length > SELL_PHOTO_MAX_FILES) {
+    return { urls: [], error: `Envie no máximo ${SELL_PHOTO_MAX_FILES} fotos.` };
+  }
+  if (!isVehicleStorageConfigured()) {
+    return { urls: [], error: "Upload de fotos indisponível no momento. Envie o formulário sem imagens ou tente de novo." };
+  }
+
+  const urls: string[] = [];
+  for (const file of files) {
+    if (!SELL_PHOTO_TYPES.has(file.type) || file.size > SELL_PHOTO_MAX_BYTES) {
+      return {
+        urls: [],
+        error: "Use JPEG, PNG ou WebP de até 4 MB por foto.",
+      };
+    }
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const uploaded = await uploadVehicleImageBuffer({
+      bytes,
+      contentType: file.type,
+      ext: sellPhotoExt(file.type),
+      keyPrefix: "sell-leads",
+    });
+    urls.push(uploaded.publicUrl);
+  }
+  return { urls };
+}
+
 export async function createSellVehicleLead(formData: FormData): Promise<FormResult> {
+  const rl = await checkRateLimit();
+  if (!rl.ok) return { success: false, error: rl.error! };
+
   const raw = Object.fromEntries(formData.entries());
   const parsed = sellVehicleFormSchema.safeParse({
     name: raw.name,
     phone: raw.phone,
-    email: raw.email || undefined,
     observations: raw.observations || undefined,
     brand: raw.brand || undefined,
     model: raw.model || undefined,
@@ -155,12 +203,26 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
     mileage: raw.mileage ? Number(raw.mileage) : undefined,
     fuelType: raw.fuelType || undefined,
     transmission: raw.transmission || undefined,
+    saleMode: raw.saleMode || undefined,
   });
   if (!parsed.success) {
-    return { success: false, error: parsed.error.flatten().fieldErrors?.name?.[0] ?? "Dados inválidos" };
+    const firstError =
+      Object.values(parsed.error.flatten().fieldErrors).flat()[0] ?? "Dados inválidos";
+    return { success: false, error: firstError };
   }
   const data = parsed.data;
-  const customer = await upsertCustomerByPhone(data.name, data.phone, data.email);
+  const phone = normalizePhone(data.phone);
+
+  let photoUrls: string[] = [];
+  try {
+    const uploaded = await uploadSellPhotos(formData);
+    if (uploaded.error) return { success: false, error: uploaded.error };
+    photoUrls = uploaded.urls;
+  } catch {
+    return { success: false, error: "Não foi possível enviar as fotos. Tente novamente." };
+  }
+
+  const customer = await upsertCustomerByPhone(data.name, phone);
 
   const lead = await prisma.lead.create({
     data: {
@@ -169,8 +231,8 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
       source: "SELL_PAGE",
       channel: "FORM",
       name: data.name,
-      phone: data.phone,
-      email: data.email || null,
+      phone,
+      email: null,
       message: data.observations || null,
       originUrl: null,
       customerId: customer?.id ?? null,
@@ -189,9 +251,16 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
       fuelType: data.fuelType || null,
       transmission: data.transmission || null,
       observations: data.observations || null,
+      saleMode: data.saleMode || null,
+      photoUrls,
     },
   });
-  void sendLeadNotification({ type: "Vender veículo", name: data.name, phone: data.phone, email: data.email, message: data.observations ?? undefined });
+  void sendLeadNotification({
+    type: "Vender veículo",
+    name: data.name,
+    phone,
+    message: data.observations ?? undefined,
+  });
   return { success: true };
 }
 
@@ -225,12 +294,13 @@ export async function createFinancingSimulationLead(
   }
 
   const data = parsed.data;
+  const phone = normalizePhone(data.phone);
 
   // Basic deduplication: same phone + vehicleId within 24h
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const existing = await prisma.lead.findFirst({
     where: {
-      phone: data.phone,
+      phone,
       vehicleId: data.vehicleId ?? null,
       type: "FINANCING",
       deletedAt: null,
@@ -251,21 +321,21 @@ export async function createFinancingSimulationLead(
   const whatsappUrl = waNum ? `https://wa.me/${waNum}?text=${waText}` : "#";
 
   if (existing) {
-    console.log(`[leads] duplicate skipped phone=${data.phone} vehicleId=${data.vehicleId}`);
+    console.log(`[leads] duplicate skipped phone=${phone} vehicleId=${data.vehicleId}`);
     return { success: true, whatsappUrl };
   }
 
   const source: LeadSource = data.vehicleId ? "VEHICLE_PAGE" : "FINANCING_PAGE";
-  const customer = await upsertCustomerByPhone(data.name, data.phone);
+  const customer = await upsertCustomerByPhone(data.name, phone);
 
   const lead = await prisma.lead.create({
     data: {
       type: "FINANCING",
-      status: "NEW",
+      status: "QUALIFIED",
       source,
       channel: "FORM",
       name: data.name,
-      phone: data.phone,
+      phone,
       message: null,
       vehicleId: data.vehicleId || null,
       originUrl: null,

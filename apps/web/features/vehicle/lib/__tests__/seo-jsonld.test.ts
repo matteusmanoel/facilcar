@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCarJsonLd } from "@/lib/seo";
+import { buildBlogPostingJsonLd, buildCarJsonLd } from "@/lib/seo";
 
 describe("buildCarJsonLd vehicleEngine", () => {
   const base = {
@@ -23,5 +23,21 @@ describe("buildCarJsonLd vehicleEngine", () => {
         unitCode: "LTR",
       },
     });
+  });
+});
+
+describe("buildBlogPostingJsonLd", () => {
+  it("emits BlogPosting with canonical URL", () => {
+    const json = buildBlogPostingJsonLd(
+      {
+        title: "Como escolher um seminovo em Cascavel",
+        slug: "como-escolher-seu-proximo-seminovo",
+        excerpt: "O que conferir antes de fechar.",
+      },
+      "FácilCar Multimarcas",
+    );
+    expect(json["@type"]).toBe("BlogPosting");
+    expect(json.headline).toContain("seminovo");
+    expect(String(json.url)).toContain("/blog/como-escolher-seu-proximo-seminovo");
   });
 });

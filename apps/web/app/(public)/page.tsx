@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { VehicleImage } from "@/components/shared/VehicleImage";
 import { ScrollReveal } from "@/components/motion/ScrollReveal";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import { getFeaturedVehicles } from "@/features/vehicle/server/queries";
 import { listPublishedBlogPosts } from "@/features/content/server/queries";
+import { VehicleCard } from "@/features/catalog/ui/VehicleCard";
 import { BRAND } from "@/lib/brand";
-import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 
 const testimonials = [
   {
@@ -248,66 +247,19 @@ export default async function HomePage() {
               </div>
             </ScrollReveal>
 
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {featured.map((v, i) => {
-                const fuel = v.fuelType
-                  ? (fuelLabels[v.fuelType] ?? v.fuelType)
-                  : null;
-                const trans = v.transmission
-                  ? (transLabels[v.transmission] ?? v.transmission)
-                  : null;
-                return (
-                  <ScrollReveal key={v.id} delay={i * 80}>
-                    <Link
-                      href={`/estoque/${v.slug}`}
-                      className="vehicle-card group block"
-                    >
-                      <div className="relative aspect-[16/10] overflow-hidden bg-facil-surface">
-                        <VehicleImage
-                          src={v.images[0]?.url}
-                          alt={v.title}
-                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                          priority={i === 0}
-                        />
-                        <span className="absolute left-3 top-3 badge-orange">
-                          Destaque
-                        </span>
-                        {v.yearModel && (
-                          <span className="absolute right-3 top-3 badge-zinc">
-                            {v.yearModel}
-                          </span>
-                        )}
-                      </div>
-                      <div className="p-4">
-                        <h3 className="font-bold text-white line-clamp-2 group-hover:text-facil-orange transition-colors">
-                          {v.title}
-                        </h3>
-                        <p className="mt-2 text-xl font-extrabold text-facil-orange">
-                          {v.priceCash != null
-                            ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
-                            : "Consultar"}
-                        </p>
-                        {(fuel || trans || v.mileage != null) && (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {v.mileage != null && (
-                              <span className="badge-zinc">
-                                {v.mileage.toLocaleString("pt-BR")} km
-                              </span>
-                            )}
-                            {fuel && <span className="badge-zinc">{fuel}</span>}
-                            {trans && (
-                              <span className="badge-zinc">{trans}</span>
-                            )}
-                          </div>
-                        )}
-                        <p className="mt-3 text-xs font-semibold text-facil-orange">
-                          Simular financiamento →
-                        </p>
-                      </div>
-                    </Link>
-                  </ScrollReveal>
-                );
-              })}
+            <div className="mt-10 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {featured.map((v, i) => (
+                <ScrollReveal key={v.id} className="h-full" delay={i * 80}>
+                  <VehicleCard
+                    vehicle={v}
+                    featured
+                    compact
+                    headingLevel="h3"
+                    footerLabel="Simular financiamento →"
+                    priority={i === 0}
+                  />
+                </ScrollReveal>
+              ))}
             </div>
           </div>
         </section>
@@ -588,22 +540,22 @@ export default async function HomePage() {
           </ScrollReveal>
           <ScrollReveal delay={150}>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
-              <Link
-                href="/contato"
-                className="rounded-xl bg-facil-orange px-8 py-3.5 font-bold text-white shadow-lg shadow-facil-orange/30 transition hover:bg-facil-orange-hover hover:-translate-y-0.5"
-              >
-                Formulário de contato
-              </Link>
               {wa && (
                 <a
                   href={whatsappHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-xl border-2 border-white/20 px-8 py-3.5 font-bold text-white transition hover:bg-white/10 hover:border-white/40"
+                  className="rounded-xl bg-facil-orange px-8 py-3.5 font-bold text-white shadow-lg shadow-facil-orange/30 transition hover:bg-facil-orange-hover hover:-translate-y-0.5"
                 >
-                  WhatsApp
+                  Falar no WhatsApp
                 </a>
               )}
+              <Link
+                href="/estoque"
+                className="rounded-xl border-2 border-white/20 px-8 py-3.5 font-bold text-white transition hover:bg-white/10 hover:border-white/40"
+              >
+                Ver estoque
+              </Link>
             </div>
           </ScrollReveal>
         </div>

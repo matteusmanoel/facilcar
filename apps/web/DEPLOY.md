@@ -253,7 +253,7 @@ Execute manualmente após cada deploy:
 - [ ] `GET /estoque` — catálogo carrega com filtros funcionais
 - [ ] `GET /estoque/[slug]` — página de veículo com galeria e botão WhatsApp
 - [ ] `GET /financiamento` — formulário de simulação funcional
-- [ ] `GET /contato` — formulário de contato funcional
+- [ ] `GET /vender-seu-veiculo` — formulário de venda/consignação funcional
 - [ ] `GET /api/health` — retorna `{ "database": "connected" }`
 - [ ] `GET /admin` → redireciona para `/admin/login` (não autenticado)
 - [ ] Login admin → `/admin` carrega dashboard com stats

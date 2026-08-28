@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f4f4f5;
   --foreground: #18181b;
@@ -82,9 +84,13 @@ body {
 
 /* ── Glassmorphism ────────────────────────────────────────── */
 .glass {
-  background: rgba(10, 10, 10, 0.85);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .glass {
+  background: rgba(10, 10, 10, 0.85);
 }
 
 /* ── Scroll-reveal animations ─────────────────────────────── */
@@ -113,6 +119,25 @@ body {
     transform: none;
     transition: none;
   }
+
+  .admin-row-enter {
+    animation: none;
+  }
+}
+
+@keyframes admin-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.admin-row-enter {
+  animation: admin-row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ── Badge utilities ──────────────────────────────────────── */
@@ -138,7 +163,7 @@ body {
 
 /* ── Card hover ───────────────────────────────────────────── */
 .vehicle-card {
-  @apply overflow-hidden rounded-2xl border border-facil-border bg-white dark:bg-zinc-900 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-xl hover:-translate-y-0.5;
+  @apply flex h-full flex-col overflow-hidden rounded-2xl border border-facil-border bg-zinc-50 shadow-sm transition-all duration-300 hover:border-facil-orange/40 hover:shadow-xl hover:-translate-y-0.5 dark:bg-facil-card;
 }
 
 /* ── Admin layout utilities ───────────────────────────────── */
@@ -155,15 +180,15 @@ body {
 }
 
 .admin-page-title {
-  @apply text-2xl font-bold text-foreground;
+  @apply text-2xl font-bold text-zinc-950 dark:text-zinc-50;
 }
 
 .admin-page-subtitle {
-  @apply mt-0.5 text-sm text-facil-muted;
+  @apply mt-0.5 text-sm text-zinc-600 dark:text-zinc-400;
 }
 
 .admin-section-title {
-  @apply text-base font-semibold text-foreground;
+  @apply text-base font-semibold text-zinc-950 dark:text-zinc-50;
 }
 
 .admin-table-header {
@@ -195,7 +220,6 @@ body {
 }
 
 /* ── Sonner toast (FacilCar brand) ─────────────────────────── */
-[data-sonner-toaster][data-theme="light"],
 [data-sonner-toaster][data-theme="dark"] {
   --normal-bg: var(--facil-black);
   --normal-border: var(--facil-border);
@@ -206,6 +230,18 @@ body {
   --error-bg: var(--facil-black);
   --error-border: #ef4444;
   --error-text: #fafafa;
+}
+
+[data-sonner-toaster][data-theme="light"] {
+  --normal-bg: #ffffff;
+  --normal-border: var(--facil-border);
+  --normal-text: var(--foreground);
+  --success-bg: #ffffff;
+  --success-border: var(--facil-orange);
+  --success-text: var(--foreground);
+  --error-bg: #ffffff;
+  --error-border: #ef4444;
+  --error-text: var(--foreground);
 }
 
 /* ── Sidebar transition ───────────────────────────────────── */

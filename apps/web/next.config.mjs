@@ -15,6 +15,17 @@ const supabaseImageHost = process.env.NEXT_PUBLIC_SUPABASE_HOST;
 const nextConfig = {
   // Mesmo valor que `turbopack.root` (evita aviso e divergência no trace na Vercel).
   outputFileTracingRoot: appRoot,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "20mb",
+    },
+  },
+  async redirects() {
+    return [
+      { source: "/contato", destination: "/", permanent: true },
+      { source: "/vender", destination: "/vender-seu-veiculo", permanent: true },
+    ];
+  },
   turbopack: {
     root: appRoot,
     // Garante resolução de `@import "tailwindcss"` mesmo quando o contexto de resolve

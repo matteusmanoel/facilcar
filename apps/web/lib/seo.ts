@@ -1,6 +1,8 @@
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
 
+export const SITE_URL = siteUrl;
+
 type SiteSettingsForSeo = {
   siteName: string;
   defaultWhatsappNumber?: string;

@@ -1,5 +1,10 @@
 import { getPageBySlug } from "@/features/content/server/queries";
+import { cmsPageMetadata } from "@/features/content/server/page-metadata";
 import { notFound } from "next/navigation";
+
+export async function generateMetadata() {
+  return cmsPageMetadata("politica-de-privacidade", "Política de privacidade");
+}
 
 export default async function PoliticaPrivacidadePage() {
   const page = await getPageBySlug("politica-de-privacidade");

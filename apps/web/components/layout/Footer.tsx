@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 type FooterProps = {
@@ -36,12 +37,21 @@ export function Footer({
   );
 
   return (
-    <footer className="border-t border-zinc-800 bg-facil-black text-zinc-300">
+    <footer className="border-t border-facil-border bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-facil-black dark:text-zinc-300">
       <div className="mx-auto max-w-6xl px-4 py-12">
         <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <p className="font-bold text-white">{siteName}</p>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+            <div className="flex items-center gap-2">
+              <Image
+                src="/facilcar-logo.jpg"
+                alt={siteName}
+                width={40}
+                height={40}
+                className="rounded-md border border-facil-orange/40 object-cover"
+              />
+              <p className="font-bold text-foreground dark:text-white">{siteName}</p>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-facil-muted">
               {footerText ??
                 "Seminovos multimarcas com curadoria, financiamento e avaliação do seu usado."}
             </p>
@@ -52,33 +62,28 @@ export function Footer({
             </p>
             <ul className="mt-3 space-y-2 text-sm">
               <li>
-                <Link href="/estoque" className="hover:text-white">
+                <Link href="/estoque" className="hover:text-foreground dark:hover:text-white">
                   Estoque
                 </Link>
               </li>
               <li>
-                <Link href="/financiamento" className="hover:text-white">
+                <Link href="/financiamento" className="hover:text-foreground dark:hover:text-white">
                   Financiamento
                 </Link>
               </li>
               <li>
-                <Link href="/vender-seu-veiculo" className="hover:text-white">
+                <Link href="/vender-seu-veiculo" className="hover:text-foreground dark:hover:text-white">
                   Vender / Consignar
                 </Link>
               </li>
               <li>
-                <Link href="/quem-somos" className="hover:text-white">
+                <Link href="/quem-somos" className="hover:text-foreground dark:hover:text-white">
                   Quem somos
                 </Link>
               </li>
               <li>
-                <Link href="/blog" className="hover:text-white">
+                <Link href="/blog" className="hover:text-foreground dark:hover:text-white">
                   Blog
-                </Link>
-              </li>
-              <li>
-                <Link href="/contato" className="hover:text-white">
-                  Contato
                 </Link>
               </li>
             </ul>
@@ -91,7 +96,7 @@ export function Footer({
               {phoneNumber && <li>{phoneNumber}</li>}
               {defaultEmail && (
                 <li>
-                  <a href={`mailto:${defaultEmail}`} className="hover:text-white">
+                  <a href={`mailto:${defaultEmail}`} className="hover:text-foreground dark:hover:text-white">
                     {defaultEmail}
                   </a>
                 </li>
@@ -107,17 +112,17 @@ export function Footer({
             {(instagramUrl || facebookUrl || youtubeUrl) && (
               <div className="mt-4 flex flex-wrap gap-3 text-sm">
                 {instagramUrl && (
-                  <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                  <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="hover:text-foreground dark:hover:text-white">
                     Instagram
                   </a>
                 )}
                 {facebookUrl && (
-                  <a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                  <a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="hover:text-foreground dark:hover:text-white">
                     Facebook
                   </a>
                 )}
                 {youtubeUrl && (
-                  <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                  <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="hover:text-foreground dark:hover:text-white">
                     YouTube
                   </a>
                 )}
@@ -129,11 +134,11 @@ export function Footer({
               Endereço
             </p>
             {addressParts.length > 0 ? (
-              <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+              <p className="mt-3 text-sm leading-relaxed text-facil-muted">
                 {addressParts.join("\n")}
               </p>
             ) : (
-              <p className="mt-3 text-sm text-zinc-500">
+              <p className="mt-3 text-sm text-facil-muted">
                 Configure endereço em Admin → Configurações.
               </p>
             )}

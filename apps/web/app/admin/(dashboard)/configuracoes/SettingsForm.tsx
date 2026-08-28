@@ -5,8 +5,27 @@ import { updateSettingsAction } from "./action";
 import type { SiteSettings } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 import { normalizePublicTheme } from "@/lib/theme";
+import { formatPhoneBR } from "@/lib/input-masks";
+
+function extractCoordsFromMapsUrl(url: string): { lat: number; lng: number } | null {
+  if (!url) return null;
+  // Pattern 1: @lat,lng (share links)
+  let m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // Pattern 2: !3dlat!4dlng (embedded data parameter)
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
 
 type Props = { settings: SiteSettings };
 
@@ -50,6 +69,22 @@ const fieldClass = cn(
 export function SettingsForm({ settings }: Props) {
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const publicTheme = normalizePublicTheme(settings.publicTheme);
+  const [themeValue, setThemeValue] = useState(publicTheme);
+  const [phoneNumber, setPhoneNumber] = useState(() =>
+    formatPhoneBR(settings.phoneNumber ?? ""),
+  );
+  const [mapsUrl, setMapsUrl] = useState(settings.googleMapsUrl ?? "");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    settings.latitude != null && settings.longitude != null
+      ? { lat: settings.latitude, lng: settings.longitude }
+      : null,
+  );
+
+  function handleMapsUrlChange(url: string) {
+    setMapsUrl(url);
+    const extracted = extractCoordsFromMapsUrl(url);
+    setCoords(extracted);
+  }
 
   return (
     <form
@@ -96,10 +131,21 @@ export function SettingsForm({ settings }: Props) {
             Tema padrão do site para visitantes. A preferência do painel admin é independente.
           </p>
           <Field label="Tema do site">
-            <select name="publicTheme" defaultValue={publicTheme} className={fieldClass}>
-              <option value="dark">Escuro (padrão)</option>
-              <option value="light">Claro</option>
-            </select>
+            <input type="hidden" name="publicTheme" value={themeValue} />
+            <Select
+              value={themeValue}
+              onValueChange={(value) => {
+                if (value === "light" || value === "dark") setThemeValue(value);
+              }}
+            >
+              <SelectTrigger className="mt-1 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dark">Escuro (padrão)</SelectItem>
+                <SelectItem value="light">Claro</SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
         </Section>
 
@@ -123,7 +169,11 @@ export function SettingsForm({ settings }: Props) {
           <Field label="Telefone (exibição)">
             <Input
               name="phoneNumber"
-              defaultValue={settings.phoneNumber ?? ""}
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(formatPhoneBR(e.target.value))}
+              inputMode="numeric"
+              autoComplete="tel"
+              placeholder="(45) 98823-0845"
               className="mt-1"
             />
           </Field>
@@ -149,6 +199,26 @@ export function SettingsForm({ settings }: Props) {
               <Input name="zipCode" defaultValue={settings.zipCode ?? ""} className="mt-1" />
             </Field>
           </div>
+          <Field label="Link do Google Maps (para pin de localização via WhatsApp)">
+            <input type="hidden" name="googleMapsUrl" value={mapsUrl} />
+            <input type="hidden" name="latitude" value={coords?.lat ?? ""} />
+            <input type="hidden" name="longitude" value={coords?.lng ?? ""} />
+            <Input
+              value={mapsUrl}
+              onChange={(e) => handleMapsUrlChange(e.target.value)}
+              placeholder="https://www.google.com/maps/place/..."
+              className="mt-1 font-mono text-xs"
+            />
+            {coords ? (
+              <p className="mt-1 text-xs text-facil-orange">
+                ✓ Coordenadas extraídas: {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+              </p>
+            ) : mapsUrl ? (
+              <p className="mt-1 text-xs text-red-400">
+                Não foi possível extrair coordenadas. Verifique o link.
+              </p>
+            ) : null}
+          </Field>
         </Section>
 
         <Section title="Redes sociais">

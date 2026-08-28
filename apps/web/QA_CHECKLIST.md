@@ -21,7 +21,7 @@ npm run build && npm run start
 - [ ] Home (`/`) com destaques e links
 - [ ] `/estoque` — filtros + **Filtrar**
 - [ ] `/estoque/[slug]` — ficha + interesse
-- [ ] `/contato`, `/financiamento`, `/vender-seu-veiculo` — submit → sucesso
+- [ ] `/financiamento`, `/vender-seu-veiculo` — submit → sucesso
 - [ ] Institucionais: `/quem-somos`, `/politica-de-privacidade`, `/termos-de-uso`, `/nosso-estoque`, `/trabalhe-conosco`
 - [ ] `/blog` e `/blog/[slug]`
 
