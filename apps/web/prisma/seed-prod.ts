@@ -5,12 +5,16 @@
  * Usage:
  *   SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... SEED_ADMIN_NAME=... \
  *   DATABASE_URL="postgresql://..." npx tsx prisma/seed-prod.ts
+ *
+ * Content only (pages + blog, no admin/settings overwrite):
+ *   SEED_CONTENT_ONLY=1 DATABASE_URL="postgresql://..." npx tsx prisma/seed-prod.ts
  */
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { hashPassword } from "../features/auth/server/passwords";
 import { getPgPoolSslExtras, normalizeDatabaseUrl } from "../lib/database-url";
+import { SEED_BLOG_POSTS } from "./blog-seed-posts";
 
 const rawUrl =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/facilcar";
@@ -26,11 +30,14 @@ const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "miltonvendas@hotmail.com";
 const adminPassword = process.env.SEED_ADMIN_PASSWORD;
 const adminName = process.env.SEED_ADMIN_NAME ?? "Milton Barrios";
 
+const contentOnly = process.env.SEED_CONTENT_ONLY === "1";
+
 async function main() {
-  if (!adminPassword || adminPassword.length < 8) {
+  if (!contentOnly && (!adminPassword || adminPassword.length < 8)) {
     throw new Error("SEED_ADMIN_PASSWORD is required (min 8 chars)");
   }
 
+  if (!contentOnly) {
   const settingsData = {
     siteName: "FácilCar Multimarcas",
     defaultWhatsappNumber: "5545999974232",
@@ -96,6 +103,7 @@ async function main() {
       update: {},
     });
   }
+  }
 
   const pages = [
     {
@@ -122,6 +130,28 @@ Para solicitações relacionadas a privacidade, contate miltonvendas@hotmail.com
       metaTitle: "Política de privacidade | FácilCar Multimarcas",
       metaDescription: "Como a FácilCar trata dados pessoais de leads e clientes.",
     },
+    {
+      slug: "termos-de-uso",
+      title: "Termos de uso",
+      excerpt: "Condições de uso do site e do atendimento da FácilCar.",
+      body: `O site da FácilCar Multimarcas apresenta o estoque publicado e canais de contato comercial. Preços, disponibilidade e condições de financiamento podem mudar e devem ser confirmados no atendimento.
+
+Anúncios publicados são a fonte de verdade do estoque. Simulações no site não substituem a análise da financeira.
+
+Para dúvidas, use o WhatsApp ou o e-mail miltonvendas@hotmail.com.`,
+      metaTitle: "Termos de uso | FácilCar Multimarcas",
+      metaDescription: "Termos de uso do site da FácilCar Multimarcas em Cascavel/PR.",
+    },
+    {
+      slug: "trabalhe-conosco",
+      title: "Trabalhe conosco",
+      excerpt: "Faça parte do time FácilCar.",
+      body: `Buscamos pessoas alinhadas com atendimento ao cliente e integridade comercial.
+
+Envie seu currículo para miltonvendas@hotmail.com com o assunto VAGAS — informe a área de interesse (vendas, administrativo, pós-venda).`,
+      metaTitle: "Trabalhe conosco | FácilCar",
+      metaDescription: "Oportunidades de carreira na FácilCar Multimarcas em Cascavel/PR.",
+    },
   ];
 
   for (const page of pages) {
@@ -141,6 +171,36 @@ Para solicitações relacionadas a privacidade, contate miltonvendas@hotmail.com
     });
   }
 
+  for (const post of SEED_BLOG_POSTS) {
+    await prisma.blogPost.upsert({
+      where: { slug: post.slug },
+      create: {
+        slug: post.slug,
+        title: post.title,
+        excerpt: post.excerpt,
+        body: post.body,
+        coverImageUrl: post.coverImageUrl,
+        metaTitle: post.metaTitle,
+        metaDescription: post.metaDescription,
+        status: "PUBLISHED",
+        publishedAt: new Date(),
+      },
+      update: {
+        title: post.title,
+        excerpt: post.excerpt,
+        body: post.body,
+        coverImageUrl: post.coverImageUrl,
+        metaTitle: post.metaTitle,
+        metaDescription: post.metaDescription,
+        status: "PUBLISHED",
+      },
+    });
+  }
+
+  if (!contentOnly) {
+    if (!adminPassword || adminPassword.length < 8) {
+      throw new Error("SEED_ADMIN_PASSWORD is required (min 8 chars)");
+    }
   const passwordHash = await hashPassword(adminPassword);
   await prisma.user.upsert({
     where: { email: adminEmail },
@@ -159,7 +219,13 @@ Para solicitações relacionadas a privacidade, contate miltonvendas@hotmail.com
     },
   });
 
-  console.log(`Seed prod completed. Admin: ${adminEmail}`);
+  }
+
+  console.log(
+    contentOnly
+      ? "Seed content completed (pages + blog)."
+      : `Seed prod completed. Admin: ${adminEmail}`,
+  );
 }
 
 main()
