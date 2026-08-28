@@ -62,6 +62,12 @@ lib/generated/prisma/
 # Local disaster-recovery dumps
 .backups/
 
+# Local personal/test documents — never commit
+/CNH-e.pdf
+
+# Accidental empty root lockfile (workspace uses npm in apps/web)
+/pnpm-lock.yaml
+
 # WhatsApp session exports (passkey bridge) — never commit
 wa-session*.json
 *-wa-creds.json
