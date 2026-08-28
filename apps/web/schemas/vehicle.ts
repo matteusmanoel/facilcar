@@ -6,7 +6,6 @@ const vehicleStatusEnum = z.enum(["DRAFT", "PUBLISHED", "RESERVED", "SOLD", "ARC
 const vehicleTypeEnum = z.enum(["CAR", "MOTORCYCLE", "UTILITY", "OTHER"]);
 const fuelTypeEnum = z.enum(
   ["GASOLINE", "ETHANOL", "FLEX", "DIESEL", "ELECTRIC", "HYBRID", "OTHER"],
-  { message: "Combustível é obrigatório" },
 );
 const transmissionEnum = z.enum(["MANUAL", "AUTOMATIC", "AUTOMATED", "CVT", "OTHER"], {
   message: "Câmbio é obrigatório",
@@ -66,7 +65,7 @@ export const createVehicleSchema = z.object({
   yearManufacture: optionalIntField("Ano de fabricação inválido", 1900, 2100),
   yearModel: optionalIntField("Ano modelo inválido", 1900, 2100),
   mileage: optionalNonNegativeInt("Quilometragem inválida"),
-  fuelType: fuelTypeEnum,
+  fuelType: z.preprocess(emptyToUndefined, fuelTypeEnum.optional()),
   transmission: transmissionEnum,
   engineDisplacementLiters: z.preprocess(emptyToUndefined, z.coerce.number().optional()).refine(
     (n) => n === undefined || normalizeEngineDisplacementLiters(n) != null,

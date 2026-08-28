@@ -12,7 +12,7 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      "flex h-full w-full flex-col overflow-hidden rounded-lg bg-white text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50",
+      "flex h-full w-full flex-col overflow-hidden rounded-lg bg-facil-popover text-foreground",
       className,
     )}
     {...props}
@@ -24,12 +24,12 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center border-b border-zinc-200 px-3 dark:border-zinc-800" cmdk-input-wrapper="">
-    <Search className="mr-2 h-4 w-4 shrink-0 text-zinc-400" />
+  <div className="flex items-center border-b border-facil-border px-3" cmdk-input-wrapper="">
+    <Search className="mr-2 h-4 w-4 shrink-0 text-facil-muted" />
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-zinc-400 disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-10 w-full rounded-md bg-transparent py-3 text-sm text-foreground outline-none placeholder:text-facil-muted disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
@@ -43,9 +43,9 @@ const CommandList = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
-    ref={ref}
     className={cn("max-h-[280px] overflow-y-auto overflow-x-hidden p-1", className)}
     {...props}
+    ref={ref}
   />
 ));
 CommandList.displayName = CommandPrimitive.List.displayName;
@@ -54,7 +54,7 @@ const CommandEmpty = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Empty>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty>
 >((props, ref) => (
-  <CommandPrimitive.Empty ref={ref} className="py-6 text-center text-sm text-zinc-500" {...props} />
+  <CommandPrimitive.Empty ref={ref} className="py-6 text-center text-sm text-facil-muted" {...props} />
 ));
 CommandEmpty.displayName = CommandPrimitive.Empty.displayName;
 
@@ -65,7 +65,7 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      "overflow-hidden p-1 text-zinc-950 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-zinc-500 dark:text-zinc-50 dark:[&_[cmdk-group-heading]]:text-zinc-400",
+      "overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-facil-muted",
       className,
     )}
     {...props}
@@ -80,9 +80,9 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm outline-none",
+      "relative flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm text-foreground outline-none",
       "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
-      "data-[selected=true]:bg-zinc-100 data-[selected=true]:text-zinc-900 dark:data-[selected=true]:bg-zinc-800 dark:data-[selected=true]:text-zinc-50",
+      "data-[selected=true]:bg-facil-surface data-[selected=true]:text-foreground",
       className,
     )}
     {...props}

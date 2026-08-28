@@ -284,6 +284,32 @@ describe("extractInboundMessages + composite key fields", () => {
     })[0]!;
     expect(`${a.instance}|${a.messageId}`).not.toBe(`${b.instance}|${b.messageId}`);
   });
+
+  it("captures Evolution pushName on inbound and ignores JIDs", () => {
+    const msgs = extractInboundMessages({
+      instance: "facilcar",
+      data: {
+        key: {
+          id: "NAME1",
+          fromMe: false,
+          remoteJid: "554588230845@s.whatsapp.net",
+        },
+        pushName: "Maria Silva",
+        message: { conversation: "Oi, quero um corolla" },
+      },
+    });
+    expect(msgs[0]!.pushName).toBe("Maria Silva");
+
+    const jidName = extractInboundMessages({
+      instance: "facilcar",
+      data: {
+        key: { id: "NAME2", fromMe: false, remoteJid: "554588230845@s.whatsapp.net" },
+        pushName: "554588230845@s.whatsapp.net",
+        message: { conversation: "Oi" },
+      },
+    });
+    expect(jidName[0]!.pushName).toBeNull();
+  });
 });
 
 describe("sanitizePayload", () => {

@@ -1,5 +1,6 @@
 import type { MessageContentType, Prisma } from "@prisma/client";
 import { extractInboundMessages } from "@/features/catalog-import/server/evolution-parse";
+import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
 
@@ -203,6 +204,9 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     messageIds.push(created.id);
     handled++;
     if (!msg.fromMe) {
+      if (msg.pushName) {
+        await upgradeCustomerDisplayNameByPhone(msg.pushName, phone);
+      }
       markSdrDebounce(phone);
     }
   }

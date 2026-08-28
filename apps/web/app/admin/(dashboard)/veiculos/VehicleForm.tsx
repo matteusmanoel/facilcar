@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { createVehicle, updateVehicle } from "@/features/vehicle/server/mutations";
+import { vehicleFormFooterAction } from "@/features/vehicle/lib/form-navigation";
 import { createVehicleSchema, type CreateVehicleInput } from "@/schemas/vehicle";
 import { Stepper } from "@/components/ui/stepper";
 import { Button } from "@/components/ui/button";
@@ -19,16 +20,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ImageUploader } from "@/features/admin/ui/ImageUploader";
 import { VehicleBrandCombobox, type BrandOption } from "@/components/admin/VehicleBrandCombobox";
 import { cn } from "@/lib/cn";
+import { formatBRL, parseBRL } from "@/lib/input-masks";
 
 type VehicleForForm = {
   id: string;
@@ -116,7 +112,7 @@ const TRANS_LABELS: Record<string, string> = {
 
 const STEP_FIELDS: Record<number, (keyof CreateVehicleInput)[]> = {
   0: ["title", "brandId", "model", "type", "status"],
-  1: ["fuelType", "transmission", "engineDisplacementLiters"],
+  1: ["transmission", "engineDisplacementLiters"],
   2: ["priceCash"],
   3: [],
 };
@@ -146,9 +142,7 @@ function FieldError({ message }: { message?: string }) {
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">{children}</h2>
-  );
+  return <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{children}</h2>;
 }
 
 function FormSelect({
@@ -209,6 +203,34 @@ function FormInput({
   );
 }
 
+function FormCurrencyInput({
+  label,
+  required,
+  error,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  value: number | undefined;
+  onValueChange: (value: number | undefined) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <FieldLabel required={required}>{label}</FieldLabel>
+      <Input
+        inputMode="decimal"
+        placeholder="0,00"
+        value={formatBRL(value)}
+        onChange={(e) => onValueChange(parseBRL(e.target.value))}
+        className={cn(error && "border-red-400")}
+      />
+      <FieldError message={error} />
+    </div>
+  );
+}
+
 function FormTextarea({
   label,
   required,
@@ -227,9 +249,8 @@ function FormTextarea({
       <textarea
         rows={rows}
         className={cn(
-          "box-border w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900",
+          "box-border w-full rounded-lg border border-facil-border bg-facil-card px-3 py-2 text-sm text-foreground placeholder:text-facil-muted",
           "focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-inset focus:ring-facil-orange/30",
-          "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500",
           error && "border-red-400",
         )}
         {...props}
@@ -272,9 +293,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
       fuelType: (vehicle?.fuelType as CreateVehicleInput["fuelType"]) ?? undefined,
       transmission: (vehicle?.transmission as CreateVehicleInput["transmission"]) ?? undefined,
       engineDisplacementLiters:
-        vehicle?.engineDisplacementLiters != null
-          ? Number(vehicle.engineDisplacementLiters)
-          : undefined,
+        vehicle?.engineDisplacementLiters != null ? Number(vehicle.engineDisplacementLiters) : undefined,
       color: vehicle?.color ?? "",
       doors: vehicle?.doors ?? undefined,
       plateFinal: vehicle?.plateFinal ?? "",
@@ -305,6 +324,12 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
   const vehicleStatus = watch("status");
   const fuelType = watch("fuelType");
   const transmission = watch("transmission");
+  const priceCash = watch("priceCash");
+  const pricePromotional = watch("pricePromotional");
+  const priceTradeIn = watch("priceTradeIn");
+  const parcelaBase = watch("parcelaBase");
+  const entradaMinima = watch("entradaMinima");
+  const rendaMinimaSugerida = watch("rendaMinimaSugerida");
 
   useEffect(() => {
     if (readOnly || !isDirty) return;
@@ -419,10 +444,26 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
     if (["imageUrls", "features", "description", "metaTitle", "metaDescription", "shortDescription"].includes(field)) {
       return 3;
     }
-    if (["priceTradeIn", "pricePromotional", "parcelaBase", "entradaMinima", "rendaMinimaSugerida", "aceitaTroca", "aceitaSemEntrada", "featured", "prioridade"].includes(field)) {
+    if (
+      [
+        "priceTradeIn",
+        "pricePromotional",
+        "parcelaBase",
+        "entradaMinima",
+        "rendaMinimaSugerida",
+        "aceitaTroca",
+        "aceitaSemEntrada",
+        "featured",
+        "prioridade",
+      ].includes(field)
+    ) {
       return 2;
     }
-    if (["yearManufacture", "yearModel", "mileage", "color", "doors", "plateFinal", "city", "state"].includes(field)) {
+    if (
+      ["yearManufacture", "yearModel", "mileage", "fuelType", "color", "doors", "plateFinal", "city", "state"].includes(
+        field,
+      )
+    ) {
       return 1;
     }
     return 0;
@@ -462,6 +503,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
       formData.set("featured", typed.featured ? "true" : "false");
       formData.set("aceitaTroca", typed.aceitaTroca ? "true" : "false");
       formData.set("aceitaSemEntrada", typed.aceitaSemEntrada ? "true" : "false");
+      if (typed.fuelType === undefined) formData.set("fuelType", "");
       if (isEdit) formData.set("id", vehicle!.id);
 
       const result = isEdit ? await updateVehicle(formData) : await createVehicle(formData);
@@ -472,10 +514,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
         router.push("/admin/veiculos");
         router.refresh();
       } else {
-        const errMsg =
-          typeof result.error === "string"
-            ? result.error
-            : JSON.stringify(result.error);
+        const errMsg = typeof result.error === "string" ? result.error : JSON.stringify(result.error);
         toast.error(`Erro ao salvar: ${errMsg}`);
       }
     },
@@ -484,397 +523,377 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
 
   return (
     <>
-    <form
-      onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit(onSubmit, onInvalid)}
-      className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:min-h-0 md:h-[calc(100vh-13rem)]"
-    >
-      {readOnly && (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-          Modo somente leitura — você pode consultar os dados do veículo, mas não alterá-los.
-        </div>
-      )}
-      <fieldset disabled={readOnly} className="flex min-h-0 flex-1 flex-col">
-      {/* Stepper header */}
-      <div className="shrink-0 border-b border-zinc-100 px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5 dark:border-zinc-800">
-        <p className="mb-3 text-center text-xs font-medium text-facil-orange sm:hidden">
-          {STEPS[step]}
-        </p>
-        <Stepper
-          steps={STEPS}
-          currentStep={step}
-          maxValidatedStep={maxValidatedStep}
-          stepErrors={stepErrors}
-          onStepClick={handleStepClick}
-          className="mx-auto max-w-2xl"
-        />
-      </div>
-
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-        {/* Step 0 — Basic Info */}
-        {step === 0 && (
-          <div className="space-y-5">
-            <SectionTitle>Informações básicas</SectionTitle>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1 sm:col-span-2">
-                <FieldLabel required>Título</FieldLabel>
-                <Input
-                  {...register("title")}
-                  placeholder="Ex: Toyota Corolla XEi 2.0 2022"
-                  className={cn(errors.title && "border-red-400")}
-                />
-                <FieldError message={errors.title?.message} />
-              </div>
-              <VehicleBrandCombobox
-                brands={brands}
-                value={brandId}
-                onChange={(id) => setValue("brandId", id, { shouldValidate: true })}
-                error={errors.brandId?.message}
-                label="Marca"
-                required
-                canManage={canManageBrands && !readOnly}
-              />
-              <FormInput
-                label="Modelo"
-                required
-                placeholder="Corolla"
-                error={errors.model?.message}
-                {...register("model")}
-              />
-              <FormInput
-                label="Versão"
-                placeholder="GLI"
-                {...register("version")}
-              />
-              <FormSelect
-                label="Tipo"
-                required
-                error={errors.type?.message}
-                value={vehicleType}
-                onValueChange={(v) => setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true })}
-                items={TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
-              />
-              <FormSelect
-                label="Status"
-                required
-                error={errors.status?.message}
-                value={vehicleStatus}
-                onValueChange={(v) =>
-                  setValue("status", v as CreateVehicleInput["status"], { shouldValidate: true })
-                }
-                items={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
-              />
-            </div>
-            <FormInput
-              label="Descrição curta"
-              placeholder="Resumo em uma linha"
-              {...register("shortDescription")}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (readOnly) return;
+          if (vehicleFormFooterAction(step, STEPS.length) === "next") {
+            void goNext();
+            return;
+          }
+          void handleSubmit(onSubmit, onInvalid)(e);
+        }}
+        className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm md:min-h-0 md:h-[calc(100vh-13rem)]">
+        {readOnly && (
+          <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+            Modo somente leitura — você pode consultar os dados do veículo, mas não alterá-los.
+          </div>
+        )}
+        <fieldset disabled={readOnly} className="flex min-h-0 flex-1 flex-col">
+          {/* Stepper header */}
+          <div className="shrink-0 border-b border-facil-border px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5">
+            <p className="mb-3 text-center text-xs font-medium text-facil-orange sm:hidden">{STEPS[step]}</p>
+            <Stepper
+              steps={STEPS}
+              currentStep={step}
+              maxValidatedStep={maxValidatedStep}
+              stepErrors={stepErrors}
+              onStepClick={handleStepClick}
+              className="mx-auto max-w-2xl"
             />
           </div>
-        )}
 
-        {/* Step 1 — Technical Specs */}
-        {step === 1 && (
-          <div className="space-y-5">
-            <SectionTitle>Especificações técnicas</SectionTitle>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <FormInput
-                label="Ano fabricação"
-                type="number"
-                placeholder="2022"
-                {...register("yearManufacture", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Ano modelo"
-                type="number"
-                placeholder="2023"
-                {...register("yearModel", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Quilometragem"
-                type="number"
-                placeholder="0"
-                {...register("mileage", { valueAsNumber: true })}
-              />
-              <FormSelect
-                label="Combustível"
-                required
-                error={errors.fuelType?.message}
-                value={fuelType ? String(fuelType) : SELECT_NONE}
-                onValueChange={(v) =>
-                  setValue(
-                    "fuelType",
-                    (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["fuelType"],
-                    { shouldValidate: true },
-                  )
-                }
-                placeholder="—"
-                items={[
-                  { value: SELECT_NONE, label: "—" },
-                  ...FUEL.map((f) => ({ value: f, label: FUEL_LABELS[f] })),
-                ]}
-              />
-              <FormSelect
-                label="Câmbio"
-                required
-                error={errors.transmission?.message}
-                value={transmission ? String(transmission) : SELECT_NONE}
-                onValueChange={(v) =>
-                  setValue(
-                    "transmission",
-                    (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["transmission"],
-                    { shouldValidate: true },
-                  )
-                }
-                placeholder="—"
-                items={[
-                  { value: SELECT_NONE, label: "—" },
-                  ...TRANSMISSION.map((t) => ({ value: t, label: TRANS_LABELS[t] })),
-                ]}
-              />
-              <FormInput
-                label="Cilindrada (litros)"
-                type="number"
-                step="0.1"
-                min={0.6}
-                max={8}
-                placeholder="1.4"
-                error={errors.engineDisplacementLiters?.message}
-                {...register("engineDisplacementLiters", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Cor"
-                placeholder="Prata"
-                {...register("color")}
-              />
-              <FormInput
-                label="Portas"
-                type="number"
-                min={0}
-                max={10}
-                placeholder="4"
-                {...register("doors", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Final da placa"
-                placeholder="7"
-                maxLength={1}
-                {...register("plateFinal")}
-              />
-            </div>
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+            {/* Step 0 — Basic Info */}
+            {step === 0 && (
+              <div className="space-y-5">
+                <SectionTitle>Informações básicas</SectionTitle>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1 sm:col-span-2">
+                    <FieldLabel required>Título</FieldLabel>
+                    <Input
+                      {...register("title")}
+                      placeholder="Ex: Toyota Corolla XEi 2.0 2022"
+                      className={cn(errors.title && "border-red-400")}
+                    />
+                    <FieldError message={errors.title?.message} />
+                  </div>
+                  <VehicleBrandCombobox
+                    brands={brands}
+                    value={brandId}
+                    onChange={(id) => setValue("brandId", id, { shouldValidate: true })}
+                    error={errors.brandId?.message}
+                    label="Marca"
+                    required
+                    canManage={canManageBrands && !readOnly}
+                  />
+                  <FormInput
+                    label="Modelo"
+                    required
+                    placeholder="Corolla"
+                    error={errors.model?.message}
+                    {...register("model")}
+                  />
+                  <FormInput label="Versão" placeholder="GLI" {...register("version")} />
+                  <FormSelect
+                    label="Tipo"
+                    required
+                    error={errors.type?.message}
+                    value={vehicleType}
+                    onValueChange={(v) => setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true })}
+                    items={TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
+                  />
+                  <FormSelect
+                    label="Status"
+                    required
+                    error={errors.status?.message}
+                    value={vehicleStatus}
+                    onValueChange={(v) =>
+                      setValue("status", v as CreateVehicleInput["status"], { shouldValidate: true })
+                    }
+                    items={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+                  />
+                </div>
+                <FormInput
+                  label="Descrição curta"
+                  placeholder="Resumo em uma linha"
+                  {...register("shortDescription")}
+                />
+              </div>
+            )}
+
+            {/* Step 1 — Technical Specs */}
+            {step === 1 && (
+              <div className="space-y-5">
+                <SectionTitle>Especificações técnicas</SectionTitle>
+                <p className="text-sm text-facil-muted">Motorização</p>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <FormInput
+                    label="Cilindrada"
+                    type="number"
+                    step="0.1"
+                    min={0.6}
+                    max={8}
+                    placeholder="1.4"
+                    error={errors.engineDisplacementLiters?.message}
+                    {...register("engineDisplacementLiters", { valueAsNumber: true })}
+                  />
+                  <FormSelect
+                    label="Combustível"
+                    error={errors.fuelType?.message}
+                    value={fuelType ? String(fuelType) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue("fuelType", (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["fuelType"], {
+                        shouldValidate: true,
+                      })
+                    }
+                    placeholder="Não informado"
+                    items={[
+                      { value: SELECT_NONE, label: "Não informado" },
+                      ...FUEL.map((f) => ({ value: f, label: FUEL_LABELS[f] })),
+                    ]}
+                  />
+                  <FormSelect
+                    label="Câmbio"
+                    required
+                    error={errors.transmission?.message}
+                    value={transmission ? String(transmission) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue(
+                        "transmission",
+                        (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["transmission"],
+                        { shouldValidate: true },
+                      )
+                    }
+                    placeholder="—"
+                    items={[
+                      { value: SELECT_NONE, label: "—" },
+                      ...TRANSMISSION.map((t) => ({ value: t, label: TRANS_LABELS[t] })),
+                    ]}
+                  />
+                </div>
+                <p className="text-xs text-facil-muted">
+                  Cilindrada só com o número comercial (ex.: 1.0, 1.4, 1.8, 2.0). Combustível é opcional.
+                </p>
+                <p className="text-sm text-facil-muted">Demais dados</p>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <FormInput
+                    label="Ano fabricação"
+                    type="number"
+                    placeholder="2022"
+                    {...register("yearManufacture", { valueAsNumber: true })}
+                  />
+                  <FormInput
+                    label="Ano modelo"
+                    type="number"
+                    placeholder="2023"
+                    {...register("yearModel", { valueAsNumber: true })}
+                  />
+                  <FormInput
+                    label="Quilometragem"
+                    type="number"
+                    placeholder="0"
+                    {...register("mileage", { valueAsNumber: true })}
+                  />
+                  <FormInput label="Cor" placeholder="Prata" {...register("color")} />
+                  <FormInput
+                    label="Portas"
+                    type="number"
+                    min={0}
+                    max={10}
+                    placeholder="4"
+                    {...register("doors", { valueAsNumber: true })}
+                  />
+                  <FormInput label="Final da placa" placeholder="7" maxLength={1} {...register("plateFinal")} />
+                </div>
+              </div>
+            )}
+
+            {/* Step 2 — Pricing */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <SectionTitle>Precificação e localização</SectionTitle>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <FormCurrencyInput
+                    label="Preço à vista (R$)"
+                    required
+                    error={errors.priceCash?.message}
+                    value={typeof priceCash === "number" ? priceCash : undefined}
+                    onValueChange={(n) =>
+                      setValue("priceCash", n as CreateVehicleInput["priceCash"], {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      })
+                    }
+                  />
+                  <FormCurrencyInput
+                    label="Preço promocional (R$)"
+                    error={errors.pricePromotional?.message}
+                    value={typeof pricePromotional === "number" ? pricePromotional : undefined}
+                    onValueChange={(n) => setValue("pricePromotional", n, { shouldValidate: true, shouldDirty: true })}
+                  />
+                  <FormCurrencyInput
+                    label="Troca a partir de (R$)"
+                    error={errors.priceTradeIn?.message}
+                    value={typeof priceTradeIn === "number" ? priceTradeIn : undefined}
+                    onValueChange={(n) => setValue("priceTradeIn", n, { shouldValidate: true, shouldDirty: true })}
+                  />
+                  <FormInput label="Cidade" placeholder="São Paulo" {...register("city")} />
+                  <FormInput label="UF" placeholder="SP" maxLength={2} className="uppercase" {...register("state")} />
+                </div>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    {...register("featured")}
+                    className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                  />
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Destacar na home</span>
+                </label>
+
+                <div className="space-y-4 rounded-lg border border-zinc-100 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
+                  <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Financiamento e comercial</h3>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <FormCurrencyInput
+                      label="Parcela base (R$)"
+                      error={errors.parcelaBase?.message}
+                      value={typeof parcelaBase === "number" ? parcelaBase : undefined}
+                      onValueChange={(n) => setValue("parcelaBase", n, { shouldValidate: true, shouldDirty: true })}
+                    />
+                    <FormCurrencyInput
+                      label="Entrada mínima (R$)"
+                      error={errors.entradaMinima?.message}
+                      value={typeof entradaMinima === "number" ? entradaMinima : undefined}
+                      onValueChange={(n) => setValue("entradaMinima", n, { shouldValidate: true, shouldDirty: true })}
+                    />
+                    <FormCurrencyInput
+                      label="Renda mínima sugerida (R$)"
+                      error={errors.rendaMinimaSugerida?.message}
+                      value={typeof rendaMinimaSugerida === "number" ? rendaMinimaSugerida : undefined}
+                      onValueChange={(n) =>
+                        setValue("rendaMinimaSugerida", n, { shouldValidate: true, shouldDirty: true })
+                      }
+                    />
+                    <FormInput
+                      label="Prioridade (0 = normal)"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      {...register("prioridade", { valueAsNumber: true })}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-6">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        {...register("aceitaTroca")}
+                        className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                      />
+                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Aceita troca</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        {...register("aceitaSemEntrada")}
+                        className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                      />
+                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Aceita sem entrada</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3 — Media & SEO */}
+            {step === 3 && (
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <SectionTitle>Imagens</SectionTitle>
+                  <ImageUploader
+                    value={imageUrls ?? ""}
+                    onChange={(urls) => setValue("imageUrls", urls, { shouldDirty: true })}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <SectionTitle>Opcionais</SectionTitle>
+                  <FormTextarea
+                    label="Opcionais (um por linha)"
+                    rows={5}
+                    placeholder={"Ar condicionado\nDireção hidráulica\nVidros elétricos"}
+                    {...register("features")}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <SectionTitle>Descrição e SEO</SectionTitle>
+                  <FormTextarea
+                    label="Descrição completa"
+                    rows={4}
+                    placeholder="Descrição detalhada do veículo…"
+                    {...register("description")}
+                  />
+                  <FormInput
+                    label="Meta título (SEO)"
+                    placeholder="Toyota Corolla 2022 — FácilCar"
+                    {...register("metaTitle")}
+                  />
+                  <FormTextarea
+                    label="Meta descrição (SEO)"
+                    rows={2}
+                    placeholder="Descrição para motores de busca (máx 160 caracteres)"
+                    maxLength={160}
+                    {...register("metaDescription")}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Step 2 — Pricing */}
-        {step === 2 && (
-          <div className="space-y-5">
-            <SectionTitle>Precificação e localização</SectionTitle>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <FormInput
-                label="Preço à vista (R$)"
-                required
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                error={errors.priceCash?.message}
-                {...register("priceCash", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Preço promocional (R$)"
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                {...register("pricePromotional", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Troca a partir de (R$)"
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                {...register("priceTradeIn", { valueAsNumber: true })}
-              />
-              <FormInput
-                label="Cidade"
-                placeholder="São Paulo"
-                {...register("city")}
-              />
-              <FormInput
-                label="UF"
-                placeholder="SP"
-                maxLength={2}
-                className="uppercase"
-                {...register("state")}
-              />
-            </div>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                {...register("featured")}
-                className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
-              />
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Destacar na home
+          {/* Footer buttons */}
+          {!readOnly && (
+            <div className="shrink-0 flex flex-col gap-3 border-t border-facil-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => requestLeave("/admin/veiculos")}>
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={goPrev}
+                  disabled={step === 0}>
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </Button>
+              </div>
+
+              <span className="text-center text-xs text-zinc-400 dark:text-zinc-500 sm:text-left">
+                Etapa {step + 1} de {STEPS.length}
               </span>
-            </label>
 
-            <div className="space-y-4 rounded-lg border border-zinc-100 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                Financiamento e comercial
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <FormInput
-                  label="Parcela base (R$)"
-                  type="number"
-                  step="0.01"
-                  placeholder="0,00"
-                  {...register("parcelaBase", { valueAsNumber: true })}
-                />
-                <FormInput
-                  label="Entrada mínima (R$)"
-                  type="number"
-                  step="0.01"
-                  placeholder="0,00"
-                  {...register("entradaMinima", { valueAsNumber: true })}
-                />
-                <FormInput
-                  label="Renda mínima sugerida (R$)"
-                  type="number"
-                  step="0.01"
-                  placeholder="0,00"
-                  {...register("rendaMinimaSugerida", { valueAsNumber: true })}
-                />
-                <FormInput
-                  label="Prioridade (0 = normal)"
-                  type="number"
-                  min={0}
-                  placeholder="0"
-                  {...register("prioridade", { valueAsNumber: true })}
-                />
-              </div>
-              <div className="flex flex-wrap gap-6">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    {...register("aceitaTroca")}
-                    className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
-                  />
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Aceita troca
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    {...register("aceitaSemEntrada")}
-                    className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
-                  />
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Aceita sem entrada
-                  </span>
-                </label>
-              </div>
+              {vehicleFormFooterAction(step, STEPS.length) === "next" ? (
+                <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={() => void goNext()}>
+                  Próximo
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full sm:w-auto"
+                  disabled={isSubmitting}
+                  onClick={() => void handleSubmit(onSubmit, onInvalid)()}>
+                  <Save className="h-4 w-4" />
+                  {isSubmitting ? "Salvando…" : isEdit ? "Salvar" : "Criar veículo"}
+                </Button>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Step 3 — Media & SEO */}
-        {step === 3 && (
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <SectionTitle>Imagens</SectionTitle>
-              <ImageUploader
-                value={imageUrls ?? ""}
-                onChange={(urls) => setValue("imageUrls", urls, { shouldDirty: true })}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <SectionTitle>Opcionais</SectionTitle>
-              <FormTextarea
-                label="Opcionais (um por linha)"
-                rows={5}
-                placeholder={"Ar condicionado\nDireção hidráulica\nVidros elétricos"}
-                {...register("features")}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <SectionTitle>Descrição e SEO</SectionTitle>
-              <FormTextarea
-                label="Descrição completa"
-                rows={4}
-                placeholder="Descrição detalhada do veículo…"
-                {...register("description")}
-              />
-              <FormInput
-                label="Meta título (SEO)"
-                placeholder="Toyota Corolla 2022 — FácilCar"
-                {...register("metaTitle")}
-              />
-              <FormTextarea
-                label="Meta descrição (SEO)"
-                rows={2}
-                placeholder="Descrição para motores de busca (máx 160 caracteres)"
-                maxLength={160}
-                {...register("metaDescription")}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer buttons */}
-      {!readOnly && (
-      <div className="shrink-0 flex flex-col gap-3 border-t border-zinc-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 dark:border-zinc-800">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1 sm:flex-none"
-            onClick={() => requestLeave("/admin/veiculos")}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1 sm:flex-none"
-            onClick={goPrev}
-            disabled={step === 0}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Anterior
-          </Button>
-        </div>
-
-        <span className="text-center text-xs text-zinc-400 dark:text-zinc-500 sm:text-left">
-          Etapa {step + 1} de {STEPS.length}
-        </span>
-
-        {step < STEPS.length - 1 ? (
-          <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={goNext}>
-            Próximo
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button type="submit" variant="primary" className="w-full sm:w-auto" disabled={isSubmitting}>
-            <Save className="h-4 w-4" />
-            {isSubmitting ? "Salvando…" : isEdit ? "Salvar" : "Criar veículo"}
-          </Button>
-        )}
-      </div>
-      )}
-      </fieldset>
-    </form>
+          )}
+        </fieldset>
+      </form>
 
       <Dialog
         open={discardOpen}
         onOpenChange={(open) => {
           setDiscardOpen(open);
           if (!open) setPendingNavigation(null);
-        }}
-      >
-        <DialogContent className="dark:border-zinc-700 dark:bg-zinc-900">
+        }}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle className="dark:text-zinc-100">
               {isEdit ? "Descartar alterações?" : "Descartar cadastro?"}

@@ -233,3 +233,49 @@ export async function deleteLeadAction(leadId: string) {
 
   return { ok: true as const };
 }
+
+export async function updateLeadVehicleInterestsAction(leadId: string, vehicleIds: string[]) {
+  await requireLeadManager();
+
+  const uniqueIds = Array.from(new Set(vehicleIds.filter(Boolean)));
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, ...NOT_DELETED },
+    select: { id: true },
+  });
+  if (!lead) {
+    return { ok: false as const, error: "Lead não encontrado" };
+  }
+
+  if (uniqueIds.length > 0) {
+    const found = await prisma.vehicle.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    if (found.length !== uniqueIds.length) {
+      return { ok: false as const, error: "Um ou mais veículos não foram encontrados" };
+    }
+  }
+
+  const primaryId = uniqueIds[0] ?? null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.leadVehicleInterest.deleteMany({ where: { leadId } });
+    if (uniqueIds.length > 0) {
+      await tx.leadVehicleInterest.createMany({
+        data: uniqueIds.map((vehicleId, index) => ({
+          leadId,
+          vehicleId,
+          isPrimary: index === 0,
+        })),
+      });
+    }
+    await tx.lead.update({
+      where: { id: leadId },
+      data: { vehicleId: primaryId },
+    });
+  });
+
+  revalidatePath(`/admin/leads/${leadId}`);
+  revalidatePath("/admin/leads");
+  return { ok: true as const };
+}

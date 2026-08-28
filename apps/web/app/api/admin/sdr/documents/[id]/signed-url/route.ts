@@ -16,9 +16,19 @@ import { prisma } from "@/lib/db";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+function fileNameFromStorageKey(storageKey: string): string {
+  const base = storageKey.split("/").pop()?.trim() || "documento";
+  return base.replace(/["\\\r\n]/g, "_").slice(0, 180);
+}
+
+function attachmentDisposition(fileName: string): string {
+  const encoded = encodeURIComponent(fileName);
+  return `attachment; filename="${fileName}"; filename*=UTF-8''${encoded}`;
+}
+
 /**
  * Signed GET URL for an SdrDocument storage object.
- * SUPER_ADMIN / ADMIN only — LEAD_MANAGER receives 403.
+ * CRM operators (LEAD_ROLES, including LEAD_MANAGER) may open signed URLs.
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
@@ -53,10 +63,12 @@ export async function GET(_req: Request, context: RouteContext) {
 
     try {
       const client = getVehicleImagesS3Client();
+      const fileName = fileNameFromStorageKey(doc.storageKey);
       const command = new GetObjectCommand({
         Bucket: getVehicleStorageBucket(),
         Key: doc.storageKey,
         ResponseContentType: doc.mimeType ?? undefined,
+        ResponseContentDisposition: attachmentDisposition(fileName),
       });
       const url = await getSignedUrl(client, command, { expiresIn: 300 });
       return NextResponse.json({
@@ -64,6 +76,7 @@ export async function GET(_req: Request, context: RouteContext) {
         expiresIn: 300,
         documentId: doc.id,
         mimeType: doc.mimeType,
+        fileName,
       });
     } catch (err) {
       console.error("[sdr/documents/signed-url] presign error:", err);

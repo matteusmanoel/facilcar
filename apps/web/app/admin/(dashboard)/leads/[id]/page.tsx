@@ -1,11 +1,16 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { guardAdminSection } from "@/features/auth/server/rbac";
+import { StatusBadge } from "@/components/admin/StatusBadge";
 import { UpdateLeadStatusForm } from "./UpdateLeadStatusForm";
 import { InternalNoteForm } from "./InternalNoteForm";
 import { AssignLeadForm } from "./AssignLeadForm";
 import { LeadDangerZone } from "./LeadDangerZone";
+import { LeadVehicleInterestForm } from "./LeadVehicleInterestForm";
+import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
+import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
 
 const SOURCE_LABELS: Record<string, string> = {
   HOME: "Página inicial",
@@ -18,6 +23,12 @@ const SOURCE_LABELS: Record<string, string> = {
   UNKNOWN: "Desconhecido",
 };
 
+const CHANNEL_LABELS: Record<string, string> = {
+  FORM: "Formulário",
+  WHATSAPP: "WhatsApp",
+  MANUAL: "Manual",
+};
+
 const STATUS_LABELS: Record<string, string> = {
   NEW: "Novo",
   IN_PROGRESS: "Em progresso",
@@ -27,25 +38,6 @@ const STATUS_LABELS: Record<string, string> = {
   LOST: "Perdido",
   SPAM: "Spam",
 };
-
-function maskCPF(cpf: string | null | undefined): string {
-  if (!cpf) return "—";
-  const digits = cpf.replace(/\D/g, "");
-  if (digits.length !== 11) return cpf;
-  return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-}
-
-function creditRatioColor(ratio: number) {
-  if (ratio >= 20) return "text-green-600 bg-green-50";
-  if (ratio >= 10) return "text-yellow-600 bg-yellow-50";
-  return "text-red-600 bg-red-50";
-}
-
-function creditRatioLabel(ratio: number) {
-  if (ratio >= 20) return "Entrada forte";
-  if (ratio >= 10) return "Entrada regular";
-  return "Entrada baixa";
-}
 
 const TEMPERATURE_LABELS: Record<string, string> = {
   HOT: "Quente",
@@ -59,6 +51,58 @@ const TEMPERATURE_CLASSES: Record<string, string> = {
   COLD: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
 };
 
+function maskCPF(cpf: string | null | undefined): string {
+  if (!cpf) return "—";
+  const digits = cpf.replace(/\D/g, "");
+  if (digits.length !== 11) return cpf;
+  return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+function formatMoney(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (Number.isNaN(n)) return null;
+  return `R$ ${n.toLocaleString("pt-BR")}`;
+}
+
+function creditRatioColor(ratio: number) {
+  if (ratio >= 20) return "text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-950/30";
+  if (ratio >= 10) return "text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950/30";
+  return "text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950/30";
+}
+
+function creditRatioLabel(ratio: number) {
+  if (ratio >= 20) return "Entrada forte";
+  if (ratio >= 10) return "Entrada regular";
+  return "Entrada baixa";
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-facil-muted">{label}</dt>
+      <dd className="mt-0.5 text-sm text-foreground">{children ?? "—"}</dd>
+    </div>
+  );
+}
+
+function Card({
+  title,
+  children,
+  className = "",
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`admin-card ${className}`}>
+      <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-facil-muted">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 export default async function AdminLeadDetailPage({
   params,
 }: {
@@ -66,11 +110,18 @@ export default async function AdminLeadDetailPage({
 }) {
   const { id } = await params;
   const currentUser = await guardAdminSection("leads");
-  const [lead, sellers] = await Promise.all([
+  const [lead, sellers, catalogVehicles] = await Promise.all([
     prisma.lead.findFirst({
       where: { id, deletedAt: null },
       include: {
-        vehicle: true,
+        vehicle: { select: { id: true, title: true, slug: true, priceCash: true, status: true } },
+        customer: { select: { id: true, name: true } },
+        vehicleInterests: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          include: {
+            vehicle: { select: { id: true, title: true, slug: true, priceCash: true, status: true } },
+          },
+        },
         financingRequest: true,
         sellRequest: true,
         assignedToUser: { select: { id: true, name: true } },
@@ -81,6 +132,12 @@ export default async function AdminLeadDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.vehicle.findMany({
+      where: { status: { in: ["PUBLISHED", "RESERVED", "DRAFT"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+      select: { id: true, title: true },
+    }),
   ]);
 
   if (!lead) notFound();
@@ -88,10 +145,25 @@ export default async function AdminLeadDetailPage({
   const phone = lead.phone.replace(/\D/g, "");
   const fr = lead.financingRequest;
 
+  const interestVehicles =
+    lead.vehicleInterests.length > 0
+      ? lead.vehicleInterests.map((item) => ({
+          ...item.vehicle,
+          isPrimary: item.isPrimary,
+        }))
+      : lead.vehicle
+        ? [{ ...lead.vehicle, isPrimary: true }]
+        : [];
+
+  const primaryVehicle = interestVehicles.find((v) => v.isPrimary) ?? interestVehicles[0] ?? null;
+
   const vehicleLabel =
-    lead.vehicle?.title ??
+    primaryVehicle?.title ??
     [fr?.vehicleModel, fr?.vehicleYear].filter(Boolean).join(" ") ??
+    leadVehicleLabel({ metadataJson: lead.metadataJson }) ??
     null;
+
+  const juliaBrief = vendorSummaryFromLead(lead);
 
   const waUrl = phone
     ? `https://wa.me/${phone}?text=${encodeURIComponent(
@@ -105,17 +177,28 @@ export default async function AdminLeadDetailPage({
       : null;
 
   const estimatedMonthly =
-    lead.vehicle?.priceCash != null && fr?.desiredInstallments
-      ? Math.round(Number(lead.vehicle.priceCash) / fr.desiredInstallments).toLocaleString("pt-BR")
+    primaryVehicle?.priceCash != null && fr?.desiredInstallments
+      ? Math.round(Number(primaryVehicle.priceCash) / fr.desiredInstallments).toLocaleString("pt-BR")
       : null;
+
+  const hasOrigin =
+    Boolean(lead.originUrl) ||
+    Boolean(lead.utmSource) ||
+    Boolean(lead.utmMedium) ||
+    Boolean(lead.utmCampaign) ||
+    Boolean(lead.utmTerm) ||
+    Boolean(lead.utmContent);
 
   return (
     <main className="admin-page admin-section">
-      <div className="flex items-center justify-between">
-        <Link href="/admin/leads" className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <Link
+          href="/admin/leads"
+          className="inline-flex items-center gap-1 text-sm text-facil-muted hover:text-foreground"
+        >
           ← Voltar aos leads
         </Link>
-        {waUrl && (
+        {waUrl ? (
           <a
             href={waUrl}
             target="_blank"
@@ -127,253 +210,313 @@ export default async function AdminLeadDetailPage({
             </svg>
             Abrir WhatsApp
           </a>
-        )}
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Lead: {lead.name}</h1>
-        {lead.temperature ? (
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${TEMPERATURE_CLASSES[lead.temperature] ?? "bg-zinc-100 text-zinc-600"}`}
-          >
-            {TEMPERATURE_LABELS[lead.temperature] ?? lead.temperature}
-          </span>
         ) : null}
       </div>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Criado em {new Date(lead.createdAt).toLocaleString("pt-BR")} ·{" "}
-        {SOURCE_LABELS[lead.source] ?? lead.source}
-      </p>
 
-      {lead.juliaSummary ? (
-        <div className="mt-5 rounded-xl border border-facil-orange/30 bg-orange-50/60 p-5 shadow-sm dark:border-facil-orange/20 dark:bg-orange-950/20">
+      <header className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold text-foreground">{lead.name}</h1>
+          <StatusBadge status={lead.type} type="type" />
+          <StatusBadge status={lead.status} />
+          {lead.temperature ? (
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${TEMPERATURE_CLASSES[lead.temperature] ?? "bg-zinc-100 text-zinc-600"}`}
+            >
+              {TEMPERATURE_LABELS[lead.temperature] ?? lead.temperature}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-sm text-facil-muted">
+          Criado em {new Date(lead.createdAt).toLocaleString("pt-BR")}
+          {" · "}
+          {SOURCE_LABELS[lead.source] ?? lead.source}
+          {" · "}
+          {CHANNEL_LABELS[lead.channel] ?? lead.channel}
+          {lead.assignedToUser ? ` · ${lead.assignedToUser.name}` : ""}
+        </p>
+      </header>
+
+      {juliaBrief ? (
+        <div className="rounded-xl border border-facil-orange/30 bg-orange-50/60 p-5 shadow-sm dark:border-facil-orange/20 dark:bg-orange-950/20">
           <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-facil-orange">
             Resumo da Júlia
           </h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-            {lead.juliaSummary}
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {juliaBrief}
           </p>
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        {/* Card 1 — Identidade */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Dados do Lead
-          </h2>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">Nome</dt>
-              <dd className="text-zinc-900 dark:text-zinc-100">{lead.name}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">CPF</dt>
-              <dd className="font-mono text-zinc-900 dark:text-zinc-100">{maskCPF(fr?.cpf)}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">Data de Nascimento</dt>
-              <dd className="text-zinc-900 dark:text-zinc-100">
-                {fr?.birthDate
-                  ? new Date(fr.birthDate).toLocaleDateString("pt-BR")
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">Telefone</dt>
-              <dd className="flex items-center gap-1.5 text-zinc-900 dark:text-zinc-100">
-                {lead.phone}
-                {phone && (
-                  <a
-                    href={`tel:${phone}`}
-                    className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    Ligar
-                  </a>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">E-mail</dt>
-              <dd className="text-zinc-900 dark:text-zinc-100">{lead.email ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-zinc-500 dark:text-zinc-400">Cidade / Estado</dt>
-              <dd className="text-zinc-900 dark:text-zinc-100">
+      <div className="grid items-start gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <Card title="Contato">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+              <Field label="Nome">{lead.name}</Field>
+              <Field label="Telefone">
+                <span className="inline-flex items-center gap-1.5">
+                  {lead.phone}
+                  {phone ? (
+                    <a
+                      href={`tel:${phone}`}
+                      className="rounded bg-facil-surface px-1.5 py-0.5 text-xs text-facil-muted hover:bg-facil-border hover:text-foreground"
+                    >
+                      Ligar
+                    </a>
+                  ) : null}
+                </span>
+              </Field>
+              <Field label="E-mail">{lead.email ?? "—"}</Field>
+              <Field label="Cidade / Estado">
                 {[lead.city, lead.state].filter(Boolean).join(" / ") || "—"}
-              </dd>
-            </div>
-          </dl>
-          {lead.message && (
-            <div className="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Mensagem</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">{lead.message}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Card 2 — Perfil de crédito */}
-        {fr && (
-          <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Perfil de Crédito
-            </h2>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Renda Mensal</dt>
-                <dd className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                  {fr.monthlyIncome != null
-                    ? `R$ ${Number(fr.monthlyIncome).toLocaleString("pt-BR")}`
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Entrada</dt>
-                <dd className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                  {fr.downPayment != null
-                    ? `R$ ${Number(fr.downPayment).toLocaleString("pt-BR")}`
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Prazo Desejado</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">
-                  {fr.desiredInstallments ? `${fr.desiredInstallments} meses` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">CNH</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">
-                  {fr.hasDriverLicense == null ? "—" : fr.hasDriverLicense ? "Sim" : "Não"}
-                </dd>
-              </div>
-            </dl>
-            {entradaRenda !== null && (
-              <div className="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-                <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Razão Entrada / Renda</p>
-                <div className="flex items-center gap-3">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                    <div
-                      className={`h-full rounded-full transition-all ${entradaRenda >= 20 ? "bg-green-500" : entradaRenda >= 10 ? "bg-yellow-400" : "bg-red-400"}`}
-                      style={{ width: `${Math.min(entradaRenda * 2, 100)}%` }}
-                    />
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${creditRatioColor(entradaRenda)}`}
+              </Field>
+              <Field label="Cliente no CRM">
+                {lead.customer ? (
+                  <Link
+                    href={`/admin/clientes/${lead.customer.id}`}
+                    className="font-medium text-facil-orange hover:underline"
                   >
-                    {entradaRenda}% — {creditRatioLabel(entradaRenda)}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Card 3 — Veículo de interesse */}
-        {(lead.vehicle || fr?.vehicleModel || fr?.vehicleYear) && (
-          <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Veículo de Interesse
-            </h2>
-            {lead.vehicle ? (
-              <>
-                <Link
-                  href={`/estoque/${lead.vehicle.slug}`}
-                  target="_blank"
-                  className="text-base font-semibold text-facil-orange hover:underline"
-                >
-                  {lead.vehicle.title} ↗
-                </Link>
-                {lead.vehicle.priceCash != null && (
-                  <p className="mt-1 text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                    R$ {Number(lead.vehicle.priceCash).toLocaleString("pt-BR")}
-                  </p>
+                    {lead.customer.name}
+                  </Link>
+                ) : (
+                  "Não vinculado"
                 )}
-                {estimatedMonthly && (
-                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    Estimativa: ~R$ {estimatedMonthly}/mês em{" "}
-                    {fr?.desiredInstallments} meses
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-zinc-700 dark:text-zinc-300">
-                {[fr?.vehicleModel, fr?.vehicleYear].filter(Boolean).join(" — ") || "—"}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Card 4 — Ações e status */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Gestão do Lead
-          </h2>
-          <div className="flex flex-col gap-3">
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</p>
-              <UpdateLeadStatusForm leadId={lead.id} currentStatus={lead.status} />
-              <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                Atual: {STATUS_LABELS[lead.status] ?? lead.status}
-              </p>
-            </div>
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Responsável</p>
-              <AssignLeadForm
-                leadId={lead.id}
-                currentAssignedToUserId={lead.assignedToUserId}
-                currentUserId={currentUser.id}
-                sellers={sellers}
-              />
-              {lead.assignedToUser ? (
-                <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                  Atual: {lead.assignedToUser.name}
-                </p>
+              </Field>
+              {fr ? (
+                <>
+                  <Field label="CPF">{maskCPF(fr.cpf)}</Field>
+                  <Field label="Data de nascimento">
+                    {fr.birthDate ? new Date(fr.birthDate).toLocaleDateString("pt-BR") : "—"}
+                  </Field>
+                </>
               ) : null}
-            </div>
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">Anotação interna</p>
-              <InternalNoteForm leadId={lead.id} currentNote={lead.internalNote} />
-            </div>
-            <LeadDangerZone leadId={lead.id} currentStatus={lead.status} />
-          </div>
-        </div>
+            </dl>
+          </Card>
 
-        {/* Venda de veículo (se existir) */}
-        {lead.sellRequest && (
-          <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Veículo para Venda
-            </h2>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Marca</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">{lead.sellRequest.brand ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Modelo</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">{lead.sellRequest.model ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">Ano Modelo</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">{lead.sellRequest.yearModel ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-500 dark:text-zinc-400">KM</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">
+          <Card title="Veículos de interesse">
+            {interestVehicles.length > 0 ? (
+              <ul className="mb-4 space-y-3">
+                {interestVehicles.map((vehicle) => (
+                  <li
+                    key={vehicle.id}
+                    className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-facil-border bg-facil-surface/60 px-3 py-2.5"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/admin/veiculos/${vehicle.id}`}
+                          className="text-sm font-semibold text-foreground hover:text-facil-orange"
+                        >
+                          {vehicle.title}
+                        </Link>
+                        {vehicle.isPrimary ? (
+                          <span className="rounded-full bg-facil-orange/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-facil-orange">
+                            Primário
+                          </span>
+                        ) : null}
+                        <StatusBadge status={vehicle.status} />
+                      </div>
+                      {formatMoney(vehicle.priceCash) ? (
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatMoney(vehicle.priceCash)}
+                        </p>
+                      ) : null}
+                    </div>
+                    {vehicle.status === "PUBLISHED" ? (
+                      <Link
+                        href={`/estoque/${vehicle.slug}`}
+                        target="_blank"
+                        className="text-xs text-facil-muted hover:text-foreground"
+                      >
+                        Ver no site ↗
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : fr?.vehicleModel || fr?.vehicleYear ? (
+              <p className="mb-4 text-sm text-foreground">
+                Informado no formulário: {[fr.vehicleModel, fr.vehicleYear].filter(Boolean).join(" — ")}
+              </p>
+            ) : vehicleLabel ? (
+              <p className="mb-4 text-sm text-foreground">
+                Interesse mencionado: {vehicleLabel}
+                <span className="mt-1 block text-xs text-facil-muted">
+                  Ainda não há veículo publicado vinculado a este lead.
+                </span>
+              </p>
+            ) : (
+              <p className="mb-4 text-sm text-facil-muted">Nenhum veículo vinculado ainda.</p>
+            )}
+
+            {estimatedMonthly ? (
+              <p className="mb-4 text-sm text-facil-muted">
+                Estimativa sobre o primário: ~R$ {estimatedMonthly}/mês em {fr?.desiredInstallments}{" "}
+                meses (não é simulação de financiamento).
+              </p>
+            ) : null}
+
+            <LeadVehicleInterestForm
+              leadId={lead.id}
+              vehicles={catalogVehicles}
+              selectedIds={
+                lead.vehicleInterests.length > 0
+                  ? lead.vehicleInterests.map((item) => item.vehicleId)
+                  : lead.vehicleId
+                    ? [lead.vehicleId]
+                    : []
+              }
+            />
+          </Card>
+
+          {fr ? (
+            <Card title="Perfil de crédito">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                <Field label="Renda mensal">
+                  <span className="text-base font-bold">{formatMoney(fr.monthlyIncome) ?? "—"}</span>
+                </Field>
+                <Field label="Entrada">
+                  <span className="text-base font-bold">{formatMoney(fr.downPayment) ?? "—"}</span>
+                </Field>
+                <Field label="Prazo desejado">
+                  {fr.desiredInstallments ? `${fr.desiredInstallments} meses` : "—"}
+                </Field>
+                <Field label="CNH">
+                  {fr.hasDriverLicense == null ? "—" : fr.hasDriverLicense ? "Sim" : "Não"}
+                </Field>
+                <Field label="Ocupação">{fr.occupation ?? "—"}</Field>
+              </dl>
+              {entradaRenda !== null ? (
+                <div className="mt-4 border-t border-facil-border pt-3">
+                  <p className="mb-1.5 text-xs font-medium text-facil-muted">Razão entrada / renda</p>
+                  <div className="flex items-center gap-3">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-facil-surface">
+                      <div
+                        className={`h-full rounded-full ${entradaRenda >= 20 ? "bg-green-500" : entradaRenda >= 10 ? "bg-yellow-400" : "bg-red-400"}`}
+                        style={{ width: `${Math.min(entradaRenda * 2, 100)}%` }}
+                      />
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${creditRatioColor(entradaRenda)}`}
+                    >
+                      {entradaRenda}% — {creditRatioLabel(entradaRenda)}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+              {fr.notes ? (
+                <p className="mt-4 whitespace-pre-wrap text-sm text-facil-muted">{fr.notes}</p>
+              ) : null}
+            </Card>
+          ) : null}
+
+          {lead.sellRequest ? (
+            <Card title="Veículo para venda">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                <Field label="Marca">{lead.sellRequest.brand ?? "—"}</Field>
+                <Field label="Modelo">{lead.sellRequest.model ?? "—"}</Field>
+                <Field label="Versão">{lead.sellRequest.version ?? "—"}</Field>
+                <Field label="Ano fabricação">{lead.sellRequest.yearManufacture ?? "—"}</Field>
+                <Field label="Ano modelo">{lead.sellRequest.yearModel ?? "—"}</Field>
+                <Field label="KM">
                   {lead.sellRequest.mileage != null
                     ? lead.sellRequest.mileage.toLocaleString("pt-BR")
                     : "—"}
-                </dd>
+                </Field>
+                <Field label="Combustível">{lead.sellRequest.fuelType ?? "—"}</Field>
+                <Field label="Câmbio">{lead.sellRequest.transmission ?? "—"}</Field>
+                <Field label="Modalidade">
+                  {lead.sellRequest.saleMode === "CONSIGNMENT"
+                    ? "Consignação"
+                    : lead.sellRequest.saleMode === "DIRECT_PURCHASE"
+                      ? "Compra direta pela loja"
+                      : "—"}
+                </Field>
+              </dl>
+              {lead.sellRequest.photoUrls.length > 0 ? (
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {lead.sellRequest.photoUrls.map((url) => (
+                    <a
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="overflow-hidden rounded-lg border border-facil-border"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="Foto do veículo para venda" className="h-28 w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+              {lead.sellRequest.observations ? (
+                <p className="mt-4 whitespace-pre-wrap text-sm text-facil-muted">
+                  {lead.sellRequest.observations}
+                </p>
+              ) : null}
+            </Card>
+          ) : null}
+
+          {lead.message ? (
+            <Card title="Mensagem original">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{lead.message}</p>
+            </Card>
+          ) : null}
+
+          {hasOrigin ? (
+            <Card title="Origem">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                {lead.originUrl ? (
+                  <Field label="URL de origem">
+                    <a
+                      href={lead.originUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all text-facil-orange hover:underline"
+                    >
+                      {lead.originUrl}
+                    </a>
+                  </Field>
+                ) : null}
+                {lead.utmSource ? <Field label="utm_source">{lead.utmSource}</Field> : null}
+                {lead.utmMedium ? <Field label="utm_medium">{lead.utmMedium}</Field> : null}
+                {lead.utmCampaign ? <Field label="utm_campaign">{lead.utmCampaign}</Field> : null}
+                {lead.utmTerm ? <Field label="utm_term">{lead.utmTerm}</Field> : null}
+                {lead.utmContent ? <Field label="utm_content">{lead.utmContent}</Field> : null}
+              </dl>
+            </Card>
+          ) : null}
+        </div>
+
+        <aside className="space-y-5 lg:sticky lg:top-20">
+          <Card title="Gestão">
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-facil-muted">Status</p>
+                <UpdateLeadStatusForm leadId={lead.id} currentStatus={lead.status} />
+                <p className="mt-1 text-xs text-facil-muted">
+                  Atual: {STATUS_LABELS[lead.status] ?? lead.status}
+                </p>
               </div>
-            </dl>
-            {lead.sellRequest.observations && (
-              <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-400">
-                {lead.sellRequest.observations}
-              </p>
-            )}
-          </div>
-        )}
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-facil-muted">Responsável</p>
+                <AssignLeadForm
+                  leadId={lead.id}
+                  currentAssignedToUserId={lead.assignedToUserId}
+                  currentUserId={currentUser.id}
+                  sellers={sellers}
+                />
+                {lead.assignedToUser ? (
+                  <p className="mt-1 text-xs text-facil-muted">Atual: {lead.assignedToUser.name}</p>
+                ) : null}
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-facil-muted">Anotação interna</p>
+                <InternalNoteForm leadId={lead.id} currentNote={lead.internalNote} />
+              </div>
+            </div>
+          </Card>
+          <LeadDangerZone leadId={lead.id} currentStatus={lead.status} />
+        </aside>
       </div>
     </main>
   );

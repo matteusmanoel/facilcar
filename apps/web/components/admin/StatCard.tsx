@@ -24,7 +24,7 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "admin-card transition-shadow hover:shadow-md",
+        "admin-card h-full transition-shadow hover:shadow-md",
         variant === "highlight" && "ring-1 ring-facil-orange/20",
         variant === "warning" && "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
       )}

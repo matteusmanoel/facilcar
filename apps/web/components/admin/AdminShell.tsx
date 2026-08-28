@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Car,
   Users,
+  Contact,
   UserCog,
   FileText,
   BookOpen,
@@ -45,6 +46,7 @@ const ALL_NAV_ITEMS: NavItemDef[] = [
     icon: Users,
     matchPrefixes: ["/admin/leads", "/admin/crm"],
   },
+  { key: "clientes", href: "/admin/clientes", label: "Clientes", icon: Contact },
   {
     key: "usuarios",
     href: "/admin/usuarios",
@@ -82,10 +84,10 @@ function NavItem({
       onClick={onNavigate}
       title={collapsed ? item.label : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-[background-color,color,transform] duration-200",
         isActive
           ? "bg-facil-orange text-white"
-          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+          : "text-zinc-700 hover:translate-x-0.5 hover:bg-zinc-50 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white",
         collapsed && "justify-center px-2",
       )}
     >
@@ -166,12 +168,12 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-facil-orange text-white text-xs font-bold">
                 F
               </div>
-              <span className="font-semibold text-zinc-900 text-sm dark:text-zinc-100">FácilCar</span>
+              <span className="text-sm font-semibold text-zinc-950 dark:text-white">FácilCar</span>
             </Link>
           )}
           <button
             onClick={toggleCollapse}
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
             title={isCollapsed ? "Expandir menu" : "Recolher menu"}
           >
             {isCollapsed ? (
@@ -196,14 +198,14 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
             )}
           >
             <ThemeToggle />
-            {showSdrBadge ? <SdrNotificationBadge /> : null}
+            {showSdrBadge ? <SdrNotificationBadge placement="sidebar" /> : null}
           </div>
           <Link
             href="/"
             target="_blank"
             title={isCollapsed ? "Ver site" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 transition-colors dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200",
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 transition-colors dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white",
               isCollapsed && "justify-center px-2",
             )}
           >
@@ -255,11 +257,11 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-facil-orange text-white text-xs font-bold">
                     F
                   </div>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">FácilCar Admin</span>
+                  <span className="font-semibold text-zinc-950 dark:text-white">FácilCar Admin</span>
                 </Link>
                 <button
                   onClick={closeMobile}
-                  className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -273,7 +275,7 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
                 <Link
                   href="/"
                   target="_blank"
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
                 >
                   <ExternalLink className="h-4 w-4" />
                   <span>Ver site</span>
@@ -297,7 +299,7 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
         <header className="flex h-14 items-center gap-2 border-b border-facil-border bg-facil-card px-4 md:hidden">
           <button
             onClick={() => setMobileOpen(true)}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -305,11 +307,11 @@ export function AdminShell({ children, signOutAction, role }: AdminShellProps) {
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-facil-orange text-white text-xs font-bold">
               F
             </div>
-            <span className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <span className="truncate text-sm font-semibold text-zinc-950 dark:text-white">
               FácilCar Admin
             </span>
           </div>
-          {showSdrBadge ? <SdrNotificationBadge /> : null}
+          {showSdrBadge ? <SdrNotificationBadge placement="header" /> : null}
           <ThemeToggle />
         </header>
 

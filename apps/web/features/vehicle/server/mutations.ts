@@ -154,7 +154,7 @@ export async function updateVehicle(formData: FormData) {
   if (data.yearManufacture !== undefined) updatePayload.yearManufacture = data.yearManufacture ?? null;
   if (data.yearModel !== undefined) updatePayload.yearModel = data.yearModel ?? null;
   if (data.mileage !== undefined) updatePayload.mileage = data.mileage ?? null;
-  if (data.fuelType !== undefined) updatePayload.fuelType = data.fuelType ?? null;
+  if ("fuelType" in raw) updatePayload.fuelType = data.fuelType ?? null;
   if (data.transmission !== undefined) updatePayload.transmission = data.transmission ?? null;
   if (data.engineDisplacementLiters !== undefined) {
     updatePayload.engineDisplacementLiters = data.engineDisplacementLiters ?? null;

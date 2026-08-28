@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import type { FuelType, Transmission, VehicleStatus, VehicleType } from "@prisma/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -22,8 +23,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useClearSelectionOnEscape } from "@/hooks/useClearSelectionOnEscape";
 import { serializeCsvParam } from "@/lib/query-filters";
 import { cn } from "@/lib/cn";
+import { rangeIds, toggleId, unionIds } from "@/lib/range-select";
 
 type VehicleRow = {
   id: string;
@@ -280,6 +283,10 @@ export function VehiclesClient({
   const [search, setSearch] = useState(initialSearch);
   const debouncedSearch = useDebounce(search, 350);
   const [draft, setDraft] = useState<DraftFilters>(() => filtersToDraft(filters));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const anchorIdRef = useRef<string | null>(null);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  useClearSelectionOnEscape(clearSelection, selectedIds.size > 0);
 
   const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
   const hasAdvancedFilters =
@@ -308,6 +315,7 @@ export function VehiclesClient({
       else sp.delete("q");
       sp.set("page", "1");
       router.replace(`${pathname}?${sp.toString()}`);
+      router.refresh();
     });
   }, [debouncedSearch, pathname, router, searchParams]);
 
@@ -318,6 +326,7 @@ export function VehiclesClient({
         mutate(sp);
         const qs = sp.toString();
         router.push(qs ? `${pathname}?${qs}` : pathname);
+        router.refresh();
       });
     },
     [pathname, router, searchParams],
@@ -368,12 +377,30 @@ export function VehiclesClient({
       const qs = sp.toString();
       router.push(qs ? `${pathname}?${qs}` : pathname);
       setDraft(filtersToDraft({}));
+      router.refresh();
     });
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const qActive = (searchParams.get("q") ?? "").trim();
   const hasActiveFilters = activeFilterCount > 0 || !!qActive;
+  const vehicleIds = vehicles.map((v) => v.id);
+
+  function handleRowClick(vehicle: VehicleRow, event: MouseEvent) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const range = rangeIds(vehicleIds, anchorIdRef.current, vehicle.id);
+        setSelectedIds((prev) => unionIds(prev, range));
+      } else {
+        setSelectedIds((prev) => toggleId(prev, vehicle.id));
+        anchorIdRef.current = vehicle.id;
+      }
+      return;
+    }
+    anchorIdRef.current = vehicle.id;
+    router.push(`/admin/veiculos/${vehicle.id}`);
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -540,7 +567,16 @@ export function VehiclesClient({
       </p>
 
       {/* Desktop table */}
-      <div className="hidden overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm md:block">
+      <div
+        className="hidden overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm md:block"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+            e.preventDefault();
+            setSelectedIds(new Set(vehicleIds));
+          }
+        }}
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-facil-border bg-facil-surface">
@@ -562,10 +598,15 @@ export function VehiclesClient({
                   </td>
                 </tr>
               ) : (
-                vehicles.map((v) => (
+                vehicles.map((v, i) => (
                   <tr
                     key={v.id}
-                    className="border-t border-facil-border hover:bg-facil-surface/50"
+                    className={cn(
+                      "admin-row-enter cursor-pointer border-t border-facil-border hover:bg-facil-surface/50",
+                      selectedIds.has(v.id) && "bg-facil-orange-light/50",
+                    )}
+                    style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
+                    onClick={(e) => handleRowClick(v, e)}
                   >
                     <td className="admin-table-cell">
                       {v.images[0] ? (
@@ -594,7 +635,7 @@ export function VehiclesClient({
                       <StatusBadge status={v.status} />
                     </td>
                     {canWrite ? (
-                      <td className="admin-table-cell">
+                      <td className="admin-table-cell" onClick={(e) => e.stopPropagation()}>
                         <QuickStatusMenu vehicleId={v.id} currentStatus={v.status} />
                       </td>
                     ) : null}
@@ -603,7 +644,7 @@ export function VehiclesClient({
                         ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
                         : "—"}
                     </td>
-                    <td className="admin-table-cell">
+                    <td className="admin-table-cell" onClick={(e) => e.stopPropagation()}>
                       <VehicleActionsMenu vehicle={v} canWrite={canWrite} />
                     </td>
                   </tr>
@@ -622,7 +663,8 @@ export function VehiclesClient({
           vehicles.map((v) => (
             <div
               key={v.id}
-              className="flex gap-3 rounded-xl border border-facil-border bg-facil-card p-3 shadow-sm"
+              className="flex cursor-pointer gap-3 rounded-xl border border-facil-border bg-facil-card p-3 shadow-sm"
+              onClick={(e) => handleRowClick(v, e)}
             >
               <Link href={`/admin/veiculos/${v.id}`} className="shrink-0">
                 {v.images[0] ? (
@@ -647,13 +689,10 @@ export function VehiclesClient({
               </Link>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
-                  <Link
-                    href={`/admin/veiculos/${v.id}`}
-                    className="truncate text-sm font-medium text-foreground hover:text-facil-orange"
-                  >
-                    {v.title}
-                  </Link>
-                  <VehicleActionsMenu vehicle={v} canWrite={canWrite} />
+                  <p className="truncate text-sm font-medium text-foreground">{v.title}</p>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <VehicleActionsMenu vehicle={v} canWrite={canWrite} />
+                  </div>
                 </div>
                 <p className="text-xs text-facil-muted">{v.brand.name}</p>
                 <div className="mt-1.5 flex items-center justify-between gap-2">

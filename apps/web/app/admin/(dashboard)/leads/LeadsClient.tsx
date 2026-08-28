@@ -1,12 +1,15 @@
 "use client";
 
-import { useTransition, useCallback } from "react";
-import Link from "next/link";
+import { useTransition, useCallback, useState, useRef } from "react";
+import type { MouseEvent } from "react";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { LeadsFilterToolbar } from "./LeadsFilterToolbar";
+import { cn } from "@/lib/cn";
+import { rangeIds, toggleId, unionIds } from "@/lib/range-select";
+import { useClearSelectionOnEscape } from "@/hooks/useClearSelectionOnEscape";
 
 type Lead = {
   id: string;
@@ -22,6 +25,7 @@ type Lead = {
   createdAt: string;
   assignedToUser: { id: string; name: string } | null;
   vehicle: { title: string; slug: string } | null;
+  vehicleLabel?: string | null;
 };
 
 type Seller = { id: string; name: string };
@@ -33,9 +37,9 @@ const TEMPERATURE_LABELS: Record<string, string> = {
 };
 
 const TEMPERATURE_CLASSES: Record<string, string> = {
-  HOT: "bg-red-100 text-red-800",
-  WARM: "bg-amber-100 text-amber-800",
-  COLD: "bg-sky-100 text-sky-800",
+  HOT: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
+  WARM: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  COLD: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
 };
 
 function TemperatureBadge({ temperature }: { temperature: string }) {
@@ -87,6 +91,10 @@ export function LeadsClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const anchorIdRef = useRef<string | null>(null);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  useClearSelectionOnEscape(clearSelection, selectedIds.size > 0);
 
   const pushSearchParams = useCallback(
     (mutate: (sp: URLSearchParams) => void) => {
@@ -95,12 +103,30 @@ export function LeadsClient({
         mutate(sp);
         const qs = sp.toString();
         router.push(qs ? `${pathname}?${qs}` : pathname);
+        router.refresh();
       });
     },
     [pathname, router, searchParams],
   );
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const leadIds = leads.map((l) => l.id);
+
+  function handleRowClick(lead: Lead, event: MouseEvent) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const range = rangeIds(leadIds, anchorIdRef.current, lead.id);
+        setSelectedIds((prev) => unionIds(prev, range));
+      } else {
+        setSelectedIds((prev) => toggleId(prev, lead.id));
+        anchorIdRef.current = lead.id;
+      }
+      return;
+    }
+    anchorIdRef.current = lead.id;
+    router.push(`/admin/leads/${lead.id}`);
+  }
 
   return (
     <>
@@ -116,7 +142,16 @@ export function LeadsClient({
         totalCount={totalCount}
       />
 
-      <div className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
+      <div
+        className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+            e.preventDefault();
+            setSelectedIds(new Set(leadIds));
+          }
+        }}
+      >
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead className="border-b border-facil-border bg-facil-surface">
@@ -134,12 +169,12 @@ export function LeadsClient({
             <tbody>
               {leads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-sm text-zinc-400">
+                  <td colSpan={8} className="py-12 text-center text-sm text-facil-muted">
                     Nenhum lead encontrado.
                   </td>
                 </tr>
               ) : (
-                leads.map((lead) => {
+                leads.map((lead, i) => {
                   const phone = lead.phone.replace(/\D/g, "");
                   const waUrl = phone
                     ? `https://wa.me/${phone}?text=${encodeURIComponent(`Olá ${lead.name}, aqui é da FácilCar!`)}`
@@ -147,7 +182,12 @@ export function LeadsClient({
                   return (
                     <tr
                       key={lead.id}
-                      className="border-t border-facil-border hover:bg-facil-surface/70"
+                      className={cn(
+                        "admin-row-enter cursor-pointer border-t border-facil-border hover:bg-facil-surface/70",
+                        selectedIds.has(lead.id) && "bg-facil-orange-light/50",
+                      )}
+                      style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
+                      onClick={(e) => handleRowClick(lead, e)}
                     >
                       <td className="admin-table-cell text-facil-muted">
                         {new Date(lead.createdAt).toLocaleDateString("pt-BR")}
@@ -173,27 +213,21 @@ export function LeadsClient({
                         {lead.assignedToUser?.name ?? "—"}
                       </td>
                       <td className="admin-table-cell max-w-[160px] text-facil-muted">
-                        <span className="line-clamp-1">{lead.vehicle?.title ?? "—"}</span>
+                        <span className="line-clamp-1">
+                          {lead.vehicleLabel ?? lead.vehicle?.title ?? "—"}
+                        </span>
                       </td>
                       <td className="admin-table-cell" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/admin/leads/${lead.id}`}
-                            className="text-xs font-medium text-facil-orange hover:underline"
+                        {waUrl ? (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600"
                           >
-                            Detalhes
-                          </Link>
-                          {waUrl ? (
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600"
-                            >
-                              {WA_ICON}
-                            </a>
-                          ) : null}
-                        </div>
+                            {WA_ICON}
+                          </a>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -215,7 +249,11 @@ export function LeadsClient({
               return (
                 <div
                   key={lead.id}
-                  className="px-4 py-3 hover:bg-facil-surface/70"
+                  className={cn(
+                    "cursor-pointer px-4 py-3 hover:bg-facil-surface/70",
+                    selectedIds.has(lead.id) && "bg-facil-orange-light/50",
+                  )}
+                  onClick={(e) => handleRowClick(lead, e)}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

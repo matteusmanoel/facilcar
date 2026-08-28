@@ -49,15 +49,15 @@ export default async function AdminVeiculoEditPage({
         <div>
           <Link
             href="/admin/veiculos"
-            className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            className="inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Voltar para veículos
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+          <h1 className="mt-2 admin-page-title">
             {readOnly ? "Veículo:" : "Editar:"} {vehicle.title}
           </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="admin-page-subtitle">
             Atualizado em{" "}
             {new Date(vehicle.updatedAt).toLocaleDateString("pt-BR", {
               day: "2-digit",

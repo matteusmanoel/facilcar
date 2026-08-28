@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { eachDayOfInterval, endOfDay, format, startOfDay } from "date-fns";
+import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
 
 const NOT_DELETED: Prisma.LeadWhereInput = { deletedAt: null };
 
@@ -111,8 +112,17 @@ const ADMIN_LEAD_SELECT = {
   internalNote: true,
   temperature: true,
   createdAt: true,
+  metadataJson: true,
   assignedToUser: { select: { id: true, name: true } },
   vehicle: { select: { title: true, slug: true } },
+  vehicleInterests: {
+    orderBy: { isPrimary: "desc" as const },
+    take: 3,
+    select: {
+      isPrimary: true,
+      vehicle: { select: { title: true } },
+    },
+  },
 } as const;
 
 export type AdminLeadRow = Prisma.LeadGetPayload<{ select: typeof ADMIN_LEAD_SELECT }>;
@@ -201,12 +211,18 @@ export async function listAdminLeads(opts: {
     }),
   ]);
 
-  return { leads, totalCount };
+  return {
+    leads: leads.map((lead) => ({
+      ...lead,
+      vehicleLabel: leadVehicleLabel(lead),
+    })),
+    totalCount,
+  };
 }
 
 export async function listAdminLeadsForKanban(opts: AdminLeadFilterInput & { take?: number }) {
   const where = buildAdminLeadWhere(opts);
-  return prisma.lead.findMany({
+  const leads = await prisma.lead.findMany({
     where,
     orderBy: { createdAt: "desc" },
     take: opts.take ?? 300,
@@ -217,8 +233,30 @@ export async function listAdminLeadsForKanban(opts: AdminLeadFilterInput & { tak
       type: true,
       status: true,
       createdAt: true,
+      metadataJson: true,
       vehicle: { select: { title: true } },
+      vehicleInterests: {
+        orderBy: { isPrimary: "desc" as const },
+        take: 3,
+        select: {
+          isPrimary: true,
+          vehicle: { select: { title: true } },
+        },
+      },
     },
+  });
+
+  return leads.map((lead) => {
+    const label = leadVehicleLabel(lead);
+    return {
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      type: lead.type,
+      status: lead.status,
+      createdAt: lead.createdAt,
+      vehicle: label ? { title: label } : null,
+    };
   });
 }
 

@@ -89,7 +89,7 @@ export function AssignLeadForm({
           });
         }}
       >
-        <SelectTrigger className="w-full dark:border-zinc-700 dark:bg-zinc-900">
+        <SelectTrigger className="w-full">
           <SelectValue placeholder="Selecionar vendedor" />
         </SelectTrigger>
         <SelectContent>

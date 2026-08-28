@@ -11,6 +11,8 @@ export type NormalizedInbound = {
   hasMedia: boolean;
   mediaRef: Record<string, unknown> | null;
   rawMessage: Record<string, unknown> | null;
+  /** WhatsApp profile name from Evolution (`pushName` / `notifyName`). */
+  pushName: string | null;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -70,6 +72,17 @@ function detectMedia(message: Record<string, unknown> | null): {
     return { hasMedia: false, messageType: "extendedTextMessage", mediaRef: null };
   }
   return { hasMedia: false, messageType: null, mediaRef: null };
+}
+
+/** Evolution `pushName` / `notifyName` — never a JID or placeholder. */
+export function extractWhatsAppPushName(item: Record<string, unknown>): string | null {
+  const raw = item.pushName ?? item.notifyName;
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  if (value.length < 2) return null;
+  if (value.includes("@")) return null;
+  if (value.toLowerCase().startsWith("whatsapp ")) return null;
+  return value;
 }
 
 function collectCandidates(payload: Record<string, unknown>): Record<string, unknown>[] {
@@ -138,6 +151,7 @@ export function extractInboundMessages(payload: unknown): NormalizedInbound[] {
       hasMedia: media.hasMedia,
       mediaRef: media.mediaRef,
       rawMessage: message,
+      pushName: fromMe ? null : extractWhatsAppPushName(item),
     });
   }
   return results;

@@ -169,6 +169,7 @@ export function LeadsFilterToolbar({
       else sp.delete("q");
       sp.set("page", "1");
       router.replace(`${pathname}?${sp.toString()}`);
+      router.refresh();
     });
   }, [debouncedSearch, pathname, router, searchParams]);
 
@@ -179,6 +180,7 @@ export function LeadsFilterToolbar({
         mutate(sp);
         const qs = sp.toString();
         router.push(qs ? `${pathname}?${qs}` : pathname);
+        router.refresh();
       });
     },
     [pathname, router, searchParams],
@@ -228,6 +230,7 @@ export function LeadsFilterToolbar({
       const qs = sp.toString();
       router.push(qs ? `${pathname}?${qs}` : pathname);
       setDraft(filtersToDraft([], [], [], "all"));
+      router.refresh();
     });
   }
 

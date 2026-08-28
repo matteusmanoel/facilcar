@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/cn";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type NotificationItem = {
   id: string;
@@ -26,7 +27,13 @@ const TYPE_LABELS: Record<string, string> = {
   NEW_HOT_LEAD: "Lead quente",
 };
 
-export function SdrNotificationBadge({ className }: { className?: string }) {
+export function SdrNotificationBadge({
+  className,
+  placement = "sidebar",
+}: {
+  className?: string;
+  placement?: "sidebar" | "header";
+}) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
@@ -97,72 +104,73 @@ export function SdrNotificationBadge({ className }: { className?: string }) {
     }
   }, [items]);
 
-  return (
-    <div className={cn("relative", className)}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="relative rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-        title="Notificações SDR"
-        aria-label={`Notificações SDR${unreadCount > 0 ? ` (${unreadCount})` : ""}`}
-      >
-        <Bell className="h-4 w-4" />
-        {unreadCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-facil-orange px-1 text-[10px] font-bold text-white">
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        ) : null}
-      </button>
+  const sidebar = placement === "sidebar";
 
-      {open ? (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-40 cursor-default"
-            aria-label="Fechar notificações"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-facil-border bg-facil-card shadow-lg">
-            <div className="flex items-center justify-between border-b border-facil-border px-3 py-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Oportunidades
-              </p>
-              {items.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => void markAllSeen()}
-                  className="text-xs font-medium text-facil-orange hover:underline"
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "relative rounded-md p-1.5 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-950 dark:hover:bg-zinc-800 dark:hover:text-white",
+            className,
+          )}
+          title="Notificações SDR"
+          aria-label={`Notificações SDR${unreadCount > 0 ? ` (${unreadCount})` : ""}`}
+        >
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-facil-orange px-1 text-[10px] font-bold text-white">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          ) : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={sidebar ? "top" : "bottom"}
+        align={sidebar ? "start" : "end"}
+        sideOffset={8}
+        collisionPadding={12}
+        className="w-72 p-0"
+      >
+        <div className="flex items-center justify-between border-b border-facil-border px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-facil-muted">
+            Oportunidades
+          </p>
+          {items.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => void markAllSeen()}
+              className="text-xs font-medium text-facil-orange hover:underline"
+            >
+              Marcar vistas
+            </button>
+          ) : null}
+        </div>
+        <ul className="max-h-64 overflow-y-auto py-1">
+          {items.length === 0 ? (
+            <li className="px-3 py-6 text-center text-xs text-facil-muted">
+              Nenhuma notificação nova
+            </li>
+          ) : (
+            items.map((n) => (
+              <li key={n.id}>
+                <Link
+                  href={`/admin/leads/${n.leadId}`}
+                  onClick={() => setOpen(false)}
+                  className="block px-3 py-2 hover:bg-facil-surface"
                 >
-                  Marcar vistas
-                </button>
-              ) : null}
-            </div>
-            <ul className="max-h-64 overflow-y-auto py-1">
-              {items.length === 0 ? (
-                <li className="px-3 py-6 text-center text-xs text-zinc-400">
-                  Nenhuma notificação nova
-                </li>
-              ) : (
-                items.map((n) => (
-                  <li key={n.id}>
-                    <Link
-                      href={`/admin/leads/${n.leadId}`}
-                      onClick={() => setOpen(false)}
-                      className="block px-3 py-2 hover:bg-facil-surface"
-                    >
-                      <p className="text-sm font-medium text-foreground">{n.lead.name}</p>
-                      <p className="text-xs text-facil-muted">
-                        {TYPE_LABELS[n.type] ?? n.type} ·{" "}
-                        {new Date(n.createdAt).toLocaleString("pt-BR")}
-                      </p>
-                    </Link>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-        </>
-      ) : null}
-    </div>
+                  <p className="text-sm font-medium text-foreground">{n.lead.name}</p>
+                  <p className="text-xs text-facil-muted">
+                    {TYPE_LABELS[n.type] ?? n.type} ·{" "}
+                    {new Date(n.createdAt).toLocaleString("pt-BR")}
+                  </p>
+                </Link>
+              </li>
+            ))
+          )}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }

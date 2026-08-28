@@ -10,7 +10,10 @@ const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
 const SheetClose = DialogPrimitive.Close;
 
-type SheetContextValue = { open: boolean };
+type SheetContextValue = {
+  open: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
 const SheetContext = React.createContext<SheetContextValue>({ open: false });
 
 function SheetRoot({
@@ -20,7 +23,7 @@ function SheetRoot({
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
   return (
-    <SheetContext.Provider value={{ open: !!open }}>
+    <SheetContext.Provider value={{ open: !!open, onOpenChange }}>
       <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} {...props}>
         {children}
       </DialogPrimitive.Root>
@@ -51,7 +54,7 @@ function SheetContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   side?: "right" | "left";
 }) {
-  const { open } = React.useContext(SheetContext);
+  const { open, onOpenChange } = React.useContext(SheetContext);
   const reduceMotion = useReducedMotion();
   const motionCfg = sideMotion[side];
 
@@ -59,48 +62,43 @@ function SheetContent({
     <AnimatePresence>
       {open ? (
         <DialogPrimitive.Portal forceMount>
-          <DialogPrimitive.Content asChild {...props}>
+          <DialogPrimitive.Overlay asChild forceMount>
             <motion.div
-              className={cn(
-                "fixed inset-0 z-50 flex",
-                side === "right" ? "justify-end" : "justify-start",
-              )}
+              className="fixed inset-0 z-50 cursor-default bg-black/50"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: reduceMotion ? 0 : 0.2 }}
+              transition={{ duration: reduceMotion ? 0 : 0.25 }}
+              onPointerDown={() => onOpenChange?.(false)}
+              onClick={() => onOpenChange?.(false)}
+            />
+          </DialogPrimitive.Overlay>
+          <DialogPrimitive.Content
+            asChild
+            onPointerDownOutside={() => onOpenChange?.(false)}
+            onInteractOutside={() => onOpenChange?.(false)}
+            {...props}
+          >
+            <motion.div
+              className={cn(
+                "fixed z-50 flex h-full w-full max-w-md flex-col border-facil-border bg-facil-card text-foreground shadow-2xl",
+                motionCfg.className,
+                className,
+              )}
+              initial={reduceMotion ? false : motionCfg.initial}
+              animate={motionCfg.animate}
+              exit={reduceMotion ? undefined : motionCfg.exit}
+              transition={
+                reduceMotion
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 380, damping: 36, mass: 0.8 }
+              }
             >
-              <DialogPrimitive.Overlay asChild forceMount>
-                <motion.div
-                  className="absolute inset-0 bg-black/50"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.25 }}
-                />
-              </DialogPrimitive.Overlay>
-
-              <motion.div
-                className={cn(
-                  "relative z-10 flex h-full w-full max-w-md flex-col border-facil-border bg-facil-card text-foreground shadow-2xl",
-                  motionCfg.className,
-                  className,
-                )}
-                initial={reduceMotion ? false : motionCfg.initial}
-                animate={motionCfg.animate}
-                exit={reduceMotion ? undefined : motionCfg.exit}
-                transition={
-                  reduceMotion
-                    ? { duration: 0 }
-                    : { type: "spring", stiffness: 380, damping: 36, mass: 0.8 }
-                }
-              >
-                {children}
-                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md p-1 text-facil-muted opacity-70 transition hover:bg-facil-surface hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-facil-orange">
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">Fechar</span>
-                </DialogPrimitive.Close>
-              </motion.div>
+              {children}
+              <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md p-1 text-facil-muted opacity-70 transition hover:bg-facil-surface hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-facil-orange">
+                <X className="h-4 w-4" />
+                <span className="sr-only">Fechar</span>
+              </DialogPrimitive.Close>
             </motion.div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
