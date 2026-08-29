@@ -44,9 +44,16 @@ type VehicleForForm = {
   color: string | null;
   doors: number | null;
   plateFinal: string | null;
+  plate: string | null;
+  stockType: string | null;
+  commercialHistory: string | null;
   priceCash: unknown;
   priceTradeIn: unknown;
   pricePromotional: unknown;
+  priceFipe: unknown;
+  priceRetailWithWarranty: unknown;
+  priceRetailAsIs: unknown;
+  priceOwnerAsking: unknown;
   aceitaTroca: boolean;
   aceitaSemEntrada: boolean;
   parcelaBase: unknown;
@@ -62,10 +69,14 @@ type VehicleForForm = {
   featured: boolean;
   images: { url: string }[];
   features: { label: string }[];
+  owners?: { partnerId: string }[];
 };
+
+type PartnerOption = { id: string; name: string };
 
 interface VehicleFormProps {
   brands: BrandOption[];
+  partners?: PartnerOption[];
   vehicle?: VehicleForForm | null;
   readOnly?: boolean;
   canManageBrands?: boolean;
@@ -112,9 +123,22 @@ const TRANS_LABELS: Record<string, string> = {
 
 const STEP_FIELDS: Record<number, (keyof CreateVehicleInput)[]> = {
   0: ["title", "brandId", "model", "type", "status"],
-  1: ["transmission", "engineDisplacementLiters"],
-  2: ["priceCash"],
+  1: ["engineDisplacementLiters"],
+  2: [],
   3: [],
+};
+
+const STOCK_TYPES = ["OWNED", "CONSIGNED"] as const;
+const STOCK_LABELS: Record<string, string> = {
+  OWNED: "Próprio",
+  CONSIGNED: "Consignado",
+};
+const HISTORY_TYPES = ["CLEAN", "AUCTION", "RECOVERED_CLAIM", "AUCTION_AND_RECOVERED_CLAIM"] as const;
+const HISTORY_LABELS: Record<string, string> = {
+  CLEAN: "Histórico limpo",
+  AUCTION: "Leilão",
+  RECOVERED_CLAIM: "Recuperado de sinistro",
+  AUCTION_AND_RECOVERED_CLAIM: "Leilão e recuperado de sinistro",
 };
 
 const SELECT_NONE = "__none__";
@@ -260,7 +284,7 @@ function FormTextarea({
   );
 }
 
-export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands = false }: VehicleFormProps) {
+export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, canManageBrands = false }: VehicleFormProps) {
   const router = useRouter();
   const isEdit = !!vehicle;
   const [step, setStep] = useState(0);
@@ -296,10 +320,19 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
         vehicle?.engineDisplacementLiters != null ? Number(vehicle.engineDisplacementLiters) : undefined,
       color: vehicle?.color ?? "",
       doors: vehicle?.doors ?? undefined,
+      plate: vehicle?.plate ?? "",
       plateFinal: vehicle?.plateFinal ?? "",
+      stockType: (vehicle?.stockType as CreateVehicleInput["stockType"]) ?? undefined,
+      commercialHistory: (vehicle?.commercialHistory as CreateVehicleInput["commercialHistory"]) ?? undefined,
+      partnerIds: vehicle?.owners?.map((o) => o.partnerId) ?? [],
       priceCash: vehicle?.priceCash != null ? Number(vehicle.priceCash) : undefined,
       priceTradeIn: vehicle?.priceTradeIn != null ? Number(vehicle.priceTradeIn) : undefined,
       pricePromotional: vehicle?.pricePromotional != null ? Number(vehicle.pricePromotional) : undefined,
+      priceFipe: vehicle?.priceFipe != null ? Number(vehicle.priceFipe) : undefined,
+      priceRetailWithWarranty:
+        vehicle?.priceRetailWithWarranty != null ? Number(vehicle.priceRetailWithWarranty) : undefined,
+      priceRetailAsIs: vehicle?.priceRetailAsIs != null ? Number(vehicle.priceRetailAsIs) : undefined,
+      priceOwnerAsking: vehicle?.priceOwnerAsking != null ? Number(vehicle.priceOwnerAsking) : undefined,
       aceitaTroca: vehicle?.aceitaTroca ?? false,
       aceitaSemEntrada: vehicle?.aceitaSemEntrada ?? false,
       parcelaBase: vehicle?.parcelaBase != null ? Number(vehicle.parcelaBase) : undefined,
@@ -324,9 +357,15 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
   const vehicleStatus = watch("status");
   const fuelType = watch("fuelType");
   const transmission = watch("transmission");
+  const stockType = watch("stockType");
+  const commercialHistory = watch("commercialHistory");
+  const partnerIds = watch("partnerIds") ?? [];
   const priceCash = watch("priceCash");
   const pricePromotional = watch("pricePromotional");
   const priceTradeIn = watch("priceTradeIn");
+  const priceFipe = watch("priceFipe");
+  const priceRetailAsIs = watch("priceRetailAsIs");
+  const priceOwnerAsking = watch("priceOwnerAsking");
   const parcelaBase = watch("parcelaBase");
   const entradaMinima = watch("entradaMinima");
   const rendaMinimaSugerida = watch("rendaMinimaSugerida");
@@ -446,6 +485,10 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
     }
     if (
       [
+        "priceRetailWithWarranty",
+        "priceRetailAsIs",
+        "priceOwnerAsking",
+        "priceFipe",
         "priceTradeIn",
         "pricePromotional",
         "parcelaBase",
@@ -460,7 +503,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
       return 2;
     }
     if (
-      ["yearManufacture", "yearModel", "mileage", "fuelType", "color", "doors", "plateFinal", "city", "state"].includes(
+      ["yearManufacture", "yearModel", "mileage", "fuelType", "color", "doors", "plate", "plateFinal", "city", "state"].includes(
         field,
       )
     ) {
@@ -503,6 +546,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
       formData.set("featured", typed.featured ? "true" : "false");
       formData.set("aceitaTroca", typed.aceitaTroca ? "true" : "false");
       formData.set("aceitaSemEntrada", typed.aceitaSemEntrada ? "true" : "false");
+      formData.set("partnerIds", (typed.partnerIds ?? []).join(","));
       if (typed.fuelType === undefined) formData.set("fuelType", "");
       if (isEdit) formData.set("id", vehicle!.id);
 
@@ -604,7 +648,66 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
                     }
                     items={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
                   />
+                  <FormSelect
+                    label="Tipo de estoque"
+                    error={errors.stockType?.message}
+                    value={stockType ? String(stockType) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue("stockType", (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["stockType"], {
+                        shouldValidate: true,
+                      })
+                    }
+                    items={[
+                      { value: SELECT_NONE, label: "Não informado" },
+                      ...STOCK_TYPES.map((s) => ({ value: s, label: STOCK_LABELS[s] })),
+                    ]}
+                  />
+                  <FormSelect
+                    label="Histórico comercial"
+                    error={errors.commercialHistory?.message}
+                    value={commercialHistory ? String(commercialHistory) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue(
+                        "commercialHistory",
+                        (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["commercialHistory"],
+                        { shouldValidate: true },
+                      )
+                    }
+                    items={[
+                      { value: SELECT_NONE, label: "Não informado" },
+                      ...HISTORY_TYPES.map((s) => ({ value: s, label: HISTORY_LABELS[s] })),
+                    ]}
+                  />
                 </div>
+                {stockType === "OWNED" && partners.length > 0 ? (
+                  <div className="space-y-2">
+                    <FieldLabel>Sócios proprietários</FieldLabel>
+                    <p className="text-xs text-facil-muted">
+                      Participação societária fica em branco até ser informada. Não assume divisão igual.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {partners.map((partner) => {
+                        const checked = partnerIds.includes(partner.id);
+                        return (
+                          <label key={partner.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked
+                                  ? partnerIds.filter((id) => id !== partner.id)
+                                  : [...partnerIds, partner.id];
+                                setValue("partnerIds", next, { shouldDirty: true });
+                              }}
+                              className="h-4 w-4 rounded border-zinc-300 accent-facil-orange"
+                            />
+                            {partner.name}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
                 <FormInput
                   label="Descrição curta"
                   placeholder="Resumo em uma linha"
@@ -646,7 +749,6 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
                   />
                   <FormSelect
                     label="Câmbio"
-                    required
                     error={errors.transmission?.message}
                     value={transmission ? String(transmission) : SELECT_NONE}
                     onValueChange={(v) =>
@@ -664,7 +766,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
                   />
                 </div>
                 <p className="text-xs text-facil-muted">
-                  Cilindrada só com o número comercial (ex.: 1.0, 1.4, 1.8, 2.0). Combustível é opcional.
+                  Cilindrada só com o número comercial (ex.: 1.0, 1.4, 1.8, 2.0). Combustível e câmbio são opcionais.
                 </p>
                 <p className="text-sm text-facil-muted">Demais dados</p>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -695,6 +797,7 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
                     placeholder="4"
                     {...register("doors", { valueAsNumber: true })}
                   />
+                  <FormInput label="Placa" placeholder="QIV-0G93" {...register("plate")} error={errors.plate?.message} />
                   <FormInput label="Final da placa" placeholder="7" maxLength={1} {...register("plateFinal")} />
                 </div>
               </div>
@@ -706,17 +809,45 @@ export function VehicleForm({ brands, vehicle, readOnly = false, canManageBrands
                 <SectionTitle>Precificação e localização</SectionTitle>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <FormCurrencyInput
-                    label="Preço à vista (R$)"
-                    required
+                    label={stockType === "CONSIGNED" ? "Preço anunciado com garantia (R$)" : "Preço à vista (R$)"}
                     error={errors.priceCash?.message}
                     value={typeof priceCash === "number" ? priceCash : undefined}
-                    onValueChange={(n) =>
+                    onValueChange={(n) => {
                       setValue("priceCash", n as CreateVehicleInput["priceCash"], {
                         shouldValidate: true,
                         shouldDirty: true,
-                      })
-                    }
+                      });
+                      if (stockType === "CONSIGNED") {
+                        setValue("priceRetailWithWarranty", n, { shouldDirty: true });
+                      }
+                    }}
                   />
+                  <FormCurrencyInput
+                    label="FIPE (R$)"
+                    error={errors.priceFipe?.message}
+                    value={typeof priceFipe === "number" ? priceFipe : undefined}
+                    onValueChange={(n) => setValue("priceFipe", n, { shouldValidate: true, shouldDirty: true })}
+                  />
+                  {stockType === "CONSIGNED" ? (
+                    <>
+                      <FormCurrencyInput
+                        label="Repasse sem garantia (R$)"
+                        error={errors.priceRetailAsIs?.message}
+                        value={typeof priceRetailAsIs === "number" ? priceRetailAsIs : undefined}
+                        onValueChange={(n) =>
+                          setValue("priceRetailAsIs", n, { shouldValidate: true, shouldDirty: true })
+                        }
+                      />
+                      <FormCurrencyInput
+                        label="Pedido do proprietário (interno, R$)"
+                        error={errors.priceOwnerAsking?.message}
+                        value={typeof priceOwnerAsking === "number" ? priceOwnerAsking : undefined}
+                        onValueChange={(n) =>
+                          setValue("priceOwnerAsking", n, { shouldValidate: true, shouldDirty: true })
+                        }
+                      />
+                    </>
+                  ) : null}
                   <FormCurrencyInput
                     label="Preço promocional (R$)"
                     error={errors.pricePromotional?.message}

@@ -18,7 +18,8 @@
     "test:unit": "vitest run",
     "catalog-import:worker": "tsx scripts/catalog-import-worker.ts",
     "catalog-import:inspect": "tsx scripts/catalog-import-inspect.ts",
-    "catalog-import:retry": "tsx scripts/catalog-import-retry.ts"
+    "catalog-import:retry": "tsx scripts/catalog-import-retry.ts",
+    "inventory:import": "tsx scripts/inventory-spreadsheet-import.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -53,6 +54,7 @@
     "pg": "^8.20.0",
     "posthog-js": "^1.361.0",
     "prisma": "^7.5.0",
+    "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-day-picker": "^9.14.0",
     "react-dom": "19.2.3",
@@ -66,6 +68,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

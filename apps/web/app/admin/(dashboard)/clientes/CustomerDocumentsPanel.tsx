@@ -17,7 +17,13 @@ type SdrDoc = {
   extractionStatus: string;
   createdAt: string;
   leadId: string;
+  storageKey?: string | null;
 };
+
+function sdrDocNeedsManualUpload(doc: SdrDoc): boolean {
+  const key = (doc.storageKey || "").trim();
+  return !key || key.startsWith("stub/") || doc.extractionStatus === "FAILED";
+}
 
 export function CustomerDocumentsPanel({
   customerId,
@@ -148,7 +154,13 @@ export function CustomerDocumentsPanel({
               <li key={doc.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                 <span className="truncate text-foreground">
                   {doc.documentType} · {doc.extractionStatus}
+                  {sdrDocNeedsManualUpload(doc) ? (
+                    <span className="ml-2 text-xs font-medium text-facil-orange">
+                      Falha no upload — anexe manualmente
+                    </span>
+                  ) : null}
                 </span>
+                {sdrDocNeedsManualUpload(doc) ? null : (
                 <button
                   type="button"
                   className="text-xs font-medium text-facil-orange hover:underline"
@@ -156,6 +168,7 @@ export function CustomerDocumentsPanel({
                 >
                   Baixar
                 </button>
+                )}
               </li>
             ))}
           </ul>

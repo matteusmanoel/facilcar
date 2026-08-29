@@ -25,6 +25,7 @@ const POLL_MS = 15_000;
 const TYPE_LABELS: Record<string, string> = {
   NEW_QUALIFIED: "Lead qualificado",
   NEW_HOT_LEAD: "Lead quente",
+  DOCUMENT_UPLOAD_FAILED: "Falha no upload de documento — anexe manualmente",
 };
 
 export function SdrNotificationBadge({

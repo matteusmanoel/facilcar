@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { guardVehicleWrite } from "@/features/auth/server/rbac";
-import { getBrandsForVehicleForm } from "@/features/catalog/server/queries";
+import { getBrandsForVehicleForm, getPartnersForVehicleForm } from "@/features/catalog/server/queries";
 import { VehicleForm } from "../VehicleForm";
 
 export default async function AdminVeiculoNovoPage() {
   await guardVehicleWrite();
-  const brands = await getBrandsForVehicleForm();
+  const [brands, partners] = await Promise.all([getBrandsForVehicleForm(), getPartnersForVehicleForm()]);
 
   return (
     <div className="admin-page flex flex-col gap-4">
@@ -24,7 +24,7 @@ export default async function AdminVeiculoNovoPage() {
         </p>
       </div>
 
-      <VehicleForm brands={brands} canManageBrands />
+      <VehicleForm brands={brands} partners={partners} canManageBrands />
     </div>
   );
 }

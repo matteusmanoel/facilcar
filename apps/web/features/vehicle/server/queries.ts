@@ -1,5 +1,11 @@
-import type { FuelType, Prisma, Transmission, VehicleStatus, VehicleType } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  PRINT_STOCK_LIMIT,
+  applyPrintListDefaults,
+  buildAdminVehicleWhere,
+  type AdminVehicleFilterInput,
+} from "@/features/vehicle/lib/admin-vehicle-filters";
 
 /** Lista de veículo com marca + imagens (cards / relacionados). Exportado para páginas evitarem `any` com `Promise.all`. */
 export type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
@@ -63,6 +69,7 @@ const ADMIN_VEHICLE_SELECT = {
   slug: true,
   title: true,
   status: true,
+  stockType: true,
   priceCash: true,
   updatedAt: true,
   brand: { select: { name: true } },
@@ -71,56 +78,46 @@ const ADMIN_VEHICLE_SELECT = {
 
 export type AdminVehicleRow = Prisma.VehicleGetPayload<{ select: typeof ADMIN_VEHICLE_SELECT }>;
 
-export async function listAdminVehicles(opts: {
-  page: number;
-  pageSize: number;
-  statuses?: VehicleStatus[];
-  search?: string;
-  brandIds?: string[];
-  types?: VehicleType[];
-  featuredValues?: boolean[];
-  fuelTypes?: FuelType[];
-  transmissions?: Transmission[];
-  priceMin?: number;
-  priceMax?: number;
-  yearMin?: number;
-  yearMax?: number;
-}) {
-  const where: Prisma.VehicleWhereInput = {};
-  if (opts.statuses?.length) where.status = { in: opts.statuses };
-  if (opts.brandIds?.length) where.brandId = { in: opts.brandIds };
-  if (opts.types?.length) where.type = { in: opts.types };
-  if (opts.fuelTypes?.length) where.fuelType = { in: opts.fuelTypes };
-  if (opts.transmissions?.length) where.transmission = { in: opts.transmissions };
+const PRINT_VEHICLE_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  type: true,
+  model: true,
+  version: true,
+  yearManufacture: true,
+  yearModel: true,
+  mileage: true,
+  fuelType: true,
+  transmission: true,
+  engineDisplacementLiters: true,
+  color: true,
+  doors: true,
+  plateFinal: true,
+  plate: true,
+  priceCash: true,
+  pricePromotional: true,
+  priceTradeIn: true,
+  stockType: true,
+  commercialHistory: true,
+  aceitaTroca: true,
+  aceitaSemEntrada: true,
+  featured: true,
+  parcelaBase: true,
+  entradaMinima: true,
+  rendaMinimaSugerida: true,
+  prioridade: true,
+  city: true,
+  state: true,
+  brand: { select: { name: true } },
+} as const;
 
-  if (opts.featuredValues?.length === 1) {
-    where.featured = opts.featuredValues[0];
-  }
+export type PrintStockVehicle = Prisma.VehicleGetPayload<{ select: typeof PRINT_VEHICLE_SELECT }>;
 
-  if (opts.priceMin != null || opts.priceMax != null) {
-    where.priceCash = {
-      ...(opts.priceMin != null ? { gte: opts.priceMin } : {}),
-      ...(opts.priceMax != null ? { lte: opts.priceMax } : {}),
-    };
-  }
-
-  if (opts.yearMin != null || opts.yearMax != null) {
-    where.yearModel = {
-      ...(opts.yearMin != null ? { gte: opts.yearMin } : {}),
-      ...(opts.yearMax != null ? { lte: opts.yearMax } : {}),
-    };
-  }
-
-  const q = opts.search?.trim();
-  if (q) {
-    where.OR = [
-      { title: { contains: q, mode: "insensitive" } },
-      { model: { contains: q, mode: "insensitive" } },
-      { slug: { contains: q, mode: "insensitive" } },
-      { brand: { name: { contains: q, mode: "insensitive" } } },
-    ];
-  }
-
+export async function listAdminVehicles(
+  opts: AdminVehicleFilterInput & { page: number; pageSize: number },
+) {
+  const where = buildAdminVehicleWhere(opts);
   const skip = (Math.max(1, opts.page) - 1) * opts.pageSize;
 
   const [totalCount, vehicles] = await Promise.all([
@@ -135,4 +132,31 @@ export async function listAdminVehicles(opts: {
   ]);
 
   return { vehicles, totalCount };
+}
+
+export async function listAdminVehiclesForPrint(opts: AdminVehicleFilterInput) {
+  const where = buildAdminVehicleWhere(applyPrintListDefaults(opts));
+
+  const [totalCount, vehicles] = await Promise.all([
+    prisma.vehicle.count({ where }),
+    prisma.vehicle.findMany({
+      where,
+      orderBy: [{ brand: { name: "asc" } }, { model: "asc" }, { yearModel: "asc" }],
+      take: PRINT_STOCK_LIMIT,
+      select: PRINT_VEHICLE_SELECT,
+    }),
+  ]);
+
+  return { vehicles, totalCount, limit: PRINT_STOCK_LIMIT };
+}
+
+export async function getVehicleForCustomerSheet(id: string) {
+  return prisma.vehicle.findUnique({
+    where: { id },
+    include: {
+      brand: true,
+      images: { orderBy: { sortOrder: "asc" as const } },
+      features: { orderBy: { sortOrder: "asc" as const } },
+    },
+  });
 }

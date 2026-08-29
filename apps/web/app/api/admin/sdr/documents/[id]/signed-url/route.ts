@@ -51,6 +51,14 @@ export async function GET(_req: Request, context: RouteContext) {
       return NextResponse.json({ error: "Documento não encontrado" }, { status: 404 });
     }
 
+    const storageKey = (doc.storageKey || "").trim();
+    if (!storageKey || storageKey.startsWith("stub/")) {
+      return NextResponse.json(
+        { error: "Falha no upload — anexe o documento manualmente." },
+        { status: 404 },
+      );
+    }
+
     if (!isVehicleStorageConfigured()) {
       return NextResponse.json(
         {
@@ -63,10 +71,10 @@ export async function GET(_req: Request, context: RouteContext) {
 
     try {
       const client = getVehicleImagesS3Client();
-      const fileName = fileNameFromStorageKey(doc.storageKey);
+      const fileName = fileNameFromStorageKey(storageKey);
       const command = new GetObjectCommand({
         Bucket: getVehicleStorageBucket(),
-        Key: doc.storageKey,
+        Key: storageKey,
         ResponseContentType: doc.mimeType ?? undefined,
         ResponseContentDisposition: attachmentDisposition(fileName),
       });
