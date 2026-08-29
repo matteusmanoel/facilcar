@@ -53,6 +53,7 @@ lib/generated/prisma/
 
 # IDE
 .idea/
+.cursor/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json.example
@@ -64,6 +65,13 @@ lib/generated/prisma/
 
 # Local personal/test documents — never commit
 /CNH-e.pdf
+docs/*.docx
+docs/*.json
+/estoque.json
+apps/sdr/docs/chats/
+apps/web/public/facilcar-julia-sdr-handoff-*.md
+# Source raster kept locally; the site serves the webp
+apps/web/public/frente-loja.png
 
 # Accidental empty root lockfile (workspace uses npm in apps/web)
 /pnpm-lock.yaml
