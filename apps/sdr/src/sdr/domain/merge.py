@@ -193,6 +193,10 @@ def _apply_pending_and_scope(
             if facts.alternative_scope is None and state.alternative_scope == AlternativeScope.NONE:
                 state.alternative_scope = AlternativeScope.SIMILAR
             state.pending_interaction = PendingInteraction.NONE
+            if state.installment_capacity is not None:
+                state.facts["budget"] = state.installment_capacity
+                state.facts["max_price"] = state.installment_capacity
+                state.budget_status = BudgetStatus.PROVIDED
             return
         if resolution == PendingResolution.REJECT:
             state.pending_interaction = PendingInteraction.NONE
@@ -277,6 +281,10 @@ def deterministic_merge(
         visit_invited=prev.visit_invited,
         visit_preferred_time=prev.visit_preferred_time,
         documents_asked=prev.documents_asked,
+        installment_asked=prev.installment_asked,
+        installment_mismatch_offered=prev.installment_mismatch_offered,
+        installment_capacity=prev.installment_capacity,
+        last_shown_price_cash=prev.last_shown_price_cash,
     )
 
     state.language = _merge_language(state.language, facts.language)

@@ -144,22 +144,49 @@ def test_storage_stub_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not is_storage_configured()
     uploaded = upload_document(
         b"doc-bytes",
-        lead_id="lead_abc",
+        customer_id="lead_abc",
         document_type="CNH",
         mime_type="image/jpeg",
     )
     assert uploaded.stub is True
-    assert uploaded.storage_key.startswith("stub/lead_abc/cnh_")
+    assert uploaded.storage_key.startswith("stub/customer-documents/lead_abc/cnh_")
     assert uploaded.storage_key.endswith(".jpg")
-    assert uploaded.bucket == "sdr-documents"
+    assert uploaded.bucket == "vehicle-images"
+    assert uploaded.uploaded is False
 
 
 def test_build_storage_key_shape() -> None:
     key = build_storage_key(
-        "lead1",
+        "cust1",
         "INCOME_PROOF",
         extension="pdf",
         timestamp=1724628000,
         rand="a3b2c1",
     )
-    assert key == "lead1/income_proof_1724628000_a3b2c1.pdf"
+    assert key == "customer-documents/cust1/income_proof_1724628000_a3b2c1.pdf"
+
+
+def test_configured_upload_failure_does_not_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STORAGE_ENDPOINT", "https://s3.example")
+    monkeypatch.setenv("STORAGE_ACCESS_KEY", "ak")
+    monkeypatch.setenv("STORAGE_SECRET_KEY", "sk")
+    monkeypatch.setenv("STORAGE_BUCKET_NAME", "vehicle-images")
+
+    class Boom:
+        def put_object(self, **kwargs):
+            raise RuntimeError("NoSuchBucket")
+
+    monkeypatch.setattr(
+        "sdr.infrastructure.storage_client._s3_client",
+        lambda: Boom(),
+    )
+    uploaded = upload_document(
+        b"doc-bytes",
+        customer_id="cust_1",
+        document_type="CNH",
+        mime_type="application/pdf",
+    )
+    assert uploaded.stub is False
+    assert uploaded.uploaded is False
+    assert uploaded.storage_key == ""
+    assert uploaded.bucket == "vehicle-images"

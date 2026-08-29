@@ -96,7 +96,7 @@ def test_parcelar_is_same_payment_class_as_financiar() -> None:
     assert decide(merged).ask_field == "down_payment"
 
 
-def test_down_payment_then_documents_not_consortium() -> None:
+def test_down_payment_then_installment_not_consortium() -> None:
     facts = {
         "desired_model": "Corolla",
         "deal_type": "purchase",
@@ -110,7 +110,7 @@ def test_down_payment_then_documents_not_consortium() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "documents"
+    assert plan.ask_field == "desired_installment"
 
 
 def test_financing_visit_only_after_documents_asked() -> None:
@@ -124,6 +124,7 @@ def test_financing_visit_only_after_documents_asked() -> None:
         facts=facts,
         last_inventory_search_key=inventory_search_key(facts),
         documents_asked=True,
+        installment_asked=True,
     )
     plan = decide(state)
     assert plan.action == Action.REGISTER_VISIT_INTEREST
@@ -198,8 +199,11 @@ async def test_observed_corolla_financing_path_stays_on_roteiro() -> None:
     joined4 = " ".join(r4.outbound_texts).lower()
     assert "consórcio" not in joined4
     assert "uso pessoal" not in joined4
-    assert r4.action_plan.ask_field == "documents"
-    assert "cnh" in joined4 or "holerite" in joined4
+    assert r4.action_plan.ask_field == "desired_installment"
+    assert "parcela" in joined4
+    assert "mês" not in joined4 or "parcela" in joined4
+    assert "quantos meses" not in joined4
+    assert "condições tendem" not in joined4
 
 
 @pytest.mark.asyncio
@@ -236,7 +240,7 @@ async def test_location_question_invites_visit_instead_of_address() -> None:
     assert "ipanema" not in joined
     assert "cep" not in joined
     assert "encaminhar" not in joined
-    assert "café" in joined or "cafe" in joined or "visita" in joined
+    assert "esperamos você" in joined or "loja" in joined
 
 
 @pytest.mark.asyncio
@@ -267,11 +271,11 @@ async def test_onde_fica_a_loja_same_visit_cta_contract() -> None:
     assert result.action_plan.action == Action.SEND_LOCATION
     joined = " ".join(result.outbound_texts).lower()
     assert "rua" not in joined
-    assert "visita" in joined or "café" in joined or "cafe" in joined
+    assert "esperamos você" in joined or "loja" in joined
 
 
 def test_handoff_summary_financing_is_not_cash() -> None:
-    from sdr.application.process_turn import _build_handoff_summary
+    from sdr.domain.vendor_summary import build_vendor_summary
 
     state = _state(
         intent=BusinessIntent.PURCHASE_FINANCING,
@@ -282,7 +286,7 @@ def test_handoff_summary_financing_is_not_cash() -> None:
             "down_payment": 20000,
         },
     )
-    summary = _build_handoff_summary(state)
+    summary = build_vendor_summary(state)
     assert "Compra financiada" in summary
     assert "à vista" not in summary.lower()
 
@@ -305,7 +309,9 @@ async def test_ack_before_next_question_after_deal_type() -> None:
     joined = " ".join(result.outbound_texts)
     assert "anotei" not in joined.lower()
     assert "beleza, então é compra" not in joined.lower()
-    assert "bacana" in joined.lower() or "boas condições" in joined.lower()
+    assert "entendi seu interesse na compra" in joined.lower()
+    assert "que ótimo saber" not in joined.lower()
+    assert "bacana" not in joined.lower()
     assert "à vista" in joined.lower() or "avista" in joined.lower()
     assert "financiado" in joined.lower()
     assert "os dois" not in joined.lower()
@@ -376,12 +382,58 @@ async def test_down_payment_does_not_reshow_inventory() -> None:
         understand=understand,
     )
     assert result.action_plan.action == Action.ASK_INFO
-    assert result.action_plan.ask_field == "documents"
+    assert result.action_plan.ask_field == "desired_installment"
     assert result.outbound_media == []
     joined = " ".join(result.outbound_texts).lower()
-    assert "entrada" in joined or "cnh" in joined or "holerite" in joined
-    assert "anotei" not in joined
+    assert "parcela" in joined
+    # New template acknowledges entry concisely without the old "taxas tendem" phrasing.
+    assert "condições tendem a ser melhores" not in joined
+    # Must not echo the exact amount the customer provided.
+    assert "20 mil" not in joined
     assert "os dois" not in joined
+
+
+@pytest.mark.asyncio
+async def test_installment_answer_does_not_reshow_photos() -> None:
+    from sdr.domain.budget_status import BudgetStatus
+
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 30000,
+    }
+    key = inventory_search_key(facts)
+
+    async def understand(text: str, state: ConversationCanonicalState) -> TurnFacts:
+        return TurnFacts(
+            intent=BusinessIntent.PURCHASE_FINANCING,
+            facts={
+                "desired_installment": 2000,
+                "budget": 2000,
+                "desired_engine_displacement_liters": 2.0,
+            },
+            budget_status=BudgetStatus.PROVIDED,
+        )
+
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        pending_question="desired_installment",
+        last_inventory_search_key=key,
+        last_shown_vehicle_ids=["veh-corolla"],
+        last_shown_price_cash=84900,
+        assistant_turn_count=4,
+        installment_asked=True,
+    )
+    result = await process_turn(
+        state=state,
+        inbound_text="Até uns 2 mil acho que é ok pagar",
+        understand=understand,
+    )
+    assert result.action_plan.action == Action.ASK_INFO
+    assert result.action_plan.ask_field == "documents"
+    assert result.outbound_media == []
 
 
 @pytest.mark.asyncio
@@ -416,3 +468,128 @@ async def test_document_turn_acks_document_not_financing() -> None:
     joined = " ".join(result.outbound_texts).lower()
     assert "anotei: financiado" not in joined
     assert "documento" in joined or "ficha" in joined or "cnh" in joined
+    assert "quantos meses" not in joined
+    assert "prazo mais curto" not in joined
+
+
+def test_overlay_installment_from_monthly_amount() -> None:
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Civic", "deal_type": "purchase", "down_payment": 10000},
+        pending_question="desired_installment",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "até 2000",
+    )
+    assert facts.facts.get("desired_installment") == 2000
+    assert "budget" not in facts.facts
+
+
+def test_overlay_installment_skip_does_not_block() -> None:
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Civic", "deal_type": "purchase", "down_payment": 8000},
+        pending_question="desired_installment",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "não sei",
+    )
+    assert "desired_installment" not in facts.facts
+
+
+def test_overlay_alternatives_ok_short_yes_is_accept() -> None:
+    from sdr.domain.pending_interaction import PendingResolution
+
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Civic"},
+        pending_question="alternatives_ok",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "Sim, pode mostrar",
+    )
+    assert facts.pending_resolution == PendingResolution.ACCEPT
+
+
+def test_overlay_alternatives_ok_short_no_is_reject() -> None:
+    from sdr.domain.pending_interaction import PendingResolution
+
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Civic"},
+        pending_question="alternatives_ok",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "Não, seguimos com esse",
+    )
+    assert facts.pending_resolution == PendingResolution.REJECT
+
+
+def test_after_installment_asks_documents() -> None:
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 8000,
+        "desired_installment": 2000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        installment_asked=True,
+    )
+    plan = decide(state)
+    assert plan.ask_field == "documents"
+
+
+@pytest.mark.asyncio
+async def test_document_after_installment_invites_visit() -> None:
+    from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
+
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 8000,
+        "desired_installment": 2000,
+    }
+
+    async def understand(text: str, state: ConversationCanonicalState) -> TurnFacts:
+        return TurnFacts(
+            intent=BusinessIntent.PURCHASE_FINANCING,
+            facts={"name": "MATEUS MANOEL FERREIRA"},
+        )
+
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        pending_question="documents",
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        installment_asked=True,
+        assistant_turn_count=6,
+    )
+    inbound = InboundTurn(
+        thread_id=state.thread_id,
+        content_type=ContentType.DOCUMENT,
+        text="nome: MATEUS MANOEL FERREIRA\ntipo: CNH",
+        media_status=MediaStatus.OK,
+    )
+    result = await process_turn(state=state, inbound=inbound, understand=understand)
+    assert result.action_plan.action == Action.REGISTER_VISIT_INTEREST
+    joined = " ".join(result.outbound_texts).lower()
+    assert "documento" in joined or "ficha" in joined
+    assert "encaminhar" not in joined
+    assert "manhã ou tarde" not in joined
+    assert "quantos meses" not in joined
+    assert "café" in joined or "cafe" in joined or "portas abertas" in joined
+

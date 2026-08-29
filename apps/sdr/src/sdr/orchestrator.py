@@ -324,18 +324,25 @@ class Orchestrator:
             doc_type = extracted.document_type or "OTHER"
 
         lead_id: str | None = None
+        customer_id: str | None = None
+        conv = None
         if conversation_id:
             conv = await self.conversations.get_by_id(conversation_id)
             ids = list((conv["activeLeadIds"] if conv else None) or [])
             lead_id = str(ids[0]) if ids else None
+            phone = str((conv["phone"] if conv else "") or "")
+            if phone:
+                customer = await self.customers.upsert_by_phone(phone)
+                customer_id = str(customer["id"])
 
         try:
             uploaded = upload_document(
                 data,
-                lead_id=lead_id or conversation_id or "unknown",
+                customer_id=customer_id or conversation_id or "unknown",
                 document_type=doc_type,
                 mime_type=mime,
             )
+            extraction_status = "DONE" if extracted is not None else "FAILED"
             await self.documents.insert(
                 storage_key=uploaded.storage_key,
                 document_type=doc_type,
@@ -344,8 +351,10 @@ class Orchestrator:
                 mime_type=mime,
                 byte_size=uploaded.byte_size,
                 extracted_json=extracted.as_dict() if extracted is not None else None,
-                extraction_status="DONE" if extracted is not None else "FAILED",
+                extraction_status=extraction_status,
             )
+            if not uploaded.uploaded and lead_id:
+                await self.leads.notify_document_upload_failed(lead_id)
         except Exception:
             logger.exception("document message %s: persist failed", message_id)
 
@@ -385,7 +394,14 @@ class Orchestrator:
             # Quiet window first — do NOT hold the phone lock while waiting,
             # or a second poll (or concurrent seed) fails with lock contention
             # while debounce keeps extending.
-            await wait_until_quiet(self.redis, phone, settings=self.settings)
+            prior = await self.conversations.load_canonical_state(conversation_id)
+            turn_count = prior.assistant_turn_count if prior is not None else 0
+            await wait_until_quiet(
+                self.redis,
+                phone,
+                settings=self.settings,
+                assistant_turn_count=turn_count,
+            )
             if self.redis is not None:
                 async with phone_lock(self.redis, phone, settings=self.settings):
                     return await self._claim_and_run_batch(
@@ -852,10 +868,47 @@ class Orchestrator:
             linked_titles = await self.leads.list_linked_vehicle_titles(
                 list(state.active_lead_ids or [])
             )
+
+            # Inject recent conversation turns into Understanding when using the
+            # default production path. Injected understand functions (tests/replay)
+            # manage their own context and are used as-is.
+            if self.understand is default_understand:
+                _recent = await self.conversations.list_recent_turns(
+                    conversation_id,
+                    limit=5,
+                    exclude_message_ids=batch.message_ids,
+                )
+
+                async def _understand_with_history(
+                    text: str,
+                    _state: ConversationCanonicalState,
+                    *,
+                    _recent_turns: list[dict] = _recent,
+                ) -> TurnFacts:
+                    from sdr.context_builder import ConversationContextBuilder
+                    from sdr.understanding.extractor import extract_turn_facts
+
+                    linked = _state.facts.get("crm_linked_vehicles")
+                    titles = (
+                        [p.strip() for p in str(linked).split(",") if p.strip()]
+                        if linked
+                        else None
+                    )
+                    summary = ConversationContextBuilder().build_understanding_summary(
+                        _state,
+                        linked_vehicle_titles=titles,
+                        recent_turns=_recent_turns,
+                    )
+                    return await extract_turn_facts(text, summary)
+
+                _understand_fn = _understand_with_history
+            else:
+                _understand_fn = self.understand
+
             result = await process_turn(
                 state=state,
                 inbound=inbound,
-                understand=self.understand,
+                understand=_understand_fn,
                 pool=self.pool,
                 linked_vehicle_titles=linked_titles or None,
             )
@@ -930,7 +983,24 @@ class Orchestrator:
             if lead_id:
                 await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
             if lead_id and result.action_plan.handoff:
-                await self.leads.mark_qualified_for_handoff(lead_id, result.state)
+                try:
+                    await self.leads.mark_qualified_for_handoff(lead_id, result.state)
+                except Exception:
+                    logger.exception(
+                        "handoff persist failed lead=%s — still sending confirmation",
+                        lead_id,
+                    )
+
+        # Persist pending_question before Evolution I/O so an overlapping inbound
+        # (photos take seconds) does not re-ask the same field.
+        planned_outbound = bool(
+            result.outbound_texts
+            or result.outbound_media
+            or getattr(result, "outbound_location", None)
+        )
+        if planned_outbound:
+            result.state.assistant_turn_count = state.assistant_turn_count + 1
+        await self.conversations.save_canonical_state(conversation_id, result.state)
 
         # Pin, then media, then text. A later send failure must not retry the
         # pin — that duplicated location cards when sendText returned 400.
@@ -971,6 +1041,49 @@ class Orchestrator:
                 turns_sent += 1
 
         send_media = getattr(self.evolution, "send_media", None)
+        directive = result.response_directive
+        intro_then_media = bool(
+            directive
+            and directive.should_introduce
+            and result.outbound_media
+            and result.outbound_texts
+        )
+        leading_texts = result.outbound_texts[:1] if intro_then_media else []
+        trailing_texts = (
+            result.outbound_texts[1:] if intro_then_media else list(result.outbound_texts)
+        )
+
+        async def _send_one_text(outbound: str) -> None:
+            nonlocal turns_sent, send_failures
+            provider_id = None
+            send = getattr(self.evolution, "send_text", None)
+            try:
+                if send is not None:
+                    maybe = await self.evolution.send_text(
+                        phone, outbound, instance=instance
+                    )
+                    if isinstance(maybe, str):
+                        provider_id = maybe
+            except Exception:
+                send_failures += 1
+                logger.exception(
+                    "send_text failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch.batch_id,
+                )
+                return
+            await self.conversations.insert_bot_outbound(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                provider_message_id=provider_id or f"bot-batch-{batch.batch_id}-{turns_sent}",
+                text=outbound,
+            )
+            provider_ids.append(provider_id)
+            turns_sent += 1
+
+        for outbound in leading_texts:
+            await _send_one_text(outbound)
+
         for media in result.outbound_media:
             provider_id = None
             try:
@@ -1004,32 +1117,8 @@ class Orchestrator:
             provider_ids.append(provider_id)
             turns_sent += 1
 
-        for outbound in result.outbound_texts:
-            provider_id = None
-            send = getattr(self.evolution, "send_text", None)
-            try:
-                if send is not None:
-                    maybe = await self.evolution.send_text(
-                        phone, outbound, instance=instance
-                    )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_text failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
-                )
-                continue
-            await self.conversations.insert_bot_outbound(
-                conversation_id=conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id or f"bot-batch-{batch.batch_id}-{turns_sent}",
-                text=outbound,
-            )
-            provider_ids.append(provider_id)
-            turns_sent += 1
+        for outbound in trailing_texts:
+            await _send_one_text(outbound)
 
         planned_outbound = (
             bool(isinstance(pin, dict) and pin.get("latitude") is not None)
@@ -1038,9 +1127,6 @@ class Orchestrator:
         )
         if planned_outbound and turns_sent == 0 and send_failures:
             raise EvolutionError("all outbound sends failed")
-
-        if turns_sent > 0:
-            result.state.assistant_turn_count = state.assistant_turn_count + 1
 
         await self.conversations.save_canonical_state(conversation_id, result.state)
 

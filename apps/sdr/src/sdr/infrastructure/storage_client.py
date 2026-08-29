@@ -1,4 +1,4 @@
-"""Private SDR document upload via S3-compatible API (Supabase Storage / R2)."""
+"""SDR document upload via S3-compatible API (same bucket as the web admin)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BUCKET = "sdr-documents"
+DEFAULT_BUCKET = "vehicle-images"
+CUSTOMER_PREFIX = "customer-documents"
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class UploadResult:
     bucket: str
     stub: bool
     byte_size: int
+    uploaded: bool = True
 
 
 def _env(name: str, default: str = "") -> str:
@@ -28,7 +30,11 @@ def _env(name: str, default: str = "") -> str:
 
 
 def get_documents_bucket() -> str:
-    return _env("SDR_DOCUMENTS_BUCKET", DEFAULT_BUCKET) or DEFAULT_BUCKET
+    return (
+        _env("STORAGE_BUCKET_NAME")
+        or _env("SDR_DOCUMENTS_BUCKET")
+        or DEFAULT_BUCKET
+    )
 
 
 def is_storage_configured() -> bool:
@@ -40,20 +46,20 @@ def is_storage_configured() -> bool:
 
 
 def build_storage_key(
-    lead_id: str,
+    customer_id: str,
     document_type: str,
     *,
     extension: str = "bin",
     timestamp: int | None = None,
     rand: str | None = None,
 ) -> str:
-    """Path: {leadId}/{type}_{ts}_{rand}.ext"""
+    """Path: customer-documents/{customerId}/{type}_{ts}_{rand}.ext"""
     ts = timestamp if timestamp is not None else int(time.time())
     suffix = rand if rand is not None else secrets.token_hex(3)
     doc = (document_type or "OTHER").strip().lower().replace(" ", "_")
     ext = extension.lstrip(".") or "bin"
-    safe_lead = (lead_id or "unknown").strip() or "unknown"
-    return f"{safe_lead}/{doc}_{ts}_{suffix}.{ext}"
+    safe_owner = (customer_id or "unknown").strip() or "unknown"
+    return f"{CUSTOMER_PREFIX}/{safe_owner}/{doc}_{ts}_{suffix}.{ext}"
 
 
 def extension_for_mime(mime_type: str | None, filename: str | None = None) -> str:
@@ -79,13 +85,8 @@ def extension_for_mime(mime_type: str | None, filename: str | None = None) -> st
 
 def _s3_client() -> Any:
     """Build boto3 S3 client matching web ``s3-client.ts`` env pattern."""
-    try:
-        import boto3
-        from botocore.client import Config
-    except ImportError as exc:  # pragma: no cover - optional dep
-        raise RuntimeError(
-            "boto3 is required for SDR document uploads. Install boto3 or unset STORAGE_*."
-        ) from exc
+    import boto3
+    from botocore.client import Config
 
     endpoint = _env("STORAGE_ENDPOINT")
     region = _env("STORAGE_S3_REGION", "auto") or "auto"
@@ -102,19 +103,22 @@ def _s3_client() -> Any:
 def upload_document(
     data: bytes,
     *,
-    lead_id: str,
+    customer_id: str | None = None,
     document_type: str = "OTHER",
     mime_type: str | None = None,
     filename: str | None = None,
     force_stub: bool | None = None,
+    lead_id: str | None = None,
 ) -> UploadResult:
-    """Upload private object to ``SDR_DOCUMENTS_BUCKET`` (default ``sdr-documents``).
+    """Upload to the catalog bucket under ``customer-documents/{customerId}/``.
 
-    If STORAGE_* env is missing (or ``force_stub``), returns a stub key for tests /
-    local runs without writing to S3.
+    ``lead_id`` is accepted as a legacy alias for ``customer_id``.
+    If STORAGE_* is missing (or ``force_stub``), returns a stub key for tests.
+    If storage is configured but upload fails, ``uploaded=False`` and empty key.
     """
+    owner = (customer_id or lead_id or "unknown").strip() or "unknown"
     ext = extension_for_mime(mime_type, filename)
-    key = build_storage_key(lead_id, document_type, extension=ext)
+    key = build_storage_key(owner, document_type, extension=ext)
     bucket = get_documents_bucket()
     size = len(data or b"")
 
@@ -127,25 +131,28 @@ def upload_document(
             bucket=bucket,
             stub=True,
             byte_size=size,
+            uploaded=False,
         )
 
     try:
         client = _s3_client()
-    except RuntimeError:
-        logger.warning("storage_client: boto3 missing; stubbing upload key=%s", key)
+        extra: dict[str, Any] = {}
+        if mime_type:
+            extra["ContentType"] = mime_type
+        client.put_object(Bucket=bucket, Key=key, Body=data or b"", **extra)
+    except Exception:
+        logger.exception("storage_client: upload failed key=%s", key)
         return UploadResult(
-            storage_key=f"stub/{key}",
+            storage_key="",
             bucket=bucket,
-            stub=True,
+            stub=False,
             byte_size=size,
+            uploaded=False,
         )
-    extra: dict[str, Any] = {}
-    if mime_type:
-        extra["ContentType"] = mime_type
-    client.put_object(Bucket=bucket, Key=key, Body=data or b"", **extra)
     return UploadResult(
         storage_key=key,
         bucket=bucket,
         stub=False,
         byte_size=size,
+        uploaded=True,
     )

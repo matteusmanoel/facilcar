@@ -7,6 +7,7 @@ import logging
 from typing import Any, Mapping
 
 from sdr.config import get_settings
+from sdr.domain.display_name import display_first_name
 from sdr.domain.introduction import (
     continuation_smalltalk_bubbles,
     intro_instruction,
@@ -22,38 +23,40 @@ from sdr.understanding.validator import validate_bubbles, validate_introduction_
 logger = logging.getLogger(__name__)
 
 _FIELD_QUESTIONS_PT: dict[str, str] = {
-    "name": "Me conta seu nome, por favor?",
+    "name": "Me diga seu nome, por favor?",
     "desired_model": "Qual modelo ou tipo de carro você está buscando?",
     "model": "Qual modelo ou tipo de carro você está buscando?",
     "deal_type": "Seria compra ou troca?",
-    "down_payment": "Você teria algum valor de entrada, ou prefere financiar o valor todo?",
-    "income": "Qual é a sua renda mensal aproximada? (só pra montar a pré-ficha)",
-    "documents": "Pra montar a pré-ficha, pode me enviar a CNH e um comprovante de renda (holerite)?",
+    "down_payment": "Você teria algum valor de entrada, ou prefere financiar o total?",
+    "desired_installment": "Até quanto de parcela você tem em mente?",
+    "income": "Pode me informar sua renda mensal aproximada?",
+    "documents": "Pra montar a simulação, pode me enviar a CNH e um comprovante de renda (holerite)?",
     "vehicle": "Qual modelo ou tipo de carro você está buscando?",
     "vehicle_interest": "Qual modelo ou tipo de carro você está buscando?",
-    "brand": "Tem alguma marca de preferência?",
-    "trade_in": "Me conta marca, modelo e ano do carro da troca?",
-    "trade_model": "Me conta marca e modelo do carro da troca?",
+    "brand": "Tem preferência por marca?",
+    "trade_in": "Qual marca, modelo e ano do carro da troca?",
+    "trade_model": "Qual marca e modelo do carro da troca?",
     "trade_year": "Qual o ano do carro da troca?",
     "plate": "Se tiver a placa do veículo, pode me passar?",
-    "location": "Você está em qual cidade?",
-    "city": "Você está em qual cidade?",
+    "location": "Você está de qual cidade?",
+    "city": "Você é de em qual cidade?",
     "visit": "Quer visitar a loja? Qual período fica melhor pra você?",
     "timeline": "Em quanto tempo você pensa em fechar?",
-    "mileage": "Quantos km o veículo tem, aproximadamente?",
-    "asking_price": "Qual valor você tem em mente?",
+    "mileage": "Quantos km rodados tem o veículo, aproximadamente?",
+    "asking_price": "Até qual valor você tem em mente?",
     "amount_needed": "Quanto você precisa levantar com o refinanciamento?",
-    "leave_at_store": "Você topa deixar o carro na loja pra consignação?",
+    "leave_at_store": "Topa deixar o carro na loja pra consignação?",
     "year": "Qual o ano do veículo?",
     "intent": "Você está buscando comprar, vender, trocar ou refinanciar?",
     "payment_method": "Seria à vista ou financiado?",
-    "alternatives_ok": "Não encontrei exatamente o que você pediu no estoque atual. Quer que eu te mostre alternativas parecidas?",
+    "alternatives_ok": "Não encontrei exatamente o que você pediu no estoque atual. Posso te mostrar alternativas parecidas?",
 }
 
 _FIELD_QUESTIONS_ES: dict[str, str] = {
     "name": "¿Me dices tu nombre, por favor?",
     "deal_type": "¿Sería compra o permuta?",
     "down_payment": "¿Tienes un valor de entrada, o prefieres financiar el valor completo?",
+    "desired_installment": "¿Hasta cuánto de cuota tienes en mente?",
     "income": "¿Cuál es tu ingreso mensual aproximado? (solo para armar la pre-ficha)",
     "documents": "Para armar la pre-ficha, ¿puedes enviarme la licencia y un comprobante de ingresos?",
     "vehicle": "¿Qué modelo o tipo de auto estás buscando?",
@@ -95,12 +98,9 @@ def _language(state: Mapping[str, Any]) -> str:
 
 def _first_name(state: Mapping[str, Any]) -> str | None:
     raw = state.get("customer_name") or (state.get("facts") or {}).get("name")
-    if not isinstance(raw, str) or not raw.strip():
+    if not isinstance(raw, str):
         return None
-    token = raw.strip().split()[0]
-    if not token or "@" in token:
-        return None
-    return token[:1].upper() + token[1:]
+    return display_first_name(raw)
 
 
 def _required_question(
@@ -116,6 +116,16 @@ def _required_question(
             key = "deal_type"
         if key == "visit":
             return None
+        if key == "alternatives_ok" and action_plan.get("reason_code") == "installment_tight":
+            if lang == "es":
+                return (
+                    "Para esa cuota, puede ser necesaria una entrada más generosa. "
+                    "¿Quieres que te muestre opciones más cercanas a esa cuota, o seguimos con este vehículo?"
+                )
+            return (
+                "Para esse valor de parcela, uma entrada mais generosa pode ser necessária. "
+                "Quer que eu veja opções mais próximas dessa parcela, ou seguimos com esse veículo?"
+            )
         if key in questions:
             return questions[key]
         if key not in {"budget", "budget_max"}:
@@ -135,23 +145,84 @@ def _required_question(
 def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
     style = str(state.get("visit_cta_style") or "warm_invite")
     es = lang == "es"
+    if style == "location_close":
+        if es:
+            return [
+                "Podemos evaluar las condiciones de la negociación aquí en la tienda. "
+                "Si te queda bien, pasa esta semana. ¡Te esperamos!"
+            ]
+        return [
+            "Conseguimos avaliar as condições da negociação aqui na loja. "
+            "Se fizer sentido, passa aqui esta semana. Esperamos você!"
+        ]
     if style == "hot_schedule":
         if es:
             return [
                 "Podemos evaluar las condiciones de negociación aquí en la tienda. "
-                "¿Tienes disponibilidad para una visita todavía esta semana?"
+                "Si te queda bien, pasa a conocernos esta semana — sin compromiso."
             ]
         return [
-            "Conseguimos avaliar condições especiais de negociação direto aqui na loja. "
-            "Tem disponibilidade para uma visita ainda esta semana?"
+            "Conseguimos avaliar as condições da negociação aqui na loja. "
+            "Se fizer sentido, passa aqui esta semana — sem compromisso."
         ]
     if es:
         return [
             "Nuestra tienda está de puertas abiertas. Pasa a tomar un café, sin compromiso."
         ]
     return [
-        "Nossa loja está de portas abertas para recebê-lo. Apareça tomar um café sem compromisso."
+        "Nossa loja está de portas abertas. Aparece tomar um café, sem compromisso."
     ]
+
+
+def _document_received_bubbles(
+    state: Mapping[str, Any],
+    lang: str,
+    *,
+    question: str | None = None,
+) -> list[str]:
+    name = _first_name(state)
+    kind = str(state.get("document_kind") or "").upper()
+    es = lang == "es"
+    if kind == "CNH":
+        if es:
+            ack = (
+                f"Show, {name}! CNH guardada en tu ficha."
+                if name
+                else "Show! CNH guardada en tu ficha."
+            )
+            extra = (
+                "Si tienes comprobante de ingresos, domicilio o acta de matrimonio, "
+                "también puedes enviármelos. Cuanta más información tenermos, "
+                "mejor margen tenemos para negociar una tasa menor para ti."
+            )
+        else:
+            ack = (
+                f"Show, {name}! CNH salva na sua ficha."
+                if name
+                else "Show! CNH salva na sua ficha."
+            )
+            extra = (
+                "Se tiver comprovante de renda, residência ou certidão de casamento, "
+                "pode me enviar também. Quanto mais informações tivermos, "
+                "maiores as chances de boas taxas na simulação!"
+            )
+        bubbles = [ack, extra]
+        if question:
+            bubbles.append(question)
+        return bubbles[:3]
+    if es:
+        ack = (
+            f"Show, {name}! Recibí tu documento y ya lo anexé a tu ficha."
+            if name
+            else "Show! Recibí tu documento y ya lo anexé a tu ficha."
+        )
+    else:
+        ack = (
+            f"Show, {name}! Recebi seu documento e já anexei na sua ficha."
+            if name
+            else "Show! Recebi seu documento e já anexei na sua ficha."
+        )
+    return [ack, question] if question else [ack]
 
 
 def _ack_followup_bubbles(
@@ -164,97 +235,68 @@ def _ack_followup_bubbles(
     if not kind:
         return None
     question = _required_question(state, action_plan, lang)
-    name = _first_name(state)
     es = lang == "es"
 
     if kind == "deal_purchase":
         if es:
-            text = "Qué bueno, tenemos buenas condiciones para compra."
+            text = (
+                "Entendí tu interés en la compra, sin incluir un vehículo en la negociación."
+            )
             if question:
                 text = f"{text} {question}"
             return [text]
-        text = "Ah que bacana, temos boas condições para compra."
+        text = (
+            "Entendi seu interesse na compra, sem incluir veículo na negociação."
+        )
         if question:
             text = f"{text} {question}"
         return [text]
     if kind == "deal_trade":
         if es:
-            text = "Perfecto, miramos el canje con calma."
+            text = "Entendí: vamos incluir tu vehículo en la negociación."
         else:
-            text = "Fechado, vamos olhar a troca com calma."
+            text = "Entendi: vamos incluir seu veículo na negociação."
         return [text, question] if question else [text]
     if kind == "payment_financing":
         if es:
-            text = "Show, financiamiento es un camino bien común por acá."
+            text = (
+                "Legal, el financiamiento puede ser una buena opción. "
+                "Conseguimos excelentes condiciones aquí en la tienda."
+            )
         else:
-            text = "Show, financiamento é um caminho bem comum por aqui."
+            text = (
+                "Legal, financiamento pode ser uma boa opção pra facilitar. "
+                "Conseguimos ótimas condições aqui na loja."
+            )
         return [text, question] if question else [text]
     if kind == "payment_cash":
         if es:
-            text = "Show, de contado suele abrir una buena conversación de negociación."
+            text = "Recibí: de contado."
         else:
-            text = "Show, à vista costuma abrir uma boa conversa de negociação."
+            text = "Recebi: à vista."
         return [text, question] if question else [text]
     if kind == "down_payment":
+        # Distinguish zero-entry (financia o valor todo) from positive-entry cases.
+        # A zero-entry template must not imply "com uma entrada" — the customer
+        # explicitly said they have no entry.
+        down_val = (state.get("facts") or {}).get("down_payment")
+        no_down = down_val == 0 or down_val == "0"
         if es:
-            text = (
-                "Genial, con un valor de entrada las tasas suelen ser más favorables."
-            )
-        else:
-            text = "Legal, com um valor de entrada as taxas tendem a ser melhores."
-        return [text, question] if question else [text]
-    if kind == "document_received":
-        if es:
-            if name:
-                ack = (
-                    f"Show, {name}! Recibí tu documento y ya lo anexé a tu ficha "
-                    "para la simulación del financiamiento."
-                )
+            if no_down:
+                text = "Entendido, financiaremos el valor total."
             else:
-                ack = (
-                    "Show! Recibí tu documento y ya lo anexé a tu ficha "
-                    "para la simulación del financiamiento."
-                )
-        elif name:
-            ack = (
-                f"Show, {name}! Recebi seu documento e já anexei na sua ficha "
-                "para a simulação do financiamento."
-            )
+                text = "Entendido, anotada la entrada."
         else:
-            ack = (
-                "Show! Recebi seu documento e já anexei na sua ficha "
-                "para a simulação do financiamento."
-            )
-        if question:
-            return [ack, question]
-        return [ack]
+            if no_down:
+                text = "Entendido, vamos financiar o valor todo."
+            else:
+                text = "Certo, anotei a entrada."
+        return [text, question] if question else [text]
+    if kind == "desired_installment":
+        return [question] if question else None
+    if kind == "document_received":
+        return _document_received_bubbles(state, lang, question=question)
     return None
-    """Build a location bubble from SiteSettings-like stub in tool_context."""
-    ctx = tool_context or {}
-    site = ctx.get("site_settings") or ctx.get("SiteSettings") or ctx
-    if not isinstance(site, Mapping):
-        site = {}
-
-    parts: list[str] = []
-    for key in ("addressLine", "address", "street", "endereco", "endereço"):
-        value = site.get(key)
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-            break
-    city = site.get("city") or site.get("cidade")
-    state_uf = site.get("state") or site.get("uf")
-    if isinstance(city, str) and city.strip():
-        if isinstance(state_uf, str) and state_uf.strip():
-            parts.append(f"{city.strip()} - {state_uf.strip()}")
-        else:
-            parts.append(city.strip())
-    maps = site.get("maps_url") or site.get("google_maps_url") or site.get("location_url")
-    if isinstance(maps, str) and maps.strip():
-        parts.append(maps.strip())
-
-    if parts:
-        return "Nossa loja fica em: " + " | ".join(parts)
-    return "Posso te passar o endereço da loja — um instante que confirmo aqui."
 
 
 def _follow_up_bubble(
@@ -269,6 +311,12 @@ def _follow_up_bubble(
         key = next_q.strip()
         if key in {"budget", "budget_max"}:
             key = "deal_type"
+        if key == "visit":
+            return (
+                "Nuestra tienda está de puertas abiertas. Pasa a tomar un café, sin compromiso."
+                if lang == "es"
+                else "Nossa loja está de portas abertas. Aparece tomar um café, sem compromisso."
+            )
         if key in questions:
             return questions[key]
         if key not in {"budget", "budget_max"}:
@@ -324,6 +372,42 @@ def _document_ack(content_type: str, lang: str) -> str | None:
     if lang == "es":
         return f"Recibí tu {label}!"
     return f"Recebi seu {label}!"
+
+
+def _first_contact_opener(state: Mapping[str, Any], lang: str) -> str:
+    facts = state.get("facts") if isinstance(state.get("facts"), Mapping) else {}
+    model = None
+    if isinstance(facts, Mapping):
+        raw = facts.get("desired_model") or facts.get("desired_vehicle_text")
+        if isinstance(raw, str) and raw.strip():
+            model = raw.strip()
+    es = lang == "es"
+    if es:
+        if model:
+            return (
+                f"¡Hola! ¿Cómo va? Soy Júlia de FacilCar. "
+                f"El {model} es una excelente opción. Déjame enviarte unas fotos"
+            )
+        return "¡Hola! ¿Cómo va? Soy Júlia de FacilCar."
+    if model:
+        return (
+            f"Olá! Como vai? Eu sou a Júlia aqui da FacilCar. "
+            f"O {model} é uma excelente opção. Deixa eu te enviar umas fotos"
+        )
+    return "Olá! Como vai? Eu sou a Júlia aqui da FacilCar."
+
+
+def _with_first_contact(
+    state: Mapping[str, Any],
+    follow: str | None,
+    lang: str,
+) -> list[str]:
+    if not state.get("should_introduce"):
+        return [follow] if follow else []
+    opener = _first_contact_opener(state, lang)
+    if follow:
+        return [opener, follow]
+    return [opener]
 
 
 def _engagement_prefix(lang: str) -> str:
@@ -444,7 +528,7 @@ def _template_compose(
             media_planned = bool((tool_context or {}).get("outbound_media_planned"))
             follow = _follow_up_bubble(state, action_plan, lang)
             if media_planned:
-                return [follow] if follow else []
+                return _with_first_contact(state, follow, lang)
             from sdr.domain.vehicle_presentation import format_vehicle_caption
 
             captions: list[str] = []
@@ -467,7 +551,7 @@ def _template_compose(
         media_planned = bool((tool_context or {}).get("outbound_media_planned"))
         follow = _follow_up_bubble(state, action_plan, lang)
         if media_planned:
-            return [follow] if follow else []
+            return _with_first_contact(state, follow, lang)
         if lang == "es":
             return ["No encontré fotos de ese anuncio ahora.", follow][:2] if follow else [
                 "No encontré fotos de ese anuncio ahora."
@@ -479,15 +563,11 @@ def _template_compose(
         )
 
     if action == "register_visit_interest":
-        if lang == "es":
-            return [
-                "Voy a pasar tus datos al equipo ahora.",
-                "¿Te quedaría mejor visitarnos de mañana o de tarde?",
-            ]
-        return [
-            "Vou encaminhar suas informações para a equipe agora.",
-            "Fica melhor pra você de manhã ou à tarde para dar uma passada aqui na loja?",
-        ]
+        visit = _visit_cta_bubbles(state, lang)
+        if state.get("ack_kind") == "document_received":
+            docs = _document_received_bubbles(state, lang)
+            return [*docs, visit[0]][:3]
+        return visit[:1]
 
     # Fallback: one gentle clarifying bubble
     bubbles_fb: list[str] = []
@@ -529,7 +609,8 @@ def compose_inventory_response(
     state = {
         "language": lang,
         "inventory_outcome": outcome.value if hasattr(outcome, "value") else str(outcome),
-        "should_introduce": False,
+        "should_introduce": bool(getattr(directive, "should_introduce", False)),
+        "facts": getattr(directive, "facts_context", None) or {},
         "conversational_affordance": affordance_val,
         "alternative_scope": scope_val,
     }
@@ -557,7 +638,8 @@ def compose_photos_response(
     lang = getattr(directive, "language", "pt-BR") or "pt-BR"
     state = {
         "language": lang,
-        "should_introduce": False,
+        "should_introduce": bool(getattr(directive, "should_introduce", False)),
+        "facts": getattr(directive, "facts_context", None) or {},
         "missing_fields": [directive.next_question] if directive.next_question else [],
     }
     plan = {
@@ -592,12 +674,13 @@ async def compose_response(
     if action in (
         "send_photos",
         "show_offers",
-        "smalltalk",
-        "register_visit_interest",
         "send_location",
         "media_failed",
-        "commercial_unknown",
     ):
+        use_templates = True
+    elif state.get("ack_kind"):
+        # Roteiro acks use deterministic templates — prevents LLM from echoing
+        # amounts, re-asking known fields, or generating unreliable phrasing.
         use_templates = True
     elif client is not None and _is_unittest_mock(client):
         use_templates = True
@@ -646,8 +729,8 @@ async def compose_response(
             inventory_rule = (
                 "\nRegra de estoque: as fotos do veículo JÁ serão enviadas com a "
                 "descrição no caption. NÃO liste o carro em texto, NÃO diga "
-                "'Olha o que encontrei', NÃO peça permissão para mandar foto. "
-                "Escreva só a pergunta de follow-up (compra ou troca, se faltar)."
+                "'Olha o que encontrei'. Se should_introduce, apresente-se na primeira "
+                "bolha; a pergunta de follow-up vai depois das fotos."
             )
         else:
             inventory_rule = (
@@ -665,17 +748,20 @@ async def compose_response(
         "NÃO soe como formulário. Uma pergunta por vez."
         "\nPagamento: é XOR — à vista OU financiado. NUNCA ofereça 'os dois'."
     )
+    cadence_mode = state.get("cadence_mode")
+    if cadence_mode:
+        tone_rule += f"\nCadência deste turno (obrigatória): {cadence_mode}."
     if ack_kind == "deal_purchase":
         tone_rule += (
-            "\nO cliente acabou de escolher compra. Traga entusiasmo comercial e "
-            "pergunte à vista ou financiado, sem repetir 'então é compra'."
+            "\nRecap corrigível: 'Entendi seu interesse na compra, sem incluir veículo "
+            "na negociação.' Depois a pergunta à vista ou financiado. Sem 'que ótimo'."
         )
     elif ack_kind == "payment_financing":
-        tone_rule += "\nO cliente escolheu financiamento. Avance com calor para a entrada."
+        tone_rule += "\nConfirme o recebimento (financiamento) e avance para a entrada."
     elif ack_kind == "down_payment":
         tone_rule += (
-            "\nO cliente informou entrada. Pode dizer que com entrada as taxas tendem "
-            "a ser melhores, SEM citar número de taxa/parcela."
+            "\nConfirme que recebeu a informação sobre a entrada e avance. "
+            "NÃO diga que as condições tendem a ser melhores."
         )
     elif ack_kind == "document_received":
         tone_rule += (

@@ -11,6 +11,7 @@ import unicodedata
 from typing import Any
 
 from sdr.domain.facts_schema import normalize_facts, normalize_money_value
+from sdr.domain.pending_interaction import PendingResolution
 from sdr.domain.types import BusinessIntent, ConversationCanonicalState, TurnFacts
 
 _CASH = re.compile(
@@ -29,6 +30,14 @@ _NO_DOWN = re.compile(
 _SHORT_YES = re.compile(
     r"^\s*(?:sim|pode|claro|ok|okay|vou|vamos|consigo|essa\s+semana|"
     r"ainda\s+essa\s+semana|pode\s+ser|fechado|combinado)\b",
+    re.I,
+)
+_SHORT_NO = re.compile(
+    r"^\s*(?:n[aã]o|agora\s+n[aã]o|dispenso|seguir(?:mos)?\s+com\s+esse)\b",
+    re.I,
+)
+_INSTALLMENT_SKIP = re.compile(
+    r"\b(?:n[aã]o\s+sei|qualquer|tanto\s+faz|sem\s+prefer[eê]ncia)\b",
     re.I,
 )
 _TRADE = re.compile(r"\b(?:troca|trocar|permuta)\b", re.I)
@@ -52,11 +61,18 @@ def overlay_pending_question(
     text = _norm(inbound_text)
     extra: dict[str, Any] = {}
 
-    # Answering "entrada" is not an inventory budget. Drop LLM/heuristic budget
-    # extracted from the same utterance so search key does not change.
-    if pending == "down_payment":
+    # Answering "entrada" / parcela is not an inventory budget or engine.
+    # Drop LLM leaks from the same utterance so search key does not change.
+    _MONEY_LEAK_KEYS = (
+        "budget",
+        "max_price",
+        "desired_engine_displacement_liters",
+        "desired_engine_flexible",
+        "desired_engine_any",
+    )
+    if pending in {"down_payment", "desired_installment"}:
         facts.facts = {
-            k: v for k, v in facts.facts.items() if k not in {"budget", "max_price"}
+            k: v for k, v in facts.facts.items() if k not in _MONEY_LEAK_KEYS
         }
         facts.budget_status = None
 
@@ -79,10 +95,22 @@ def overlay_pending_question(
             money = normalize_money_value(text)
             if money is not None:
                 extra["down_payment"] = money
+    elif pending == "desired_installment":
+        if _INSTALLMENT_SKIP.search(text):
+            pass
+        elif "desired_installment" not in facts.facts:
+            money = normalize_money_value(text)
+            if money is not None:
+                extra["desired_installment"] = money
     elif pending == "visit":
         # Protocol: we just invited a visit; a short confirmation is the answer.
         if _SHORT_YES.search(text) and len(text.split()) <= 8:
             facts.signals.visit_intent = True
+    elif pending == "alternatives_ok" and facts.pending_resolution is None:
+        if _SHORT_YES.search(text) and len(text.split()) <= 10:
+            facts.pending_resolution = PendingResolution.ACCEPT
+        elif _SHORT_NO.search(text) and len(text.split()) <= 12:
+            facts.pending_resolution = PendingResolution.REJECT
 
     # Financing language records payment mode only when this utterance says so
     # and the field is not already canonical. Re-emitting known facts every turn

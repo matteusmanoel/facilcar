@@ -191,6 +191,92 @@ def test_document_received_acks_instead_of_visit() -> None:
     assert plan.action == Action.ASK_INFO
     assert plan.reason_code == "document_received_ack"
     assert plan.handoff is False
+    assert plan.ask_field == "desired_installment"
+
+
+def test_document_received_invites_visit_when_roteiro_complete() -> None:
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "down_payment": 20000,
+        "desired_installment": 2000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        installment_asked=True,
+        document_received=True,
+    )
+    plan = decide(state)
+    assert plan.action == Action.REGISTER_VISIT_INTEREST
+    assert plan.reason_code == "document_received_visit"
+
+
+def test_installment_tight_offers_alternatives_once() -> None:
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 5000,
+        "desired_installment": 1000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        installment_asked=True,
+        last_shown_price_cash=84900,
+    )
+    plan = decide(state)
+    assert plan.action == Action.ASK_INFO
+    assert plan.ask_field == "alternatives_ok"
+    assert plan.reason_code == "installment_tight"
+    assert state.installment_mismatch_offered is True
+
+
+def test_installment_not_tight_continues_to_documents() -> None:
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 30000,
+        "desired_installment": 2000,
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        installment_asked=True,
+        last_shown_price_cash=84900,
+    )
+    plan = decide(state)
+    assert plan.ask_field == "documents"
+    assert plan.reason_code != "installment_tight"
+
+
+def test_shown_vehicle_plus_engine_leak_does_not_reshow() -> None:
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 30000,
+        "desired_installment": 2000,
+        "desired_engine_displacement_liters": 2.0,
+    }
+    old_key = inventory_search_key({"desired_model": "Corolla"})
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=old_key,
+        last_shown_vehicle_ids=["veh-corolla"],
+        last_shown_price_cash=84900,
+        installment_asked=True,
+    )
+    plan = decide(state)
+    assert plan.action != Action.SHOW_OFFERS
+    assert plan.ask_field == "documents"
 
 
 # ---------------------------------------------------------------------------
@@ -303,3 +389,71 @@ def test_merge_then_decide_high_purchase() -> None:
     plan = decide(merged)
     assert plan.action == Action.HANDOFF_VENDOR
     assert plan.handoff is True
+
+
+# ---------------------------------------------------------------------------
+# Post-visit guard: catalog must never re-open after visit was invited and
+# triage is actionable — even if a new fact changes the search-key hash.
+# ---------------------------------------------------------------------------
+
+def test_post_visit_no_inventory_re_open() -> None:
+    """After visit_invited=True and triage actionable, inventory must not re-open.
+
+    Scenario: user said 'Ta joia, dou um pulinho' after receiving the store address.
+    The LLM may extract a new fact (e.g. visit_intent signal) that changes the
+    search-key hash. Without this guard, _needs_inventory_search() returns True
+    and the full catalog is re-sent — which is what happened in prod.
+    """
+    facts = {
+        "desired_model": "Corolla",
+        "deal_type": "purchase",
+        "payment_method": "financing",
+        "down_payment": 30000,
+        "desired_installment": 2000,
+    }
+    # Deliberately use a DIFFERENT key from last_inventory_search_key to simulate
+    # a hash change caused by a newly extracted fact.
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        visit_invited=True,
+        last_shown_vehicle_ids=["v1"],
+        last_inventory_search_key="old-key-before-visit-confirmation",
+        signals=HandoffSignals(visit_intent=True),
+    )
+
+    plan = decide(state)
+
+    assert plan.action != Action.SHOW_OFFERS, (
+        "After visit_invited=True and triage actionable, decide() must NOT return "
+        f"SHOW_OFFERS. Got action={plan.action!r}. This re-sends the catalog after "
+        "the customer confirmed a store visit."
+    )
+    # Expected: either HANDOFF_VENDOR (via should_handoff_now with visit_intent)
+    # or any action that is NOT SHOW_OFFERS.
+
+
+def test_post_visit_without_actionable_can_still_search() -> None:
+    """If triage is not actionable yet, visit_invited alone must not block inventory.
+
+    The guard must only fire when BOTH visit_invited AND is_seller_actionable are True.
+    """
+    facts = {
+        "desired_model": "Corolla",
+        # no deal_type or payment_method → not actionable
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE,
+        facts=facts,
+        visit_invited=True,
+        last_shown_vehicle_ids=[],
+        last_inventory_search_key=None,
+    )
+
+    plan = decide(state)
+
+    # Without triage actionability, inventory search is still valid.
+    assert plan.action == Action.SHOW_OFFERS, (
+        "visit_invited alone (without triage actionability) must not suppress inventory search. "
+        f"Got action={plan.action!r}."
+    )

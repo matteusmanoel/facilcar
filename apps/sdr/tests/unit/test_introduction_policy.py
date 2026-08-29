@@ -80,6 +80,62 @@ async def test_first_turn_may_introduce() -> None:
 
 
 @pytest.mark.asyncio
+async def test_first_commercial_turn_introduces_with_photos(monkeypatch) -> None:
+    from decimal import Decimal
+
+    from sdr.domain.types import Action
+    from sdr.tools.inventory import InventoryVehicle
+
+    car = InventoryVehicle(
+        id="v1",
+        slug="sedan",
+        title="HONDA CIVIC EXL",
+        brand_name="Honda",
+        model="Civic",
+        type="CAR",
+        price_cash=Decimal("79900"),
+        mileage=None,
+        color=None,
+        year_model=2019,
+        year_manufacture=2018,
+        version="EXL",
+        images=(
+            {"id": "c1", "url": "https://cdn.example/cover.jpg", "sortOrder": 0, "isCover": True},
+            {"id": "c2", "url": "https://cdn.example/side.jpg", "sortOrder": 1, "isCover": False},
+        ),
+    )
+
+    async def fake_search(pool, req):
+        return [car]
+
+    monkeypatch.setattr("sdr.tools.inventory.search_with_request", fake_search)
+
+    async def understand(text, state):
+        return TurnFacts(
+            intent=BusinessIntent.PURCHASE,
+            language="pt-BR",
+            facts={"desired_model": "Civic"},
+        )
+
+    result = await process_turn(
+        state=_state(turn_count=0),
+        inbound_text="Gostaria de mais informações sobre o Civic, está disponível?",
+        understand=understand,
+        pool=object(),
+    )
+    assert result.action_plan.action == Action.SHOW_OFFERS
+    assert result.response_directive is not None
+    assert result.response_directive.should_introduce is True
+    joined = " ".join(result.outbound_texts).lower()
+    assert "júlia" in joined or "julia" in joined
+    assert "excelente opção" in joined
+    assert "compra ou troca" in joined
+    assert result.outbound_media
+    assert result.outbound_media[-1].url.endswith("cover.jpg")
+    assert "*" in result.outbound_media[-1].caption
+
+
+@pytest.mark.asyncio
 async def test_second_turn_does_not_reintroduce() -> None:
     """Turn 1+: should_introduce=False → no first-contact greeting."""
     state = _state(turn_count=1)

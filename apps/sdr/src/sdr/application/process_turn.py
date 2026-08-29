@@ -15,16 +15,18 @@ Conversational affordances:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import asyncpg
 
+logger = logging.getLogger(__name__)
+
 from sdr.application.tool_executor import execute_tool_calls, tool_results_to_context
 from sdr.domain.decision import decide, inventory_search_key
 from sdr.domain.handoff import (
     compute_temperature,
-    confirmation_message,
     mark_handoff_sent,
 )
 from sdr.domain.inbound import InboundTurn, MediaStatus, inbound_from_text_compat
@@ -41,7 +43,6 @@ from sdr.domain.inventory_outcome import (
 )
 from sdr.domain.merge import deterministic_merge
 from sdr.domain.pending_interaction import PendingInteraction
-from sdr.domain.vendor_summary import build_vendor_summary
 from sdr.domain.vehicle_presentation import (
     OutboundMedia,
     media_items_from_images,
@@ -79,11 +80,6 @@ class ProcessTurnResult:
     response_directive: ResponseDirective | None = None
     outbound_media: list[OutboundMedia] = field(default_factory=list)
     outbound_location: dict[str, Any] | None = None
-
-
-def _build_handoff_summary(state: ConversationCanonicalState) -> str:
-    """Vendor + WhatsApp handoff brief — same contract as Lead.juliaSummary."""
-    return build_vendor_summary(state)
 
 
 def _track_engagement(
@@ -125,6 +121,8 @@ def _ack_kind_from_facts(
     collected = facts.facts or {}
     if pending_question == "down_payment" and "down_payment" in collected:
         return "down_payment"
+    if pending_question == "desired_installment" and "desired_installment" in collected:
+        return "desired_installment"
     if pending_question == "payment_method":
         payment = collected.get("payment_method")
         if payment == "financing":
@@ -264,11 +262,29 @@ def _build_response_directive(
 
     visit_cta = None
     if plan.action == Action.SEND_LOCATION:
-        merged.temperature = compute_temperature(merged)
-        visit_cta = _visit_cta_style(merged)
+        visit_cta = "location_close"
 
-    if ack_kind == "down_payment" and "down_payment_may_improve_conditions" not in allowed:
-        allowed = [*allowed, "down_payment_may_improve_conditions"]
+    from sdr.application.inbound_document import document_kind_from_inbound_text
+
+    document_kind = (
+        document_kind_from_inbound_text(inbound_text)
+        if inbound_content_type == "DOCUMENT"
+        else None
+    )
+
+    from sdr.domain.cadence import cadence_for
+
+    cadence_mode = cadence_for(
+        action=plan.action,
+        should_introduce=should_introduce,
+        ack_kind=ack_kind,
+        reason_code=plan.reason_code,
+    )
+
+    if plan.reason_code == "installment_tight":
+        affordance = PendingInteraction.OFFER_ALTERNATIVES
+        if "ask_if_alternatives_acceptable" not in allowed:
+            allowed = [*allowed, "ask_if_alternatives_acceptable"]
 
     return ResponseDirective(
         action=plan.action,
@@ -303,7 +319,9 @@ def _build_response_directive(
         engagement_low=engagement_low,
         inbound_content_type=inbound_content_type,
         ack_kind=ack_kind,
+        cadence_mode=cadence_mode.value,
         visit_cta_style=visit_cta,
+        document_kind=document_kind,
         expose_errors=_is_sandbox(),
     )
 
@@ -319,7 +337,9 @@ def _directive_to_state_and_plan_maps(
         "engagement_low": directive.engagement_low,
         "inbound_content_type": directive.inbound_content_type,
         "ack_kind": directive.ack_kind,
+        "cadence_mode": directive.cadence_mode,
         "visit_cta_style": directive.visit_cta_style,
+        "document_kind": directive.document_kind,
         "inbound_text": directive.inbound_text,
         "response_objective": directive.response_objective,
         "intent": directive.intent.value,
@@ -406,6 +426,15 @@ def _record_shown_vehicles(
         ids = shown_vehicle_ids(vehicles)
         if ids:
             merged.last_shown_vehicle_ids = ids
+        if vehicles:
+            first = vehicles[0] if isinstance(vehicles[0], dict) else {}
+            price = first.get("priceCash") if isinstance(first, dict) else None
+            if price is None and isinstance(first, dict):
+                price = first.get("price_cash")
+            try:
+                merged.last_shown_price_cash = float(price) if price is not None else None
+            except (TypeError, ValueError):
+                pass
         return
 
 
@@ -493,6 +522,10 @@ async def process_turn(
     from sdr.domain.pending_question import overlay_pending_question
 
     facts = overlay_pending_question(facts, state, inbound.effective_text)
+    from sdr.domain.location_request import has_store_location_request_evidence
+
+    if has_store_location_request_evidence(inbound.effective_text):
+        facts.location_request = True
     prev_pending = state.pending_question
     merged = deterministic_merge(state, facts)
     if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
@@ -517,10 +550,16 @@ async def process_turn(
         merged.pending_question = asked
         if asked == "documents":
             merged.documents_asked = True
+        if asked == "desired_installment":
+            merged.installment_asked = True
         if asked == "visit":
             merged.visit_invited = True
     elif plan.action not in (Action.ASK_INFO, Action.SHOW_OFFERS, Action.SEND_PHOTOS):
         merged.pending_question = None
+    # Persist visit question so the next turn can distinguish an unconfirmed invite
+    # from a normal post-triage turn. Overrides the None set above.
+    if plan.action == Action.REGISTER_VISIT_INTEREST:
+        merged.pending_question = "visit"
 
     # Track engagement quality based on this turn.
     _track_engagement(merged, inbound.effective_text, facts)
@@ -539,8 +578,9 @@ async def process_turn(
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
-        summary = _build_handoff_summary(merged)
-        outbound.append(_handoff_message(merged, summary))
+        from sdr.domain.handoff import customer_handoff_bubbles
+
+        outbound.extend(customer_handoff_bubbles(merged))
         mark_handoff_sent(merged, plan.reason_code)
     elif plan.action == Action.NO_REPLY:
         pass
@@ -594,17 +634,20 @@ async def process_turn(
             and inv_outcome != InventoryOutcome.NOT_EXECUTED
         ):
             from sdr.understanding.response_composer import compose_inventory_response
-
-            bubbles = compose_inventory_response(directive, tool_ctx)
             from sdr.understanding.validator import validate_inventory_policy
 
-            outbound_texts, validator_result = validate_inventory_policy(
-                bubbles,
-                inventory_outcome=inv_outcome,
-                language=directive.language,
-                conversational_affordance=directive.conversational_affordance,
-            )
-            outbound.extend(outbound_texts)
+            try:
+                bubbles = compose_inventory_response(directive, tool_ctx)
+                outbound_texts, validator_result = validate_inventory_policy(
+                    bubbles,
+                    inventory_outcome=inv_outcome,
+                    language=directive.language,
+                    conversational_affordance=directive.conversational_affordance,
+                )
+                outbound.extend(outbound_texts)
+            except Exception:
+                logger.exception("compose_inventory_response failed; using fallback bubbles")
+                outbound.extend(inventory_fallback_bubbles(inv_outcome, language=directive.language))
             _apply_pending_after_offers(merged, directive)
         elif plan.action == Action.SEND_PHOTOS:
             from sdr.understanding.response_composer import compose_photos_response
@@ -631,7 +674,15 @@ async def process_turn(
                     language=directive.language,
                     conversational_affordance=directive.conversational_affordance,
                 )
-                outbound.extend(outbound_texts)
+                # Safety net: validator may reject all LLM bubbles (e.g. schedule_without_affordance).
+                # Fall back to deterministic template rather than producing empty output.
+                if outbound_texts:
+                    outbound.extend(outbound_texts)
+                else:
+                    fallback = _hard_fallback(plan, directive)
+                    outbound.extend(fallback)
+                    if validator_result is not None and isinstance(validator_result, dict):
+                        validator_result["fallback_used"] = True
             except Exception:
                 outbound.extend(_hard_fallback(plan, directive))
                 validator_result = {
@@ -650,25 +701,6 @@ async def process_turn(
         response_directive=directive,
         outbound_media=outbound_media,
         outbound_location=outbound_location,
-    )
-
-
-def _handoff_message(state: ConversationCanonicalState, summary: str) -> str:
-    """Personalised handoff confirmation with narrative summary."""
-    name = state.customer.name
-    lang = state.language or "pt-BR"
-
-    if lang.startswith("es"):
-        greeting = f"Perfecto, {name}!" if name else "Perfecto!"
-        return (
-            f"{greeting} Ya organicé la información y voy a pasar tu caso a nuestro equipo "
-            f"para que continúen contigo por aquí."
-        )
-
-    greeting = f"Legal, {name}!" if name else "Legal!"
-    return (
-        f"{greeting} Já organizei tudo — {summary}. "
-        "Um dos nossos especialistas vai continuar com você por aqui."
     )
 
 
@@ -703,6 +735,8 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
         return continuation_smalltalk_bubbles(directive.language)
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
+    if action == Action.REGISTER_VISIT_INTEREST:
+        return ["Que tal passarmos por aqui na loja? Ficamos à disposição para receber você!"]
     if action == Action.MEDIA_FAILED:
         return ["Tive um problema com a mídia. Pode me contar em texto?"]
     return ["Como posso ajudar?"]

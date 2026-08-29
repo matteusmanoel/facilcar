@@ -8,8 +8,12 @@ import asyncpg
 
 from sdr.infrastructure.evolution_client import EvolutionClient
 
+from sdr.domain.vehicle_presentation import (
+    DEFAULT_MAX_PHOTOS,
+    select_images_for_send,
+)
+
 SCHEMA = "facilcar"
-DEFAULT_MAX_PHOTOS = 5
 
 
 async def fetch_vehicle_image_urls(
@@ -18,17 +22,16 @@ async def fetch_vehicle_image_urls(
     *,
     limit: int = DEFAULT_MAX_PHOTOS,
 ) -> list[dict[str, Any]]:
-    """Return image rows for a vehicle ordered by ``sortOrder`` ascending."""
+    """Return image rows for a vehicle; cover is always in the sent set and last."""
     sql = f'''
 SELECT "id", "url", "alt", "sortOrder", "isCover"
 FROM "{SCHEMA}"."VehicleImage"
 WHERE "vehicleId" = $1
 ORDER BY "sortOrder" ASC
-LIMIT $2
 '''
     async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, vehicle_id, max(0, limit))
-    return [
+        rows = await conn.fetch(sql, vehicle_id)
+    mapped = [
         {
             "id": str(r["id"]),
             "url": str(r["url"]),
@@ -38,6 +41,7 @@ LIMIT $2
         }
         for r in rows
     ]
+    return select_images_for_send(mapped, limit=limit)
 
 
 def _mimetype_from_url(url: str) -> str:
@@ -66,6 +70,7 @@ async def send_vehicle_photos(
     outbound ``Message`` rows with ``isBotSent=True`` after successful sends.
     """
     images = await fetch_vehicle_image_urls(pool, vehicle_id, limit=max_photos)
+    images = select_images_for_send(images, limit=max_photos)
     message_ids: list[str | None] = []
     for index, image in enumerate(images):
         cap = caption if index == len(images) - 1 and caption else ""

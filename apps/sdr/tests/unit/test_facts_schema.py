@@ -43,6 +43,13 @@ def test_money_normalization_variants() -> None:
     assert normalize_money_value("15000") == 15000
     assert normalize_money_value("15.000") == 15000
     assert normalize_money_value(15000) == 15000
+    assert normalize_money_value("até 2000") == 2000
+
+
+def test_desired_installment_alias() -> None:
+    facts, rejected = normalize_facts({"parcela": "2000"})
+    assert facts.get("desired_installment") == 2000
+    assert not any("malformed" in r for r in rejected)
 
 
 def test_malformed_money_rejected_not_poison() -> None:

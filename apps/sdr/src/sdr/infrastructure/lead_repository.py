@@ -193,7 +193,58 @@ class LeadRepository:
                     lead_id,
                     now,
                 )
+                try:
+                    await self._notify_failed_document_uploads(conn, lead_id, now)
+                except Exception:
+                    logger.exception(
+                        "document-upload-failed notification skipped lead=%s",
+                        lead_id,
+                    )
             return lead
+
+    async def notify_document_upload_failed(self, lead_id: str) -> None:
+        try:
+            async with self._pool.acquire() as conn:
+                await self._notify_failed_document_uploads(conn, lead_id, _now())
+        except Exception:
+            logger.exception(
+                "document-upload-failed notification skipped lead=%s",
+                lead_id,
+            )
+
+    async def _notify_failed_document_uploads(
+        self,
+        conn: asyncpg.Connection,
+        lead_id: str,
+        now: datetime | None = None,
+    ) -> None:
+        """Bell for docs that extracted but were not stored — admin must attach manually."""
+        created = now or _now()
+        failed = await conn.fetch(
+            f'''
+            SELECT 1 FROM "{SCHEMA}"."SdrDocument"
+            WHERE "leadId" = $1
+              AND (
+                "storageKey" = ''
+                OR "storageKey" LIKE 'stub/%'
+                OR "extractionStatus" = 'FAILED'::"{SCHEMA}"."SdrDocumentExtractionStatus"
+              )
+            LIMIT 1
+            ''',
+            lead_id,
+        )
+        if not failed:
+            return
+        await conn.execute(
+            f'''
+            INSERT INTO "{SCHEMA}"."SdrNotification"
+              ("id", "leadId", "type", "createdAt")
+            VALUES ($1, $2, 'DOCUMENT_UPLOAD_FAILED'::"{SCHEMA}"."SdrNotificationType", $3)
+            ''',
+            _new_id(),
+            lead_id,
+            created,
+        )
 
     async def sync_names_for_customer(self, customer_id: str, name: str) -> None:
         """Upgrade CRM display names when a real name replaces a placeholder."""

@@ -99,6 +99,18 @@ Se disser "qualquer motor", extraia desired_engine_any=true e NÃO envie
 desired_engine_displacement_liters neste turno.
 Se corrigir explicitamente ("na verdade quero só o 1.8"), extraia somente
 a cilindrada nova — sem flexible/any.
+
+Comentários referenciais vs. nova preferência:
+Quando o state_summary indicar que veículos já foram exibidos (last_shown_vehicle_ids
+preenchido ou "veículos já exibidos" no resumo), distingua:
+- COMENTÁRIO ou PERGUNTA sobre o veículo já exibido: "Que carro bonito!", "Tem esse
+  branco?", "Esse é o 2.0?", "Quanto ficaria a parcela?", "Gostei desse modelo." →
+  NÃO extraia desired_vehicle_text, desired_model, nem engine_displacement_liters.
+  Os campos de preferência já estão no estado canônico e não devem ser sobrescritos.
+- NOVA PREFERÊNCIA clara: "Na verdade prefiro um Corolla", "Prefiro algo mais barato",
+  "Me mostra uma moto" → extraia normalmente, pois há mudança de preferência.
+Na dúvida, omita — é preferível não alterar o hash do que forçar uma nova busca
+desnecessária.
 """
 
 # OpenAI strict json_schema forbids free-form additionalProperties.

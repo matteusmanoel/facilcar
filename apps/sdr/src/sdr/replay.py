@@ -173,6 +173,25 @@ def _make_deterministic_understand(turns_data: list[dict[str, Any]]):
     return understand, bool(turn_understanding)
 
 
+def inbound_from_fixture_turn(turn: dict[str, Any], text: str, thread_id: str):
+    """Build a typed InboundTurn when the fixture declares a non-text content_type."""
+    from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
+
+    ctype = str(turn.get("content_type") or "TEXT").upper()
+    if ctype == "TEXT":
+        return None
+    try:
+        content_type = ContentType(ctype)
+    except ValueError:
+        return None
+    return InboundTurn(
+        thread_id=thread_id,
+        content_type=content_type,
+        text=text,
+        media_status=MediaStatus.OK,
+    )
+
+
 def _facts_equal(actual: Any, expected: Any) -> bool:
     if actual is None:
         return False
@@ -431,6 +450,14 @@ def _check_turn_assertions(
                 f"{prefix}: must not use listing intro; got {result.outbound_texts!r}"
             )
 
+    expected_count = turn_assertion.get("media_count")
+    if expected_count is not None:
+        media = getattr(result, "outbound_media", None) or []
+        if len(media) != int(expected_count):
+            failures.append(
+                f"{prefix}: expected {expected_count} photos, got {len(media)}"
+            )
+
     if turn_assertion.get("has_outbound_media"):
         media = getattr(result, "outbound_media", None) or []
         if not media:
@@ -444,11 +471,74 @@ def _check_turn_assertions(
                 first_cap = (getattr(media[0], "caption", None) or "").strip()
                 if first_cap:
                     failures.append(f"{prefix}: caption must be on last photo only")
+    elif turn_assertion.get("has_outbound_media") is False:
+        media = getattr(result, "outbound_media", None) or []
+        if media:
+            failures.append(
+                f"{prefix}: expected no outbound_media, got {len(media)} item(s)"
+            )
 
     if turn_assertion.get("follow_up_deal_type"):
         if "compra ou troca" not in bubbles_lower and "compra o permuta" not in bubbles_lower:
             failures.append(
                 f"{prefix}: expected deal_type follow-up; got {result.outbound_texts!r}"
+            )
+
+    if turn_assertion.get("greeting_in_response"):
+        from sdr.domain.introduction import is_first_contact_reopen
+
+        if not is_first_contact_reopen(result.outbound_texts):
+            failures.append(
+                f"{prefix}: expected first-contact greeting; got {result.outbound_texts!r}"
+            )
+
+    expected_ask = turn_assertion.get("ask_field")
+    if expected_ask:
+        actual_ask = result.action_plan.ask_field
+        if actual_ask != expected_ask:
+            failures.append(
+                f"{prefix}: expected ask_field={expected_ask!r}, got {actual_ask!r}"
+            )
+
+    expected_reason = turn_assertion.get("reason_code")
+    if expected_reason:
+        actual_reason = result.action_plan.reason_code
+        if actual_reason != expected_reason:
+            failures.append(
+                f"{prefix}: expected reason_code={expected_reason!r}, got {actual_reason!r}"
+            )
+
+    for phrase in turn_assertion.get("response_contains") or []:
+        if str(phrase).lower() not in bubbles_lower:
+            failures.append(
+                f"{prefix}: expected response to contain {phrase!r}; got {result.outbound_texts!r}"
+            )
+
+    for phrase in turn_assertion.get("response_must_not") or []:
+        if str(phrase).lower() in bubbles_lower:
+            failures.append(
+                f"{prefix}: response must not contain {phrase!r}; got {result.outbound_texts!r}"
+            )
+
+    if turn_assertion.get("caption_title_bold"):
+        media = getattr(result, "outbound_media", None) or []
+        cap = (getattr(media[-1], "caption", None) or "") if media else ""
+        if "*" not in cap:
+            failures.append(f"{prefix}: expected WhatsApp bold title in caption; got {cap!r}")
+
+    needle = turn_assertion.get("last_media_url_contains")
+    if needle:
+        media = getattr(result, "outbound_media", None) or []
+        last_url = getattr(media[-1], "url", "") if media else ""
+        if str(needle) not in str(last_url):
+            failures.append(
+                f"{prefix}: expected last media URL to contain {needle!r}, got {last_url!r}"
+            )
+
+    if turn_assertion.get("handoff_site"):
+        if "facilcarmultimarcas.com.br" not in bubbles_lower:
+            failures.append(
+                f"{prefix}: expected site URL in handoff; got {result.outbound_texts!r}"
             )
 
     if turn_assertion.get("no_rigid_corolla_requirement"):
@@ -629,6 +719,12 @@ async def run_replay(
         for turn in turns_data:
             if turn.get("role") != "customer":
                 continue
+            if turn.get("command") == "reset_memory":
+                state = ConversationCanonicalState(
+                    thread_id=state.thread_id,
+                    customer=state.customer,
+                )
+                continue
             customer_turn_num += 1
             coalesce = turn.get("coalesce")
             if isinstance(coalesce, list) and coalesce:
@@ -643,12 +739,21 @@ async def run_replay(
 
             state_before = state
 
-            result = await process_turn(
-                state=state,
-                inbound_text=text,
-                understand=understand,
-                pool=pool,
-            )
+            inbound = inbound_from_fixture_turn(turn, text, state.thread_id)
+            if inbound is not None:
+                result = await process_turn(
+                    state=state,
+                    inbound=inbound,
+                    understand=understand,
+                    pool=pool,
+                )
+            else:
+                result = await process_turn(
+                    state=state,
+                    inbound_text=text,
+                    understand=understand,
+                    pool=pool,
+                )
             if result.outbound_texts or getattr(result, "outbound_media", None):
                 result.state.assistant_turn_count = state.assistant_turn_count + 1
             state = result.state

@@ -49,7 +49,13 @@ SUSPICIOUS_MODEL_TOKENS: frozenset[str] = frozenset(
 def normalize_search_token(value: str | None) -> str:
     if not value:
         return ""
-    text = unicodedata.normalize("NFKC", str(value))
+    # NFD decomposes accented chars into base letter + combining mark (e.g. é → e + ́).
+    # Stripping Mn (non-spacing mark) removes all accent/cedilla/tilde combining chars.
+    # This ensures "Santa Fé" == "Santa Fe", "Gol" == "Gól", etc. without brand lists.
+    text = unicodedata.normalize("NFD", str(value))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    # NFKC for ligatures and compatibility equivalences.
+    text = unicodedata.normalize("NFKC", text)
     # Strip invisible / bidi marks (e.g. U+200E in catalog "‎View").
     text = "".join(ch for ch in text if unicodedata.category(ch)[0] != "C")
     text = text.strip().lower()
@@ -221,12 +227,29 @@ def build_inventory_search_request(
     )
 
 
-def inventory_search_key_from_request(req: InventorySearchRequest) -> str:
-    """Stable hash of *effective* search criteria (includes scope + budget status)."""
+def inventory_search_key_from_request(
+    req: InventorySearchRequest,
+    *,
+    last_shown_vehicle_ids: list[str] | None = None,
+) -> str:
+    """Stable hash of *effective* search criteria (includes scope + budget status).
+
+    Hash guard: when the customer already saw vehicles for ``req.original_model``
+    (``last_shown_vehicle_ids`` non-empty), ``original_vehicle_text`` is excluded
+    from the hash.  This prevents referential comments ("Lindo esse branco") from
+    changing the hash and triggering a redundant inventory search.  Structural
+    refinements (engine, vehicle_type, alternative_scope) remain in the hash and
+    still trigger a new search when they change.
+    """
+    has_model = bool(req.original_model)
+    has_shown = bool(last_shown_vehicle_ids)
+    vehicle_text_for_hash = (
+        None if (has_model and has_shown) else req.original_vehicle_text
+    )
     payload = {
         "original_model": req.original_model,
         "original_brand": req.original_brand,
-        "original_vehicle_text": req.original_vehicle_text,
+        "original_vehicle_text": vehicle_text_for_hash,
         "category": req.category,
         "vehicle_type": req.vehicle_type,
         "alternative_scope": req.alternative_scope.value,

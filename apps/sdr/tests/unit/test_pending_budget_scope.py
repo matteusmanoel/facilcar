@@ -54,6 +54,21 @@ def test_accept_pending_sets_similar_and_clears() -> None:
     assert merged.facts.get("desired_model") == "corolla"
 
 
+def test_accept_installment_mismatch_sets_capacity_budget() -> None:
+    prev = _state(
+        installment_capacity=65000.0,
+        pending_interaction=PendingInteraction.OFFER_ALTERNATIVES,
+    )
+    facts = TurnFacts(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        pending_resolution=PendingResolution.ACCEPT,
+    )
+    merged = deterministic_merge(prev, facts)
+    assert merged.facts.get("budget") == 65000.0
+    assert merged.facts.get("max_price") == 65000.0
+    assert merged.budget_status == BudgetStatus.PROVIDED
+
+
 def test_any_vehicle_explicit_clears_pending_preserves_model() -> None:
     prev = _state()
     facts = TurnFacts(

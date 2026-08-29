@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-DEFAULT_MAX_PHOTOS = 5
+# WhatsApp flood cap. Cover is always included; extras fill the remainder.
+DEFAULT_MAX_PHOTOS = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +107,7 @@ def format_vehicle_caption(
         price_label, km_label, color_label = "Preço", "Km", "Cor"
         version_label, engine_label, trans_label = "Versão", "Motor", "Câmbio"
 
-    lines = [f"🚗 {header}"]
+    lines = [f"🚗 *{header}*"]
     if price:
         lines.append(f"💰 {price_label}: {price}")
     if mileage is not None:
@@ -147,6 +148,42 @@ def _image_rows(vehicle: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return rows
 
 
+def order_images_cover_last(
+    rows: list[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Cover photo is sent last so it carries the caption. No cover → sortOrder last."""
+    if not rows:
+        return []
+    cover = [r for r in rows if bool(r.get("isCover") or r.get("is_cover"))]
+    rest = [r for r in rows if not bool(r.get("isCover") or r.get("is_cover"))]
+    if not cover:
+        return list(rows)
+    return rest + [cover[-1]]
+
+
+def select_images_for_send(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = DEFAULT_MAX_PHOTOS,
+) -> list[Mapping[str, Any]]:
+    """Choose the outbound set: cover always included and last.
+
+    A cap of N means up to N-1 non-cover photos plus the cover. Slicing after
+    ``order_images_cover_last`` must never drop the cover.
+    """
+    usable = [r for r in rows if str(r.get("url") or "").strip()]
+    if not usable:
+        return []
+    cover = [r for r in usable if bool(r.get("isCover") or r.get("is_cover"))]
+    rest = [r for r in usable if not bool(r.get("isCover") or r.get("is_cover"))]
+    rest.sort(key=lambda r: int(r.get("sortOrder") or r.get("sort_order") or 0))
+    cap = max(0, int(limit))
+    if not cover:
+        return list(rest[:cap] if cap else rest)
+    extras = rest[: max(0, cap - 1)] if cap else rest
+    return extras + [cover[-1]]
+
+
 def media_items_from_images(
     images: Sequence[Mapping[str, Any]],
     *,
@@ -156,8 +193,7 @@ def media_items_from_images(
 ) -> list[OutboundMedia]:
     """Build outbound images; caption is attached to the LAST photo only."""
     items: list[OutboundMedia] = []
-    rows = [img for img in images if str(img.get("url") or "").strip()]
-    rows = rows[: max(0, limit)]
+    rows = select_images_for_send(images, limit=limit)
     last_index = len(rows) - 1
     for index, image in enumerate(rows):
         url = str(image.get("url") or "").strip()

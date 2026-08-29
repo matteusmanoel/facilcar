@@ -52,7 +52,7 @@ async def test_corolla_photos_deal_type_replay(monkeypatch) -> None:
         car = _corolla()
         return car if car.id == vehicle_id else None
 
-    async def fake_images(pool, vehicle_id, *, limit=5):
+    async def fake_images(pool, vehicle_id, *, limit=12):
         car = _corolla()
         return list(car.images)[:limit] if car.id == vehicle_id else []
 
@@ -109,6 +109,8 @@ async def test_corolla_photos_deal_type_replay(monkeypatch) -> None:
             assert len(result.outbound_media) == 3
             assert result.outbound_media[0].caption == ""
             assert "R$ 84.900" in result.outbound_media[-1].caption
+            assert "*" in result.outbound_media[-1].caption
+            assert result.outbound_media[-1].url.endswith("corolla-1.jpg")
             joined = " ".join(result.outbound_texts).lower()
             assert "compra ou troca" in joined
             assert "orçamento" not in joined
@@ -173,7 +175,9 @@ async def test_civic_images_semantic_variant(monkeypatch) -> None:
     assert len(r1.outbound_media) == 2
     assert r1.outbound_media[0].caption == ""
     assert "HONDA CIVIC" in r1.outbound_media[-1].caption
+    assert "*" in r1.outbound_media[-1].caption
     assert "R$ 79.900" in r1.outbound_media[-1].caption
+    assert r1.outbound_media[-1].url.endswith("civic-1.jpg")
     joined = " ".join(r1.outbound_texts).lower()
     assert "compra ou troca" in joined
     assert "orçamento" not in joined
@@ -191,7 +195,7 @@ async def test_civic_images_semantic_variant(monkeypatch) -> None:
     async def fake_get(pool, vehicle_id):
         return civic if vehicle_id == civic.id else None
 
-    async def fake_images(pool, vehicle_id, *, limit=5):
+    async def fake_images(pool, vehicle_id, *, limit=12):
         return list(civic.images)[:limit] if vehicle_id == civic.id else []
 
     monkeypatch.setattr("sdr.tools.inventory.get_vehicle_by_id", fake_get)

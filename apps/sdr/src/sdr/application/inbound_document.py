@@ -57,3 +57,18 @@ def document_inbound_text(
                 parts.append(f"{label}: {value}")
 
     return "\n".join(parts).strip()
+
+
+def document_kind_from_inbound_text(text: str) -> str | None:
+    """Read ``tipo: CNH`` from our extractor's inbound format."""
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("tipo:"):
+            kind = stripped.split(":", 1)[1].strip().upper()
+            return kind or None
+    return None
+
+
+def document_extraction_status(*, extracted: bool) -> str:
+    """OCR outcome is independent of object-storage upload."""
+    return "DONE" if extracted else "FAILED"

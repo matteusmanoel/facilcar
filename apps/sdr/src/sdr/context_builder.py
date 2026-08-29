@@ -37,6 +37,9 @@ _SAFE_FACT_KEYS = frozenset({
     "year",
     "budget",
     "max_price",
+    "deal_type",
+    "down_payment",
+    "desired_installment",
     "payment_type",
     "payment_method",
     "use_type",
@@ -127,6 +130,17 @@ class ConversationContextBuilder:
                 "Se a resposta do cliente for 'sim', 'não', 'exato', 'isso', 'pode', 'claro' "
                 "ou similar, interprete-a como confirmação/negação desta pergunta e preencha "
                 "o campo correspondente nos facts."
+            )
+
+        if state.last_shown_vehicle_ids:
+            lines.append(
+                "ATENÇÃO — veículos já exibidos: o cliente já viu opções de estoque neste "
+                "atendimento. Se a mensagem atual for um COMENTÁRIO ou PERGUNTA sobre o "
+                "veículo exibido (cor, acabamento, motor, preço, elogio, curiosidade), "
+                "NÃO preencha desired_vehicle_text, desired_model, nem engine_displacement_liters "
+                "— esses campos já estão no estado canônico. Preencha desired_vehicle_text ou "
+                "desired_model SOMENTE se o cliente expressar claramente preferência por um "
+                "modelo diferente do que foi mostrado."
             )
 
         if recent_turns:

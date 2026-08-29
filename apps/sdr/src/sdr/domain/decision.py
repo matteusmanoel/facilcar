@@ -27,7 +27,9 @@ from sdr.domain.handoff import (
     compute_temperature,
     should_handoff_now,
 )
+from sdr.domain.installment import installment_capacity, is_installment_tight
 from sdr.domain.inventory_search import (
+    build_inventory_search_request,
     inventory_search_key,
     inventory_search_key_from_request,
 )
@@ -62,12 +64,23 @@ _VISIT_ELIGIBLE_INTENTS = frozenset({
 # Re-export for callers that imported inventory_search_key from decision.
 __all__ = ["decide", "inventory_search_key", "inventory_search_key_from_request"]
 
+# After a vehicle is on the table, financing/docs answers must not re-SHOW_OFFERS.
+_POST_SHOW_ROTEIRO = frozenset({
+    "down_payment",
+    "desired_installment",
+    "documents",
+})
+
 
 def _state_search_key(state: ConversationCanonicalState) -> str:
-    return inventory_search_key(
+    req = build_inventory_search_request(
         state.facts,
         alternative_scope=state.alternative_scope,
         budget_status=state.budget_status,
+    )
+    return inventory_search_key_from_request(
+        req,
+        last_shown_vehicle_ids=state.last_shown_vehicle_ids or [],
     )
 
 
@@ -83,7 +96,22 @@ def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
         return False
 
     key = _state_search_key(state)
-    return key != state.last_inventory_search_key
+    if key == state.last_inventory_search_key:
+        return False
+    # Vehicle already presented: answering the financing roteiro must not
+    # reopen inventory because an LLM leaked engine/budget into the hash.
+    if (
+        state.last_shown_vehicle_ids
+        and state.alternative_scope == AlternativeScope.NONE
+        and next_ask_field(state) in _POST_SHOW_ROTEIRO
+    ):
+        return False
+    # Post-visit: a visit was already invited and triage is actionable — inventory
+    # was already presented. Any new fact that changes the hash (e.g. visit_intent
+    # signal extraction) must not reopen the catalog. The next action is handoff.
+    if state.visit_invited and is_seller_actionable(state):
+        return False
+    return True
 
 
 def decide(state: ConversationCanonicalState) -> ActionPlan:
@@ -133,11 +161,30 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
     # A received document this turn is acknowledged before visit/handoff.
     if state.document_received:
+        ask = next_ask_field(state)
+        if ask and ask not in (None, "intent"):
+            return ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                ask_field=ask,
+                next_question=ask,
+                reason_code="document_received_ack",
+                reason="Acknowledge extracted document; continue roteiro",
+            )
+        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
+            state.visit_invited = True
+            return ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code="document_received_visit",
+                reason="Acknowledge document and invite a visit",
+            )
         return ActionPlan(
             action=Action.ASK_INFO,
             handoff=False,
             reason_code="document_received_ack",
-            reason="Acknowledge extracted document; do not jump to visit this turn",
+            reason="Acknowledge extracted document; do not invent a question",
         )
 
     # Irreversible handoff only from gated explicit signals — never from budget alone.
@@ -192,6 +239,32 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason="Send listing photos of the last presented vehicle",
         )
 
+    # Desired installment vs published price — offer cheaper options once.
+    if (
+        not state.installment_mismatch_offered
+        and state.pending_interaction == PendingInteraction.NONE
+        and is_installment_tight(
+            price_cash=state.last_shown_price_cash,
+            down_payment=state.facts.get("down_payment"),
+            desired_installment=state.facts.get("desired_installment"),
+        )
+    ):
+        capacity = installment_capacity(
+            state.facts.get("down_payment"),
+            state.facts.get("desired_installment"),
+        )
+        state.installment_mismatch_offered = True
+        state.installment_capacity = capacity
+        state.pending_interaction = PendingInteraction.OFFER_ALTERNATIVES
+        return ActionPlan(
+            action=Action.ASK_INFO,
+            handoff=False,
+            ask_field="alternatives_ok",
+            next_question="alternatives_ok",
+            reason_code="installment_tight",
+            reason="Desired installment is tight vs published cash price",
+        )
+
     # Triage actionable only after inventory opportunity has been consumed.
     if is_seller_actionable(state):
         # Visit invitation before irreversible handoff (non-blocking: max 1 turn).
@@ -204,16 +277,23 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 reason_code="visit_invitation_pre_handoff",
                 reason="Invite customer to visit store before handoff",
             )
-        state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
-        state.lifecycle.handoff_reason = "triage_actionable"
-        state.business.actionability = Actionability.ACTIONABLE
-        state.temperature = compute_temperature(state)
-        return ActionPlan(
-            action=Action.HANDOFF_VENDOR,
-            handoff=True,
-            reason_code="triage_actionable",
-            reason=HANDOFF_CONFIRMATION_PT_BR,
-        )
+        # If the visit question was just asked this turn (pending_question="visit"),
+        # allow one turn for natural response before handoff. The subsequent turn
+        # (pending_question cleared) always handoffs. This prevents "Obrigado" or
+        # a new question from being treated as implicit visit confirmation.
+        if state.pending_question == "visit":
+            pass  # fall through to COMMERCIAL_UNKNOWN / location / smalltalk
+        else:
+            state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
+            state.lifecycle.handoff_reason = "triage_actionable"
+            state.business.actionability = Actionability.ACTIONABLE
+            state.temperature = compute_temperature(state)
+            return ActionPlan(
+                action=Action.HANDOFF_VENDOR,
+                handoff=True,
+                reason_code="triage_actionable",
+                reason=HANDOFF_CONFIRMATION_PT_BR,
+            )
 
     # Budget known but no vehicle preference yet → alternatives by budget.
     if (

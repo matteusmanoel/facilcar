@@ -18,7 +18,7 @@ async def test_send_vehicle_photos_caption_on_last() -> None:
     evolution = AsyncMock()
     evolution.send_media = AsyncMock(side_effect=["m1", "m2"])
 
-    async def fake_fetch(pool, vehicle_id, *, limit=5):
+    async def fake_fetch(pool, vehicle_id, *, limit=12):
         return images
 
     import sdr.tools.send_photos as mod
@@ -39,5 +39,9 @@ async def test_send_vehicle_photos_caption_on_last() -> None:
     assert ids == ["m1", "m2"]
     first_cap = evolution.send_media.await_args_list[0].args[4]
     last_cap = evolution.send_media.await_args_list[1].args[4]
+    first_url = evolution.send_media.await_args_list[0].args[2]
+    last_url = evolution.send_media.await_args_list[1].args[2]
     assert first_cap == ""
     assert "R$ 84.900" in last_cap
+    assert str(last_url).endswith("a.jpg")
+    assert str(first_url).endswith("b.jpg")

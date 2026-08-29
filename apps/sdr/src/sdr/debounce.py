@@ -16,6 +16,21 @@ from sdr.config import Settings, get_settings
 DEBOUNCE_KEY_PREFIX = "sdr:debounce:phone:"
 
 
+def dynamic_debounce_ms(
+    assistant_turn_count: int,
+    *,
+    base_ms: int | None = None,
+    settings: Settings | None = None,
+) -> int:
+    """Shorter coalesce on first contact; more typing room after Júlia has spoken."""
+    cfg = settings or get_settings()
+    base = int(base_ms if base_ms is not None else cfg.sdr_debounce_ms)
+    count = max(0, int(assistant_turn_count or 0))
+    if count <= 0:
+        return max(800, min(base, 1200))
+    return min(4500, 2000 + min(count, 8) * 300)
+
+
 async def wait_until_quiet(
     client: redis.Redis | None,
     phone: str,
@@ -23,6 +38,7 @@ async def wait_until_quiet(
     debounce_ms: int | None = None,
     settings: Settings | None = None,
     max_extensions: int = 20,
+    assistant_turn_count: int | None = None,
 ) -> None:
     """Block until the phone has been quiet for ``debounce_ms``.
 
@@ -30,7 +46,12 @@ async def wait_until_quiet(
     Without Redis: single sleep (cannot observe mid-wait arrivals).
     """
     cfg = settings or get_settings()
-    window_ms = debounce_ms if debounce_ms is not None else cfg.sdr_debounce_ms
+    if debounce_ms is not None:
+        window_ms = debounce_ms
+    elif assistant_turn_count is not None:
+        window_ms = dynamic_debounce_ms(assistant_turn_count, settings=cfg)
+    else:
+        window_ms = cfg.sdr_debounce_ms
     window_s = max(window_ms, 0) / 1000.0
     if window_s <= 0:
         return

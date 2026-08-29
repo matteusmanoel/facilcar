@@ -91,6 +91,15 @@ _OFF_ROTEIRO_ASK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bcons[oó]rcio\b", re.I),
     re.compile(r"uso\s+pessoal\s+ou\s+(?:para\s+)?empresa", re.I),
     re.compile(r"para\s+uso\s+pessoal\s+ou", re.I),
+    re.compile(r"prazo\s+mais\s+curto", re.I),
+    re.compile(r"parcelas\s+menores", re.I),
+    re.compile(r"quantos\s+meses", re.I),
+    re.compile(r"em\s+quantas\s+parcelas", re.I),
+]
+
+_CHEERLEADING_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"que\s+[oó]timo\s+saber\s+que\s+vai\s+ser\s+compra", re.I),
+    re.compile(r"condi[cç][oõ]es\s+tendem\s+a\s+ser\s+(?:melhores|mais\s+acess[ií]veis)", re.I),
 ]
 
 _PAYMENT_BOTH_PATTERNS: list[re.Pattern[str]] = [
@@ -135,6 +144,9 @@ def validate_bubbles(bubbles: list[str], *, language: str = "pt-BR") -> list[str
             text = deal_fallback
         if any(pattern.search(text) for pattern in _OFF_ROTEIRO_ASK_PATTERNS):
             logger.warning("validate_bubbles: stripped off-roteiro question: %r", original)
+            continue
+        if any(pattern.search(text) for pattern in _CHEERLEADING_PATTERNS):
+            logger.warning("validate_bubbles: stripped cheerleading: %r", original)
             continue
         if text != original and text != deal_fallback:
             logger.warning(

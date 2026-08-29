@@ -132,6 +132,7 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
         "desired_model",
         "deal_type",
         "down_payment",
+        "desired_installment",
         "documents",
     ],
     BusinessIntent.TRADE: [
@@ -190,6 +191,7 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
         "asking_price": ("asking_price", "desired_price"),
         "amount_needed": ("amount_needed", "raise_amount", "valor_levantar"),
         "down_payment": ("down_payment", "entrada"),
+        "desired_installment": ("desired_installment", "parcela"),
         "payment_method": ("payment_method", "payment_type"),
         "timeline": ("timeline", "urgency", "purchase_timeline"),
         "city": ("city", "location"),
@@ -209,6 +211,10 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
             if state.documents_asked:
                 continue
             return "documents"
+        if field == "desired_installment":
+            if state.installment_asked:
+                continue
+            return "desired_installment"
         keys = aliases.get(field, (field,))
         if not _has(facts, *keys):
             return field

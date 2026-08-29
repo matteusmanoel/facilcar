@@ -195,6 +195,14 @@ class ConversationCanonicalState:
     visit_preferred_time: str | None = None
     # Documents (CNH / holerite) already requested or received this thread.
     documents_asked: bool = False
+    # Desired monthly installment already asked (nice-to-have; does not block).
+    installment_asked: bool = False
+    # Installment-vs-price mismatch already offered this thread.
+    installment_mismatch_offered: bool = False
+    # Internal capacity (down + installment * 60) when mismatch was offered.
+    installment_capacity: float | None = None
+    # Published cash price of the last presented vehicle (installment heuristic).
+    last_shown_price_cash: float | None = None
     # Turn-scoped: inbound this turn was a successfully processed document.
     document_received: bool = False
 
@@ -246,10 +254,15 @@ class ResponseDirective:
     # Content type of the current inbound (for document ack prefix in Composer).
     inbound_content_type: str = "TEXT"
     # Semantic ack the Composer must phrase warmly — never a canned "Anotei:".
-    # deal_purchase | deal_trade | payment_financing | payment_cash | down_payment | document_received
+    # deal_purchase | deal_trade | payment_financing | payment_cash | down_payment
+    # | desired_installment | document_received
     ack_kind: str | None = None
-    # After SEND_LOCATION: warm_invite (morno) | hot_schedule (quente). Pin carries the address.
+    # Deterministic cadence — Composer must not choose the rhythm.
+    cadence_mode: str | None = None
+    # After SEND_LOCATION: location_close. Visit invite: warm_invite | hot_schedule.
     visit_cta_style: str | None = None
+    # Extractor document_type when inbound is a document (CNH, …).
+    document_kind: str | None = None
     # When True, Composer may include failure_code (sandbox only).
     expose_errors: bool = False
     # Media / tool failure code for sandbox recovery copy.

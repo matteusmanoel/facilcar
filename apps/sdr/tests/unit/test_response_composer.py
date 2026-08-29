@@ -65,6 +65,8 @@ async def test_payment_question_is_avista_or_financed_not_both() -> None:
     assert "os dois" not in joined
     assert "anotei" not in joined
     assert "então é compra" not in joined
+    assert "entendi seu interesse na compra" in joined
+    assert "que ótimo saber" not in joined
     bubbles = await compose_response(
         {"language": "pt-BR", "missing_fields": ["deal_type"]},
         {
@@ -137,6 +139,8 @@ async def test_send_location_followup_is_visit_cta_not_address() -> None:
     assert "café" in joined or "cafe" in joined
     assert "av. brasil" not in joined
     assert "foz" not in joined
+    assert "encaminhar" not in joined
+    assert "manhã ou tarde" not in joined
 
 
 @pytest.mark.asyncio
@@ -147,8 +151,9 @@ async def test_send_location_hot_asks_visit_this_week() -> None:
         {"location_pin": {"latitude": -24.9, "longitude": -53.4}},
     )
     joined = " ".join(bubbles).lower()
-    assert "visita" in joined
     assert "semana" in joined
+    assert "loja" in joined
+    assert "encaminhar" not in joined
     assert "ipanema" not in joined
 
 
@@ -190,6 +195,22 @@ def test_validator_strips_os_dois_and_robotic_ack() -> None:
     assert "análise" in joined or "sujeito" in joined
 
 
+def test_validator_strips_cheerleading_and_term_questions() -> None:
+    bubbles = validate_bubbles(
+        [
+            "Que ótimo saber que vai ser compra!",
+            "As condições tendem a ser melhores com entrada.",
+            "Prefere prazo mais curto ou parcelas menores?",
+            "Até quanto de parcela você tem em mente?",
+        ]
+    )
+    joined = " ".join(bubbles).lower()
+    assert "ótimo saber" not in joined
+    assert "condições tendem" not in joined
+    assert "prazo mais curto" not in joined
+    assert "parcela" in joined
+
+
 @pytest.mark.asyncio
 async def test_smalltalk_continuation_template_does_not_reopen() -> None:
     bubbles = await compose_response(
@@ -219,3 +240,65 @@ async def test_smalltalk_first_turn_template_may_introduce() -> None:
     joined = " ".join(bubbles).lower()
     assert "júlia" in joined or "julia" in joined
     assert "compra" in joined
+
+
+@pytest.mark.asyncio
+async def test_first_contact_inventory_introduces() -> None:
+    from types import SimpleNamespace
+
+    from sdr.domain.types import InventoryOutcome
+    from sdr.understanding.response_composer import compose_inventory_response
+
+    directive = SimpleNamespace(
+        inventory_outcome=InventoryOutcome.SUCCESS_FOUND,
+        language="pt-BR",
+        should_introduce=True,
+        facts_context={"desired_model": "Corolla"},
+        next_question="deal_type",
+        conversational_affordance=None,
+        alternative_scope=None,
+        inventory_alternatives=None,
+    )
+    bubbles = compose_inventory_response(
+        directive,
+        {"outbound_media_planned": True, "offers": [{"title": "TOYOTA COROLLA"}]},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "júlia" in joined or "julia" in joined
+    assert "excelente opção" in joined
+    assert "fotos" in joined
+    assert "compra ou troca" in joined
+
+
+@pytest.mark.asyncio
+async def test_visit_invite_does_not_announce_handoff() -> None:
+    bubbles = await compose_response(
+        {"language": "pt-BR", "ack_kind": "document_received", "customer_name": "MATEUS FERREIRA"},
+        {"action": "register_visit_interest", "handoff": False, "tool_calls": []},
+        {},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "mateus" in joined
+    assert "encaminhar" not in joined
+    assert "manhã ou tarde" not in joined
+    assert "café" in joined or "cafe" in joined or "portas abertas" in joined
+
+
+@pytest.mark.asyncio
+async def test_installment_tight_asks_indirect_not_term() -> None:
+    bubbles = await compose_response(
+        {"language": "pt-BR"},
+        {
+            "action": "ask_info",
+            "handoff": False,
+            "tool_calls": [],
+            "next_question": "alternatives_ok",
+            "reason_code": "installment_tight",
+        },
+        {},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "parcela" in joined
+    assert "meses" not in joined
+    assert "prazo" not in joined
+

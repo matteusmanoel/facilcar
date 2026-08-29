@@ -49,6 +49,59 @@ def test_suspicious_model_view() -> None:
     assert is_suspicious_model("Corolla") is False
 
 
+# ---------------------------------------------------------------------------
+# Accent-fold: normalize_search_token must strip combining marks (NFD)
+# ---------------------------------------------------------------------------
+
+def test_normalize_search_token_strips_accents() -> None:
+    """normalize_search_token must produce the same token regardless of accents.
+
+    Root contract: user input and DB model field may differ only in diacritics.
+    Any mismatch must not fail silently with zero results.
+    """
+    from sdr.domain.inventory_search import normalize_search_token
+
+    assert normalize_search_token("Santa Fé") == normalize_search_token("Santa Fe")
+    assert normalize_search_token("Gol") == normalize_search_token("Gól")
+    assert normalize_search_token("Celta") == normalize_search_token("Celtã")
+    assert normalize_search_token("HB20") == normalize_search_token("HB20")  # no accent change
+    assert normalize_search_token("São Paulo") == normalize_search_token("Sao Paulo")
+
+
+def test_accent_insensitive_match_santa_fe() -> None:
+    """Vehicle with 'Santa Fe' in model matches query 'Santa Fé' (user input with accent)."""
+    santa_fe = _v(
+        id="santafe",
+        brand_name="Hyundai",
+        model="Santa Fe",
+        title="HYUNDAI SANTA FE 3.3 V6 2019",
+    )
+    req = build_inventory_search_request({"desired_model": "Santa Fé"})
+    ranked = select_ranked_vehicles([santa_fe], req)
+    assert len(ranked) == 1, (
+        "Santa Fé (with accent) must match Santa Fe (without accent) in the DB. "
+        "normalize_search_token must strip combining marks."
+    )
+    assert ranked[0].id == "santafe"
+
+
+def test_accent_insensitive_match_inverse() -> None:
+    """Vehicle with 'Santa Fé' in model matches query 'Santa Fe' (user input without accent)."""
+    santa_fe = _v(
+        id="santafe2",
+        brand_name="Hyundai",
+        model="Santa Fé",  # DB stored with accent
+        title="HYUNDAI SANTA FÉ 3.3 V6 2019",
+    )
+    req = build_inventory_search_request({"desired_model": "Santa Fe"})
+    ranked = select_ranked_vehicles([santa_fe], req)
+    assert len(ranked) == 1, (
+        "DB model 'Santa Fé' must match user query 'Santa Fe'. "
+        "normalize_search_token must strip combining marks in both directions."
+    )
+    assert ranked[0].id == "santafe2"
+
+
 def test_search_sql_still_requires_published() -> None:
     assert "'PUBLISHED'" in _SEARCH_SQL
     assert 'v."type"::text = $5' in _SEARCH_SQL

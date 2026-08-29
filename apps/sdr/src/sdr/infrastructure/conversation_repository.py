@@ -77,6 +77,10 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "visit_invited": bool(state.visit_invited),
         "visit_preferred_time": state.visit_preferred_time,
         "documents_asked": bool(state.documents_asked),
+        "installment_asked": bool(state.installment_asked),
+        "installment_mismatch_offered": bool(state.installment_mismatch_offered),
+        "installment_capacity": state.installment_capacity,
+        "last_shown_price_cash": state.last_shown_price_cash,
     }
     return json.dumps(payload)
 
@@ -178,6 +182,18 @@ def canonical_state_from_json(
         visit_invited=bool(data.get("visit_invited") or False),
         visit_preferred_time=data.get("visit_preferred_time") or None,
         documents_asked=bool(data.get("documents_asked") or False),
+        installment_asked=bool(data.get("installment_asked") or False),
+        installment_mismatch_offered=bool(data.get("installment_mismatch_offered") or False),
+        installment_capacity=(
+            float(data["installment_capacity"])
+            if data.get("installment_capacity") is not None
+            else None
+        ),
+        last_shown_price_cash=(
+            float(data["last_shown_price_cash"])
+            if data.get("last_shown_price_cash") is not None
+            else None
+        ),
     )
 
 
@@ -656,6 +672,65 @@ class ConversationRepository:
         '''
         async with self._pool.acquire() as conn:
             await conn.execute(sql, message_id, transcription)
+
+    async def list_recent_turns(
+        self,
+        conversation_id: str,
+        *,
+        limit: int = 5,
+        exclude_message_ids: list[str] | None = None,
+    ) -> list[dict[str, str]]:
+        """Return the last ``limit`` messages as [{role, text}] for LLM context.
+
+        Only messages with non-empty text are included. Outbound bot messages
+        are labeled "julia"; inbound customer messages are labeled "customer".
+        Order: oldest first (chronological), so the LLM sees the natural flow.
+
+        ``exclude_message_ids``: Prisma Message ids (cuid / text) of the current
+        inbound batch. These rows are excluded so the current turn's messages
+        are not duplicated in the history that the Understanding LLM receives
+        alongside the live inbound. Cast as text[] — Message.id is not uuid.
+        """
+        if exclude_message_ids:
+            sql = f'''
+                SELECT "direction", "fromMe", "isBotSent", "text"
+                FROM "{SCHEMA}"."Message"
+                WHERE "conversationId" = $1
+                  AND "text" IS NOT NULL
+                  AND "text" <> ''
+                  AND "id" != ALL($3::text[])
+                ORDER BY "createdAt" DESC, "id" DESC
+                LIMIT $2
+            '''
+            async with self._pool.acquire() as conn:
+                rows = list(await conn.fetch(sql, conversation_id, limit, exclude_message_ids))
+        else:
+            sql = f'''
+                SELECT "direction", "fromMe", "isBotSent", "text"
+                FROM "{SCHEMA}"."Message"
+                WHERE "conversationId" = $1
+                  AND "text" IS NOT NULL
+                  AND "text" <> ''
+                ORDER BY "createdAt" DESC, "id" DESC
+                LIMIT $2
+            '''
+            async with self._pool.acquire() as conn:
+                rows = list(await conn.fetch(sql, conversation_id, limit))
+
+        turns: list[dict[str, str]] = []
+        for row in reversed(rows):
+            text = str(row["text"] or "").strip()
+            if not text:
+                continue
+            direction = str(row["direction"] or "")
+            is_bot = bool(row["isBotSent"] or False)
+            from_me = bool(row["fromMe"] or False)
+            if direction == "OUTBOUND" and (is_bot or from_me):
+                role = "julia"
+            else:
+                role = "customer"
+            turns.append({"role": role, "text": text})
+        return turns
 
     async def insert_bot_outbound(
         self,
