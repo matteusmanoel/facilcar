@@ -131,6 +131,22 @@ enum VehicleFeatureCategory {
   @@schema("facilcar")
 }
 
+enum VehicleStockType {
+  OWNED
+  CONSIGNED
+
+  @@schema("facilcar")
+}
+
+enum VehicleCommercialHistory {
+  CLEAN
+  AUCTION
+  RECOVERED_CLAIM
+  AUCTION_AND_RECOVERED_CLAIM
+
+  @@schema("facilcar")
+}
+
 model User {
   id           String    @id @default(cuid())
   name         String
@@ -178,9 +194,20 @@ model Vehicle {
   color             String?
   doors             Int?
   plateFinal        String?
+  plate             String?
   priceCash         Decimal?       @db.Decimal(12, 2)
   priceTradeIn      Decimal?       @db.Decimal(12, 2)
   pricePromotional  Decimal?       @db.Decimal(12, 2)
+  priceFipe         Decimal?       @db.Decimal(12, 2)
+  priceRetailWithWarranty Decimal? @db.Decimal(12, 2)
+  priceRetailAsIs   Decimal?       @db.Decimal(12, 2)
+  priceOwnerAsking  Decimal?       @db.Decimal(12, 2)
+  stockType         VehicleStockType?
+  commercialHistory VehicleCommercialHistory?
+  commercialHistoryRaw String?
+  sourceRawDescription String?
+  spreadsheetKey    String?
+  lastSpreadsheetSeenAt DateTime?
   city              String?
   state             String?
   featured             Boolean        @default(false)
@@ -200,8 +227,12 @@ model Vehicle {
   leads             Lead[]
   financingRequests FinancingRequest[]
   vehicleInterests  LeadVehicleInterest[]
+  owners            VehicleOwner[]
+  inventoryImportItems VehicleInventoryImportItem[]
 
   @@schema("facilcar")
+  @@unique([plate])
+  @@unique([spreadsheetKey])
   @@index([status])
   @@index([featured])
   @@index([brandId])
@@ -209,6 +240,8 @@ model Vehicle {
   @@index([fuelType])
   @@index([transmission])
   @@index([publishedAt])
+  @@index([stockType])
+  @@index([commercialHistory])
 }
 
 model VehicleImage {
@@ -233,6 +266,64 @@ model VehicleFeature {
   sortOrder Int
 
   @@schema("facilcar")
+}
+
+model Partner {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  slug      String         @unique
+  isActive  Boolean         @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  vehicles  VehicleOwner[]
+
+  @@schema("facilcar")
+}
+
+model VehicleOwner {
+  vehicleId    String
+  partnerId    String
+  sharePercent Decimal? @db.Decimal(5, 2)
+  vehicle      Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  partner      Partner  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@id([vehicleId, partnerId])
+  @@schema("facilcar")
+  @@index([partnerId])
+}
+
+model VehicleInventoryImportRun {
+  id            String                       @id @default(cuid())
+  sourceFile    String
+  schemaVersion String?
+  dryRun        Boolean
+  applied       Boolean                      @default(false)
+  summary       Json
+  createdAt     DateTime                     @default(now())
+  items         VehicleInventoryImportItem[]
+
+  @@schema("facilcar")
+  @@index([createdAt])
+}
+
+model VehicleInventoryImportItem {
+  id            String                    @id @default(cuid())
+  runId         String
+  run           VehicleInventoryImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  spreadsheetKey String
+  plateNormalized String?
+  action        String
+  confidence    String
+  vehicleId     String?
+  vehicle       Vehicle?                  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  notes         String?
+  payload       Json
+  createdAt     DateTime                  @default(now())
+
+  @@schema("facilcar")
+  @@index([runId])
+  @@index([vehicleId])
+  @@index([spreadsheetKey])
 }
 
 model Customer {
@@ -618,6 +709,7 @@ enum SdrRetentionPolicy {
 enum SdrNotificationType {
   NEW_QUALIFIED
   NEW_HOT_LEAD
+  DOCUMENT_UPLOAD_FAILED
 
   @@schema("facilcar")
 }
