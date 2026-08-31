@@ -88,6 +88,51 @@ export const createManualLeadSchema = z.object({
 
 export type CreateManualLeadInput = z.infer<typeof createManualLeadSchema>;
 
+export const updateLeadContactSchema = z.object({
+  leadId: z.string().min(1),
+  name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
+  phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),
+  email: z.string().email("E-mail inválido").optional().or(z.literal("")),
+  city: z.string().max(80).optional().or(z.literal("")),
+  state: z.string().max(2).optional().or(z.literal("")),
+  cpf: z.string().max(14).optional().or(z.literal("")),
+  cpfTouched: z.boolean().optional(),
+  birthDate: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), "Data inválida"),
+  nameResolution: z.enum(["keep_existing", "use_new"]).optional(),
+});
+
+export const updateLeadFinancingSchema = z.object({
+  leadId: z.string().min(1),
+  monthlyIncome: z.string().optional().or(z.literal("")),
+  downPayment: z.string().optional().or(z.literal("")),
+  desiredInstallments: z.string().optional().or(z.literal("")),
+  hasDriverLicense: z.enum(["", "true", "false"]).optional(),
+  occupation: z.string().max(120).optional().or(z.literal("")),
+  notes: z.string().max(2000).optional().or(z.literal("")),
+});
+
+export const updateLeadSellSchema = z.object({
+  leadId: z.string().min(1),
+  brand: z.string().max(80).optional().or(z.literal("")),
+  model: z.string().max(80).optional().or(z.literal("")),
+  version: z.string().max(80).optional().or(z.literal("")),
+  yearManufacture: z.string().optional().or(z.literal("")),
+  yearModel: z.string().optional().or(z.literal("")),
+  mileage: z.string().optional().or(z.literal("")),
+  fuelType: z.string().max(40).optional().or(z.literal("")),
+  transmission: z.string().max(40).optional().or(z.literal("")),
+  saleMode: z.enum(["", "CONSIGNMENT", "DIRECT_PURCHASE"]).optional(),
+  observations: z.string().max(2000).optional().or(z.literal("")),
+});
+
+export type UpdateLeadContactInput = z.infer<typeof updateLeadContactSchema>;
+export type UpdateLeadFinancingInput = z.infer<typeof updateLeadFinancingSchema>;
+export type UpdateLeadSellInput = z.infer<typeof updateLeadSellSchema>;
+
 export type ContactFormValues = z.infer<typeof contactFormSchema>;
 export type VehicleInterestFormValues = z.infer<typeof vehicleInterestFormSchema>;
 export type FinancingFormValues = z.infer<typeof financingFormSchema>;

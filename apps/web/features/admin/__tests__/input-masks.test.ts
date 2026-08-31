@@ -15,8 +15,14 @@ describe("formatPhoneBR", () => {
     expect(formatPhoneBR("45988230845")).toBe("(45) 98823-0845");
   });
 
-  it("strips non-digits and caps at 11", () => {
+  it("strips non-digits and caps national numbers at 11", () => {
     expect(formatPhoneBR("(45) 98823-0845 extra")).toBe("(45) 98823-0845");
+  });
+
+  it("keeps country-coded WhatsApp numbers instead of truncating", () => {
+    expect(formatPhoneBR("554588230845")).toBe("+55 (45) 8823-0845");
+    expect(formatPhoneBR("5545988230845")).toBe("+55 (45) 98823-0845");
+    expect(formatPhoneBR("+55 (45) 98823-0845 extra")).toBe("+55 (45) 98823-0845");
   });
 });
 

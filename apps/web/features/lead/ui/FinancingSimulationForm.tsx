@@ -7,6 +7,8 @@ import {
   publicFormLabelClass,
 } from "@/lib/theme";
 import { formatCPF, formatPhoneBR } from "@/lib/input-masks";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/cn";
 
 type Props = {
   vehicleId?: string;
@@ -32,6 +34,7 @@ export function FinancingSimulationForm({
   const [errorMessage, setErrorMessage] = useState("");
   const [cpfValue, setCpfValue] = useState("");
   const [phoneValue, setPhoneValue] = useState("");
+  const [installments, setInstallments] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
   const today = new Date();
@@ -55,6 +58,7 @@ export function FinancingSimulationForm({
       formRef.current?.reset();
       setCpfValue("");
       setPhoneValue("");
+      setInstallments("");
       if (result.whatsappUrl && result.whatsappUrl !== "#") {
         setTimeout(() => {
           window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
@@ -210,22 +214,26 @@ export function FinancingSimulationForm({
 
       <label className={labelClass}>
         Prazo Desejado *
-        <select
-          name="desiredInstallments"
-          required
-          className={inputClass}
+        <input type="hidden" name="desiredInstallments" value={installments} />
+        <Select
+          value={installments || undefined}
+          onValueChange={setInstallments}
           disabled={status === "submitting"}
-          defaultValue=""
         >
-          <option value="" disabled>
-            Selecione o prazo
-          </option>
-          {INSTALLMENT_OPTIONS.map((n) => (
-            <option key={n} value={n}>
-              {n} meses ({n / 12} {n / 12 === 1 ? "ano" : "anos"})
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            className={cn(inputClass, "h-auto min-h-11")}
+            aria-label="Prazo desejado"
+          >
+            <SelectValue placeholder="Selecione o prazo" />
+          </SelectTrigger>
+          <SelectContent>
+            {INSTALLMENT_OPTIONS.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n} meses ({n / 12} {n / 12 === 1 ? "ano" : "anos"})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </label>
 
       {!hasVehicle && (

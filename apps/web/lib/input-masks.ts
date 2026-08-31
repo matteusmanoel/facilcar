@@ -4,9 +4,8 @@ export function digitsOnly(value: string, max?: number): string {
   return max != null ? digits.slice(0, max) : digits;
 }
 
-/** Brazilian mobile/landline as the user types: (00) 00000-0000 */
-export function formatPhoneBR(value: string): string {
-  const d = digitsOnly(value, 11);
+/** National BR number as the user types: (00) 00000-0000 */
+function formatNationalPhoneBR(d: string): string {
   if (d.length === 0) return "";
   if (d.length <= 2) return `(${d}`;
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
@@ -14,6 +13,21 @@ export function formatPhoneBR(value: string): string {
     return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   }
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7, 11)}`;
+}
+
+/**
+ * Brazilian phone as the user types.
+ * National numbers cap at 11 digits. Stored WhatsApp/SDR values with country
+ * code 55 (12–13 digits) keep every digit so edit+save cannot truncate the key.
+ */
+export function formatPhoneBR(value: string): string {
+  const raw = digitsOnly(value);
+  if (raw.startsWith("55") && raw.length > 11) {
+    const d = raw.slice(0, 13);
+    const national = formatNationalPhoneBR(d.slice(2));
+    return national ? `+55 ${national}` : "+55";
+  }
+  return formatNationalPhoneBR(digitsOnly(value, 11));
 }
 
 export function formatCPF(value: string): string {

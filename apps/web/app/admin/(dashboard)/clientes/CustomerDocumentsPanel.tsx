@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type ManualDoc = {
   id: string;
@@ -86,14 +87,15 @@ export function CustomerDocumentsPanel({
     <div className="space-y-4">
       {canWrite ? (
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={docType}
-            onChange={(e) => setDocType(e.target.value)}
-            className="h-9 rounded-lg border border-facil-border bg-facil-card px-2 text-sm text-foreground"
-          >
-            <option value="CONTRACT">Contrato</option>
-            <option value="OTHER">Outro</option>
-          </select>
+          <Select value={docType} onValueChange={setDocType}>
+            <SelectTrigger className="w-[9.5rem]" aria-label="Tipo de documento">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="CONTRACT">Contrato</SelectItem>
+              <SelectItem value="OTHER">Outro</SelectItem>
+            </SelectContent>
+          </Select>
           <input
             ref={inputRef}
             type="file"

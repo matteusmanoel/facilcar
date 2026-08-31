@@ -9,6 +9,11 @@ import { InternalNoteForm } from "./InternalNoteForm";
 import { AssignLeadForm } from "./AssignLeadForm";
 import { LeadDangerZone } from "./LeadDangerZone";
 import { LeadVehicleInterestForm } from "./LeadVehicleInterestForm";
+import { LeadContactEditor } from "./LeadContactEditor";
+import { LeadFinancingEditor } from "./LeadFinancingEditor";
+import { LeadSellEditor } from "./LeadSellEditor";
+import { LeadDetailField as Field } from "./LeadDetailField";
+import { toDateInputValue } from "@/features/lead/lib/edit-values";
 import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
 import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
 
@@ -51,39 +56,11 @@ const TEMPERATURE_CLASSES: Record<string, string> = {
   COLD: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
 };
 
-function maskCPF(cpf: string | null | undefined): string {
-  if (!cpf) return "—";
-  const digits = cpf.replace(/\D/g, "");
-  if (digits.length !== 11) return cpf;
-  return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-}
-
 function formatMoney(value: unknown): string | null {
   if (value == null || value === "") return null;
   const n = Number(value);
   if (Number.isNaN(n)) return null;
   return `R$ ${n.toLocaleString("pt-BR")}`;
-}
-
-function creditRatioColor(ratio: number) {
-  if (ratio >= 20) return "text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-950/30";
-  if (ratio >= 10) return "text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950/30";
-  return "text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950/30";
-}
-
-function creditRatioLabel(ratio: number) {
-  if (ratio >= 20) return "Entrada forte";
-  if (ratio >= 10) return "Entrada regular";
-  return "Entrada baixa";
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-facil-muted">{label}</dt>
-      <dd className="mt-0.5 text-sm text-foreground">{children ?? "—"}</dd>
-    </div>
-  );
 }
 
 function Card({
@@ -171,11 +148,6 @@ export default async function AdminLeadDetailPage({
       )}`
     : null;
 
-  const entradaRenda =
-    fr?.downPayment != null && fr?.monthlyIncome != null && Number(fr.monthlyIncome) > 0
-      ? Math.round((Number(fr.downPayment) / Number(fr.monthlyIncome)) * 100)
-      : null;
-
   const estimatedMonthly =
     primaryVehicle?.priceCash != null && fr?.desiredInstallments
       ? Math.round(Number(primaryVehicle.priceCash) / fr.desiredInstallments).toLocaleString("pt-BR")
@@ -249,48 +221,23 @@ export default async function AdminLeadDetailPage({
 
       <div className="grid items-start gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <Card title="Contato">
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-              <Field label="Nome">{lead.name}</Field>
-              <Field label="Telefone">
-                <span className="inline-flex items-center gap-1.5">
-                  {lead.phone}
-                  {phone ? (
-                    <a
-                      href={`tel:${phone}`}
-                      className="rounded bg-facil-surface px-1.5 py-0.5 text-xs text-facil-muted hover:bg-facil-border hover:text-foreground"
-                    >
-                      Ligar
-                    </a>
-                  ) : null}
-                </span>
-              </Field>
-              <Field label="E-mail">{lead.email ?? "—"}</Field>
-              <Field label="Cidade / Estado">
-                {[lead.city, lead.state].filter(Boolean).join(" / ") || "—"}
-              </Field>
-              <Field label="Cliente no CRM">
-                {lead.customer ? (
-                  <Link
-                    href={`/admin/clientes/${lead.customer.id}`}
-                    className="font-medium text-facil-orange hover:underline"
-                  >
-                    {lead.customer.name}
-                  </Link>
-                ) : (
-                  "Não vinculado"
-                )}
-              </Field>
-              {fr ? (
-                <>
-                  <Field label="CPF">{maskCPF(fr.cpf)}</Field>
-                  <Field label="Data de nascimento">
-                    {fr.birthDate ? new Date(fr.birthDate).toLocaleDateString("pt-BR") : "—"}
-                  </Field>
-                </>
-              ) : null}
-            </dl>
-          </Card>
+          <LeadContactEditor
+            leadId={lead.id}
+            name={lead.name}
+            phone={lead.phone}
+            email={lead.email}
+            city={lead.city}
+            state={lead.state}
+            customer={lead.customer}
+            financing={
+              fr
+                ? {
+                    cpf: fr.cpf,
+                    birthDate: toDateInputValue(fr.birthDate),
+                  }
+                : null
+            }
+          />
 
           <Card title="Veículos de interesse">
             {interestVehicles.length > 0 ? (
@@ -369,91 +316,34 @@ export default async function AdminLeadDetailPage({
           </Card>
 
           {fr ? (
-            <Card title="Perfil de crédito">
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-                <Field label="Renda mensal">
-                  <span className="text-base font-bold">{formatMoney(fr.monthlyIncome) ?? "—"}</span>
-                </Field>
-                <Field label="Entrada">
-                  <span className="text-base font-bold">{formatMoney(fr.downPayment) ?? "—"}</span>
-                </Field>
-                <Field label="Prazo desejado">
-                  {fr.desiredInstallments ? `${fr.desiredInstallments} meses` : "—"}
-                </Field>
-                <Field label="CNH">
-                  {fr.hasDriverLicense == null ? "—" : fr.hasDriverLicense ? "Sim" : "Não"}
-                </Field>
-                <Field label="Ocupação">{fr.occupation ?? "—"}</Field>
-              </dl>
-              {entradaRenda !== null ? (
-                <div className="mt-4 border-t border-facil-border pt-3">
-                  <p className="mb-1.5 text-xs font-medium text-facil-muted">Razão entrada / renda</p>
-                  <div className="flex items-center gap-3">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-facil-surface">
-                      <div
-                        className={`h-full rounded-full ${entradaRenda >= 20 ? "bg-green-500" : entradaRenda >= 10 ? "bg-yellow-400" : "bg-red-400"}`}
-                        style={{ width: `${Math.min(entradaRenda * 2, 100)}%` }}
-                      />
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${creditRatioColor(entradaRenda)}`}
-                    >
-                      {entradaRenda}% — {creditRatioLabel(entradaRenda)}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-              {fr.notes ? (
-                <p className="mt-4 whitespace-pre-wrap text-sm text-facil-muted">{fr.notes}</p>
-              ) : null}
-            </Card>
+            <LeadFinancingEditor
+              leadId={lead.id}
+              monthlyIncome={fr.monthlyIncome != null ? String(fr.monthlyIncome) : ""}
+              downPayment={fr.downPayment != null ? String(fr.downPayment) : ""}
+              desiredInstallments={fr.desiredInstallments != null ? String(fr.desiredInstallments) : ""}
+              hasDriverLicense={fr.hasDriverLicense}
+              occupation={fr.occupation}
+              notes={fr.notes}
+            />
           ) : null}
 
           {lead.sellRequest ? (
-            <Card title="Veículo para venda">
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-                <Field label="Marca">{lead.sellRequest.brand ?? "—"}</Field>
-                <Field label="Modelo">{lead.sellRequest.model ?? "—"}</Field>
-                <Field label="Versão">{lead.sellRequest.version ?? "—"}</Field>
-                <Field label="Ano fabricação">{lead.sellRequest.yearManufacture ?? "—"}</Field>
-                <Field label="Ano modelo">{lead.sellRequest.yearModel ?? "—"}</Field>
-                <Field label="KM">
-                  {lead.sellRequest.mileage != null
-                    ? lead.sellRequest.mileage.toLocaleString("pt-BR")
-                    : "—"}
-                </Field>
-                <Field label="Combustível">{lead.sellRequest.fuelType ?? "—"}</Field>
-                <Field label="Câmbio">{lead.sellRequest.transmission ?? "—"}</Field>
-                <Field label="Modalidade">
-                  {lead.sellRequest.saleMode === "CONSIGNMENT"
-                    ? "Consignação"
-                    : lead.sellRequest.saleMode === "DIRECT_PURCHASE"
-                      ? "Compra direta pela loja"
-                      : "—"}
-                </Field>
-              </dl>
-              {lead.sellRequest.photoUrls.length > 0 ? (
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {lead.sellRequest.photoUrls.map((url) => (
-                    <a
-                      key={url}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="overflow-hidden rounded-lg border border-facil-border"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="Foto do veículo para venda" className="h-28 w-full object-cover" />
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-              {lead.sellRequest.observations ? (
-                <p className="mt-4 whitespace-pre-wrap text-sm text-facil-muted">
-                  {lead.sellRequest.observations}
-                </p>
-              ) : null}
-            </Card>
+            <LeadSellEditor
+              leadId={lead.id}
+              brand={lead.sellRequest.brand}
+              model={lead.sellRequest.model}
+              version={lead.sellRequest.version}
+              yearManufacture={
+                lead.sellRequest.yearManufacture != null ? String(lead.sellRequest.yearManufacture) : ""
+              }
+              yearModel={lead.sellRequest.yearModel != null ? String(lead.sellRequest.yearModel) : ""}
+              mileage={lead.sellRequest.mileage != null ? String(lead.sellRequest.mileage) : ""}
+              fuelType={lead.sellRequest.fuelType}
+              transmission={lead.sellRequest.transmission}
+              saleMode={lead.sellRequest.saleMode}
+              observations={lead.sellRequest.observations}
+              photoUrls={lead.sellRequest.photoUrls}
+            />
           ) : null}
 
           {lead.message ? (

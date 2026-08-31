@@ -380,11 +380,19 @@ export function LeadsFilterToolbar({
           }
         />
 
-        {hasActiveFilters ? (
-          <Button variant="ghost" size="sm" onClick={clearFilters} disabled={isPending}>
+        <div className="flex h-9 w-[7.5rem] shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+            disabled={isPending}
+            tabIndex={hasActiveFilters ? 0 : -1}
+            aria-hidden={!hasActiveFilters}
+            className={cn("w-full", !hasActiveFilters && "invisible")}
+          >
             Limpar filtros
           </Button>
-        ) : null}
+        </div>
       </div>
 
       {totalCount != null ? (
