@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ListFilter, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FilterChips } from "@/components/ui/filter-chips";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PriceRangeFilter } from "@/features/catalog/ui/PriceRangeFilter";
+import { RangeSliderField } from "@/features/catalog/ui/RangeSliderField";
 import {
   Sheet,
   SheetBody,
@@ -15,6 +19,9 @@ import {
 } from "@/components/ui/sheet";
 import { useDebounce } from "@/hooks/useDebounce";
 import { cn } from "@/lib/cn";
+import type { PriceBounds } from "@/features/catalog/lib/price-range";
+
+const ALL_BRANDS = "__all__";
 
 const TYPES: { value: string; label: string }[] = [
   { value: "CAR", label: "Carro" },
@@ -70,20 +77,18 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{children}</label>;
 }
 
-function selectClass() {
-  return "h-10 w-full rounded-lg border border-facil-border bg-facil-card px-3 text-sm text-foreground";
-}
-
 export function EstoqueToolbar({
   brands,
   current,
   resultCount,
   priceBounds,
+  yearBounds,
 }: {
   brands: BrandOption[];
   current: CurrentFilters;
   resultCount: number;
-  priceBounds: { min: number; max: number };
+  priceBounds: PriceBounds;
+  yearBounds: PriceBounds;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -220,48 +225,34 @@ export function EstoqueToolbar({
           ) : null}
         </div>
 
-        <div className="flex h-10 items-center gap-1 rounded-lg border border-facil-border bg-facil-card px-2">
-          <span className="px-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">R$</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            placeholder={String(priceBounds.min)}
-            value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
-            className="w-[5.5rem] bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-zinc-400"
-            aria-label="Preço mínimo"
-          />
-          <span className="text-zinc-400">–</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            placeholder={String(priceBounds.max)}
-            value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
-            className="w-[5.5rem] bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-zinc-400"
-            aria-label="Preço máximo"
-          />
-        </div>
+        <PriceRangeFilter
+          bounds={priceBounds}
+          min={priceMin}
+          max={priceMax}
+          onMinChange={setPriceMin}
+          onMaxChange={setPriceMax}
+        />
 
-        <select
+        <Select
           value={current.sort}
-          onChange={(e) =>
+          onValueChange={(value) =>
             commit((sp) => {
-              if (e.target.value && e.target.value !== "newest") sp.set("ordem", e.target.value);
+              if (value && value !== "newest") sp.set("ordem", value);
               else sp.delete("ordem");
             })
           }
-          className={cn(selectClass(), "w-auto min-w-[10rem]")}
-          aria-label="Ordenar"
         >
-          {SORTS.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="lg" className="w-[11.5rem] shrink-0" aria-label="Ordenar">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Button
           type="button"
@@ -279,11 +270,19 @@ export function EstoqueToolbar({
           ) : null}
         </Button>
 
-        {hasAny ? (
-          <Button type="button" variant="ghost" size="sm" className="h-10" onClick={clearAll}>
+        <div className="flex h-10 w-[4.75rem] shrink-0 items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn("h-10 w-full", !hasAny && "invisible")}
+            tabIndex={hasAny ? 0 : -1}
+            aria-hidden={!hasAny}
+            onClick={clearAll}
+          >
             Limpar
           </Button>
-        ) : null}
+        </div>
       </div>
 
       <p className={cn("text-xs font-medium text-zinc-600 dark:text-zinc-400", isPending && "opacity-60")}>
@@ -295,70 +294,51 @@ export function EstoqueToolbar({
           <SheetHeader>
             <SheetTitle>Mais filtros</SheetTitle>
           </SheetHeader>
-          <SheetBody className="space-y-4">
+          <SheetBody className="space-y-5">
             <div>
               <FieldLabel>Marca</FieldLabel>
-              <select className={selectClass()} value={draftBrand} onChange={(e) => setDraftBrand(e.target.value)}>
-                <option value="">Todas</option>
-                {brands.map((b) => (
-                  <option key={b.id} value={b.slug}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={draftBrand || ALL_BRANDS}
+                onValueChange={(value) => setDraftBrand(value === ALL_BRANDS ? "" : value)}
+              >
+                <SelectTrigger size="lg">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_BRANDS}>Todas</SelectItem>
+                  {brands.map((b) => (
+                    <SelectItem key={b.id} value={b.slug}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <FieldLabel>Tipo</FieldLabel>
-              <select className={selectClass()} value={draftType} onChange={(e) => setDraftType(e.target.value)}>
-                <option value="">Todos</option>
-                {TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+              <FilterChips multiple={false} options={TYPES} value={draftType} onChange={setDraftType} />
             </div>
             <div>
               <FieldLabel>Combustível</FieldLabel>
-              <select className={selectClass()} value={draftFuel} onChange={(e) => setDraftFuel(e.target.value)}>
-                <option value="">Todos</option>
-                {FUELS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
+              <FilterChips multiple={false} options={FUELS} value={draftFuel} onChange={setDraftFuel} />
             </div>
             <div>
               <FieldLabel>Câmbio</FieldLabel>
-              <select className={selectClass()} value={draftTrans} onChange={(e) => setDraftTrans(e.target.value)}>
-                <option value="">Todos</option>
-                {TRANS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+              <FilterChips multiple={false} options={TRANS} value={draftTrans} onChange={setDraftTrans} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel>Ano mín.</FieldLabel>
-                <Input
-                  type="number"
-                  value={draftYearMin}
-                  onChange={(e) => setDraftYearMin(e.target.value)}
-                  placeholder="2015"
-                />
-              </div>
-              <div>
-                <FieldLabel>Ano máx.</FieldLabel>
-                <Input
-                  type="number"
-                  value={draftYearMax}
-                  onChange={(e) => setDraftYearMax(e.target.value)}
-                  placeholder="2025"
-                />
-              </div>
+            <div>
+              <FieldLabel>Ano</FieldLabel>
+              <RangeSliderField
+                bounds={yearBounds}
+                min={draftYearMin}
+                max={draftYearMax}
+                onMinChange={setDraftYearMin}
+                onMaxChange={setDraftYearMax}
+                step={1}
+                formatValue={(n) => String(n)}
+                ariaLabel="Faixa de ano"
+                thumbLabels={["Ano mínimo", "Ano máximo"]}
+              />
             </div>
           </SheetBody>
           <SheetFooter>

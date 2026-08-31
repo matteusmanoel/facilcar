@@ -150,6 +150,30 @@ export async function listAdminVehiclesForPrint(opts: AdminVehicleFilterInput) {
   return { vehicles, totalCount, limit: PRINT_STOCK_LIMIT };
 }
 
+export async function getAdminVehicleNumericBounds() {
+  const currentYear = new Date().getFullYear();
+  const [price, year] = await Promise.all([
+    prisma.vehicle.aggregate({
+      where: { priceCash: { not: null } },
+      _min: { priceCash: true },
+      _max: { priceCash: true },
+    }),
+    prisma.vehicle.aggregate({
+      where: { yearModel: { not: null } },
+      _min: { yearModel: true },
+      _max: { yearModel: true },
+    }),
+  ]);
+  const priceMin = price._min.priceCash != null ? Math.floor(Number(price._min.priceCash)) : 0;
+  const priceMax = price._max.priceCash != null ? Math.ceil(Number(price._max.priceCash)) : 300000;
+  const yearMin = year._min.yearModel ?? 1990;
+  const yearMax = year._max.yearModel ?? currentYear;
+  return {
+    price: { min: priceMin, max: Math.max(priceMin, priceMax) },
+    year: { min: yearMin, max: Math.max(yearMin, yearMax) },
+  };
+}
+
 export async function getVehicleForCustomerSheet(id: string) {
   return prisma.vehicle.findUnique({
     where: { id },

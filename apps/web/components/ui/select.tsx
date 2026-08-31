@@ -12,7 +12,7 @@ const SelectValue = SelectPrimitive.Value;
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
-    size?: "default" | "sm";
+    size?: "default" | "sm" | "lg";
   }
 >(({ className, children, size = "default", ...props }, ref) => (
   <SelectPrimitive.Trigger
@@ -25,6 +25,7 @@ const SelectTrigger = React.forwardRef<
         "disabled:cursor-not-allowed disabled:opacity-50",
       size === "default" && "h-9",
       size === "sm" && "h-8 text-xs",
+      size === "lg" && "h-10",
       className,
     )}
     {...props}

@@ -1,4 +1,9 @@
-import { listPublicVehicles, getBrandsForFilter, getPublicPriceBounds } from "@/features/catalog/server/queries";
+import {
+  listPublicVehicles,
+  getBrandsForFilter,
+  getPublicPriceBounds,
+  getPublicYearBounds,
+} from "@/features/catalog/server/queries";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ScrollReveal } from "@/components/motion/ScrollReveal";
 import { VehicleCard } from "@/features/catalog/ui/VehicleCard";
@@ -47,7 +52,7 @@ export default async function EstoquePage({
   const yearMin = num(typeof params.anoMin === "string" ? params.anoMin : undefined);
   const yearMax = num(typeof params.anoMax === "string" ? params.anoMax : undefined);
 
-  const [result, brands, priceBounds] = await Promise.all([
+  const [result, brands, priceBounds, yearBounds] = await Promise.all([
     listPublicVehicles({
       q,
       brand,
@@ -63,6 +68,7 @@ export default async function EstoquePage({
     }),
     getBrandsForFilter(),
     getPublicPriceBounds(),
+    getPublicYearBounds(),
   ]);
 
   const buildUrl = (updates: Record<string, string | number | undefined>) => {
@@ -97,6 +103,7 @@ export default async function EstoquePage({
         <EstoqueToolbar
           brands={brands}
           priceBounds={priceBounds}
+          yearBounds={yearBounds}
           resultCount={result.total}
           current={{
             q,

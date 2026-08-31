@@ -12,8 +12,12 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { AdminFilterSheet, FilterFieldLabel } from "@/components/admin/AdminFilterSheet";
 import { ArchiveVehicleButton } from "./ArchiveVehicleButton";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { FilterChips } from "@/components/ui/filter-chips";
+import { FilterSwitchRow } from "@/components/ui/filter-switch-row";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { RangeSliderField } from "@/features/catalog/ui/RangeSliderField";
+import { formatCatalogPrice, priceSliderStep, type PriceBounds } from "@/features/catalog/lib/price-range";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -166,6 +170,13 @@ interface VehiclesClientProps {
   filters: VehicleListFilters;
   initialSearch: string;
   canWrite?: boolean;
+  priceBounds: PriceBounds;
+  yearBounds: PriceBounds;
+}
+
+function toggleFlag(list: string[], flag: string, on: boolean): string[] {
+  if (on) return list.includes(flag) ? list : [...list, flag];
+  return list.filter((v) => v !== flag);
 }
 
 function VehicleActionsMenu({
@@ -312,6 +323,8 @@ export function VehiclesClient({
   filters,
   initialSearch,
   canWrite = true,
+  priceBounds,
+  yearBounds,
 }: VehiclesClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -506,127 +519,118 @@ export function VehiclesClient({
               </div>
               <div>
                 <FilterFieldLabel>Tipo</FilterFieldLabel>
-                <MultiSelect
+                <FilterChips
                   options={TYPE_OPTIONS}
                   value={draft.types}
                   onChange={(types) => setDraft((d) => ({ ...d, types }))}
-                  placeholder="Todos os tipos"
-                  searchPlaceholder="Buscar tipo…"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <FilterFieldLabel>Estoque</FilterFieldLabel>
-                <MultiSelect
-                  options={STOCK_OPTIONS}
-                  value={draft.stockTypes}
-                  onChange={(stockTypes) => setDraft((d) => ({ ...d, stockTypes }))}
-                  placeholder="Próprio e consignado"
-                />
+                {STOCK_OPTIONS.map((option) => (
+                  <FilterSwitchRow
+                    key={option.value}
+                    label={option.label}
+                    checked={draft.stockTypes.includes(option.value)}
+                    onCheckedChange={(on) =>
+                      setDraft((d) => ({
+                        ...d,
+                        stockTypes: toggleFlag(d.stockTypes, option.value, on),
+                      }))
+                    }
+                  />
+                ))}
               </div>
-              <div>
+              <div className="space-y-2">
                 <FilterFieldLabel>Foto</FilterFieldLabel>
-                <MultiSelect
-                  options={PHOTO_OPTIONS}
-                  value={draft.hasPhoto}
-                  onChange={(hasPhoto) => setDraft((d) => ({ ...d, hasPhoto }))}
-                  placeholder="Com ou sem foto"
-                />
+                {PHOTO_OPTIONS.map((option) => (
+                  <FilterSwitchRow
+                    key={option.value}
+                    label={option.label}
+                    checked={draft.hasPhoto.includes(option.value)}
+                    onCheckedChange={(on) =>
+                      setDraft((d) => ({
+                        ...d,
+                        hasPhoto: toggleFlag(d.hasPhoto, option.value, on),
+                      }))
+                    }
+                  />
+                ))}
               </div>
             </>
           }
           advancedSection={
             <>
-              <div>
+              <div className="space-y-2">
                 <FilterFieldLabel>Destaque</FilterFieldLabel>
-                <MultiSelect
-                  options={FEATURED_OPTIONS}
-                  value={draft.featured}
-                  onChange={(featured) => setDraft((d) => ({ ...d, featured }))}
-                  placeholder="Todos"
-                />
+                {FEATURED_OPTIONS.map((option) => (
+                  <FilterSwitchRow
+                    key={option.value}
+                    label={option.label}
+                    checked={draft.featured.includes(option.value)}
+                    onCheckedChange={(on) =>
+                      setDraft((d) => ({
+                        ...d,
+                        featured: toggleFlag(d.featured, option.value, on),
+                      }))
+                    }
+                  />
+                ))}
               </div>
               <div>
                 <FilterFieldLabel>Combustível</FilterFieldLabel>
-                <MultiSelect
+                <FilterChips
                   options={FUEL_OPTIONS}
                   value={draft.fuelTypes}
                   onChange={(fuelTypes) => setDraft((d) => ({ ...d, fuelTypes }))}
-                  placeholder="Todos"
-                  searchPlaceholder="Buscar combustível…"
                 />
               </div>
               <div>
                 <FilterFieldLabel>Câmbio</FilterFieldLabel>
-                <MultiSelect
+                <FilterChips
                   options={TRANSMISSION_OPTIONS}
                   value={draft.transmissions}
                   onChange={(transmissions) => setDraft((d) => ({ ...d, transmissions }))}
-                  placeholder="Todos"
-                  searchPlaceholder="Buscar câmbio…"
                 />
               </div>
               <div>
                 <FilterFieldLabel>Histórico comercial</FilterFieldLabel>
-                <MultiSelect
+                <FilterChips
                   options={HISTORY_OPTIONS}
                   value={draft.commercialHistories}
-                  onChange={(commercialHistories) => setDraft((d) => ({ ...d, commercialHistories }))}
-                  placeholder="Todos"
+                  onChange={(commercialHistories) =>
+                    setDraft((d) => ({ ...d, commercialHistories }))
+                  }
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <FilterFieldLabel>Preço mín.</FilterFieldLabel>
-                  <Input
-                    type="number"
-                    min={0}
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={draft.priceMin}
-                    onChange={(e) => setDraft((d) => ({ ...d, priceMin: e.target.value }))}
-                    className="h-9 border-facil-border bg-facil-card"
-                  />
-                </div>
-                <div>
-                  <FilterFieldLabel>Preço máx.</FilterFieldLabel>
-                  <Input
-                    type="number"
-                    min={0}
-                    inputMode="numeric"
-                    placeholder="—"
-                    value={draft.priceMax}
-                    onChange={(e) => setDraft((d) => ({ ...d, priceMax: e.target.value }))}
-                    className="h-9 border-facil-border bg-facil-card"
-                  />
-                </div>
+              <div>
+                <FilterFieldLabel>Preço</FilterFieldLabel>
+                <RangeSliderField
+                  prefix="R$"
+                  bounds={priceBounds}
+                  min={draft.priceMin}
+                  max={draft.priceMax}
+                  onMinChange={(priceMin) => setDraft((d) => ({ ...d, priceMin }))}
+                  onMaxChange={(priceMax) => setDraft((d) => ({ ...d, priceMax }))}
+                  step={priceSliderStep(priceBounds.min, priceBounds.max)}
+                  formatValue={formatCatalogPrice}
+                  ariaLabel="Faixa de preço"
+                  thumbLabels={["Preço mínimo", "Preço máximo"]}
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <FilterFieldLabel>Ano mín.</FilterFieldLabel>
-                  <Input
-                    type="number"
-                    min={1900}
-                    max={2100}
-                    inputMode="numeric"
-                    placeholder="—"
-                    value={draft.yearMin}
-                    onChange={(e) => setDraft((d) => ({ ...d, yearMin: e.target.value }))}
-                    className="h-9 border-facil-border bg-facil-card"
-                  />
-                </div>
-                <div>
-                  <FilterFieldLabel>Ano máx.</FilterFieldLabel>
-                  <Input
-                    type="number"
-                    min={1900}
-                    max={2100}
-                    inputMode="numeric"
-                    placeholder="—"
-                    value={draft.yearMax}
-                    onChange={(e) => setDraft((d) => ({ ...d, yearMax: e.target.value }))}
-                    className="h-9 border-facil-border bg-facil-card"
-                  />
-                </div>
+              <div>
+                <FilterFieldLabel>Ano</FilterFieldLabel>
+                <RangeSliderField
+                  bounds={yearBounds}
+                  min={draft.yearMin}
+                  max={draft.yearMax}
+                  onMinChange={(yearMin) => setDraft((d) => ({ ...d, yearMin }))}
+                  onMaxChange={(yearMax) => setDraft((d) => ({ ...d, yearMax }))}
+                  step={1}
+                  formatValue={(n) => String(n)}
+                  ariaLabel="Faixa de ano"
+                  thumbLabels={["Ano mínimo", "Ano máximo"]}
+                />
               </div>
             </>
           }
@@ -643,11 +647,19 @@ export function VehiclesClient({
             : "Imprimir estoque"}
         </Link>
 
-        {hasActiveFilters ? (
-          <Button variant="ghost" size="sm" disabled={isPending} onClick={clearFilters}>
+        <div className="flex h-9 w-[7.5rem] shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isPending}
+            tabIndex={hasActiveFilters ? 0 : -1}
+            aria-hidden={!hasActiveFilters}
+            className={cn("w-full", !hasActiveFilters && "invisible")}
+            onClick={clearFilters}
+          >
             Limpar filtros
           </Button>
-        ) : null}
+        </div>
       </div>
 
       <p className="text-sm text-zinc-500 dark:text-zinc-400">

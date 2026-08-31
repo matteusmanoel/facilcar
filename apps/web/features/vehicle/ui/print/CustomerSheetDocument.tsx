@@ -19,18 +19,16 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
       <PrintDocumentHeader site={site} title="Ficha do veículo" />
 
       <div className="mt-4 grid grid-cols-[1.15fr_0.85fr] gap-4">
-        <div className="overflow-hidden rounded-lg bg-zinc-100">
+        <div className="flex h-[210px] items-center justify-center overflow-hidden rounded-lg bg-zinc-100">
           {sheet.coverUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={sheet.coverUrl}
               alt={sheet.title}
-              className="h-[210px] w-full object-cover"
+              className="max-h-full max-w-full object-contain"
             />
           ) : (
-            <div className="flex h-[210px] items-center justify-center text-sm text-zinc-400">
-              Sem foto
-            </div>
+            <p className="text-sm text-zinc-400">Sem foto</p>
           )}
         </div>
         <div className="flex min-w-0 flex-col">
@@ -76,13 +74,13 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
       {sheet.thumbUrls.length > 0 ? (
         <div className="mt-3 grid grid-cols-4 gap-2">
           {sheet.thumbUrls.map((url) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <div
               key={url}
-              src={url}
-              alt=""
-              className="h-16 w-full rounded-md object-cover"
-            />
+              className="flex h-24 items-center justify-center overflow-hidden rounded-md bg-zinc-100"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="max-h-full max-w-full object-contain" />
+            </div>
           ))}
         </div>
       ) : null}

@@ -4,7 +4,7 @@ import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canWriteVehicles } from "@/features/auth/rbac-config";
 import { getBrandsForFilter } from "@/features/catalog/server/queries";
 import { parseAdminVehicleListParams } from "@/features/vehicle/lib/admin-vehicle-filters";
-import { listAdminVehicles } from "@/features/vehicle/server/queries";
+import { getAdminVehicleNumericBounds, listAdminVehicles } from "@/features/vehicle/server/queries";
 import { Button } from "@/components/ui/button";
 import { VehiclesClient } from "./VehiclesClient";
 
@@ -19,7 +19,7 @@ export default async function AdminVeiculosPage({
   const canWrite = canWriteVehicles(user.role);
   const parsed = parseAdminVehicleListParams(await searchParams);
 
-  const [{ vehicles, totalCount }, brands] = await Promise.all([
+  const [{ vehicles, totalCount }, brands, numericBounds] = await Promise.all([
     listAdminVehicles({
       page: parsed.page,
       pageSize: parsed.pageSize,
@@ -39,6 +39,7 @@ export default async function AdminVeiculosPage({
       yearMax: parsed.yearMax,
     }),
     getBrandsForFilter(),
+    getAdminVehicleNumericBounds(),
   ]);
 
   const serializedVehicles = vehicles.map((vehicle) => ({
@@ -92,6 +93,8 @@ export default async function AdminVeiculosPage({
         }}
         initialSearch={parsed.search ?? ""}
         canWrite={canWrite}
+        priceBounds={numericBounds.price}
+        yearBounds={numericBounds.year}
       />
     </div>
   );

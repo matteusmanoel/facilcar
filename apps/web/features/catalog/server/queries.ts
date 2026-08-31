@@ -104,6 +104,18 @@ export async function getPublicPriceBounds() {
   return { min, max: Math.max(min, max) };
 }
 
+export async function getPublicYearBounds() {
+  const currentYear = new Date().getFullYear();
+  const agg = await prisma.vehicle.aggregate({
+    where: { status: "PUBLISHED", yearModel: { not: null } },
+    _min: { yearModel: true },
+    _max: { yearModel: true },
+  });
+  const min = agg._min.yearModel ?? 2000;
+  const max = agg._max.yearModel ?? currentYear;
+  return { min, max: Math.max(min, max) };
+}
+
 export async function getBrandsForFilter() {
   return prisma.brand.findMany({
     where: { isActive: true },

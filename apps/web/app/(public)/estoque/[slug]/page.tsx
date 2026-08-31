@@ -20,7 +20,7 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const vehicle = await getVehicleBySlug(slug);
-  if (!vehicle) return { title: "Veículo" };
+  if (!vehicle) notFound();
 
   const title = vehicle.metaTitle ?? vehicle.title;
   const description =
