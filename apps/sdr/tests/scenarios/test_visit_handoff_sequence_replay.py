@@ -95,12 +95,8 @@ def _triaged_state_with_visit_pending() -> ConversationCanonicalState:
 
 
 @pytest.mark.asyncio
-async def test_obrigado_after_visit_invite_produces_commercial_unknown() -> None:
-    """'Obrigado' after visit invite must produce COMMERCIAL_UNKNOWN through process_turn.
-
-    Verifies that pending_question='visit' propagates correctly from state
-    into the decide() call inside process_turn, blocking premature HANDOFF.
-    """
+async def test_obrigado_after_visit_invite_asks_schedule() -> None:
+    """'Obrigado' after visit invite must ask for a visit slot, not restart the roteiro."""
     state = _triaged_state_with_visit_pending()
 
     async def _understand_obrigado(text: str, s: ConversationCanonicalState) -> TurnFacts:
@@ -118,21 +114,24 @@ async def test_obrigado_after_visit_invite_produces_commercial_unknown() -> None
         pool=None,
     )
 
-    assert result.action_plan.action == Action.COMMERCIAL_UNKNOWN, (
-        f"Expected COMMERCIAL_UNKNOWN for 'Obrigado' after visit invite, "
+    assert result.action_plan.action == Action.ASK_INFO, (
+        f"Expected ASK_INFO (visit schedule) for 'Obrigado' after visit invite, "
         f"got {result.action_plan.action!r}. "
-        "The pending_question='visit' guard in decide() must block HANDOFF_VENDOR."
+        "Must not HANDOFF and must not restart the vehicle roteiro."
     )
+    assert result.action_plan.ask_field == "visit"
     assert result.action_plan.handoff is False, (
-        "handoff must be False for COMMERCIAL_UNKNOWN."
+        "handoff must be False while asking for a visit slot."
     )
     assert len(result.outbound_texts) > 0, (
-        "COMMERCIAL_UNKNOWN must produce at least one outbound bubble."
+        "Must produce at least one outbound bubble."
     )
-    # Response must not contain handoff-framing
     joined = " ".join(result.outbound_texts).lower()
     assert "vendedor" not in joined and "equipe" not in joined, (
-        f"COMMERCIAL_UNKNOWN response must not refer to sales team. Got: {result.outbound_texts}"
+        f"Schedule ask must not refer to sales team. Got: {result.outbound_texts}"
+    )
+    assert "modelo" not in joined and "ano específico" not in joined, (
+        f"Must not re-ask model/year after the vehicle was already shown. Got: {result.outbound_texts}"
     )
 
 

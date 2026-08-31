@@ -13,6 +13,12 @@ export type NormalizedInbound = {
   rawMessage: Record<string, unknown> | null;
   /** WhatsApp profile name from Evolution (`pushName` / `notifyName`). */
   pushName: string | null;
+  /**
+   * WhatsApp stanza ID of the message this reply quotes, when the customer
+   * used the in-app reply feature. Enables deterministic vehicle-interest
+   * linking when the customer replies to a vehicle card sent by Julia.
+   */
+  quotedStanzaId: string | null;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -72,6 +78,29 @@ function detectMedia(message: Record<string, unknown> | null): {
     return { hasMedia: false, messageType: "extendedTextMessage", mediaRef: null };
   }
   return { hasMedia: false, messageType: null, mediaRef: null };
+}
+
+/**
+ * Extract the `stanzaId` of the quoted message when the customer used
+ * WhatsApp's reply feature.  Evolution delivers contextInfo inside
+ * `extendedTextMessage` or directly on `message`.
+ */
+function extractQuotedStanzaId(message: Record<string, unknown> | null): string | null {
+  if (!message) return null;
+  // extendedTextMessage carries contextInfo when quoting text/media messages.
+  const ext = asRecord(message.extendedTextMessage);
+  const ctx = asRecord(ext?.contextInfo ?? message.contextInfo);
+  if (ctx) {
+    const sid = ctx.stanzaId ?? ctx.quotedStanzaId;
+    if (typeof sid === "string" && sid.trim()) return sid.trim();
+  }
+  // Some Evolution versions surface contextInfo at the top level of message.
+  const direct = asRecord(message.contextInfo);
+  if (direct) {
+    const sid = direct.stanzaId ?? direct.quotedStanzaId;
+    if (typeof sid === "string" && sid.trim()) return sid.trim();
+  }
+  return null;
 }
 
 /** Evolution `pushName` / `notifyName` — never a JID or placeholder. */
@@ -152,6 +181,7 @@ export function extractInboundMessages(payload: unknown): NormalizedInbound[] {
       mediaRef: media.mediaRef,
       rawMessage: message,
       pushName: fromMe ? null : extractWhatsAppPushName(item),
+      quotedStanzaId: fromMe ? null : extractQuotedStanzaId(message),
     });
   }
   return results;

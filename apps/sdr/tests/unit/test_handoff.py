@@ -127,7 +127,8 @@ async def test_process_turn_handoff_uses_narrative_not_ficha() -> None:
     assert result.action_plan.action == Action.HANDOFF_VENDOR
     joined = " ".join(result.outbound_texts)
     assert "Ana" in joined
-    assert "agradeço" in joined.lower()
+    # triage_actionable reason_code → "Perfeito, Ana!" (not the explicit-handoff template)
+    assert "perfeito" in joined.lower()
     assert "facilcarmultimarcas.com.br" in joined.lower()
     assert "ANA SOUZA" not in joined
     assert "Intent:" not in joined

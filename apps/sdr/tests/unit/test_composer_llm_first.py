@@ -107,21 +107,21 @@ def _message_row(direction: str, is_bot: bool, from_me: bool, text: str) -> dict
 class TestVisitInviteHandoffGuard:
     """decide() must not immediately HANDOFF on the turn where pending_question='visit'."""
 
-    def test_obrigado_after_visit_invite_falls_through_to_commercial_unknown(self) -> None:
-        """After visit invite, an 'Obrigado' (no visit_intent) → COMMERCIAL_UNKNOWN, not HANDOFF.
+    def test_obrigado_after_visit_invite_asks_schedule_not_handoff(self) -> None:
+        """After visit invite, an 'Obrigado' (no visit_intent) must NOT HANDOFF.
 
-        pending_question='visit' is the guard that prevents premature handoff.
-        The customer is acknowledging, not confirming a visit.
+        Hot lead: ask for a visit slot instead of COMMERCIAL_UNKNOWN (which
+        restarted the vehicle roteiro and asked model/year again).
         """
         state = _actionable_financing_state(
             visit_invited=True,
             pending_question="visit",
         )
         plan = decide(state)
-        assert plan.action == Action.COMMERCIAL_UNKNOWN, (
-            f"Expected COMMERCIAL_UNKNOWN (guard active), got {plan.action!r}. "
-            "Premature HANDOFF on 'Obrigado' after visit invite breaks the flow."
+        assert plan.action == Action.ASK_INFO, (
+            f"Expected ASK_INFO visit schedule (guard active), got {plan.action!r}."
         )
+        assert plan.ask_field == "visit"
         assert plan.handoff is False
 
     def test_visit_intent_after_invite_triggers_handoff(self) -> None:
@@ -160,6 +160,17 @@ class TestVisitInviteHandoffGuard:
         assert plan.action == Action.SEND_LOCATION, (
             f"Expected SEND_LOCATION for location_request=True, got {plan.action!r}."
         )
+        assert plan.handoff is False
+
+    def test_seria_otimo_after_invite_asks_schedule_not_model(self) -> None:
+        """Positive reply without a slot must ask when — not restart vehicle search."""
+        state = _actionable_financing_state(
+            visit_invited=True,
+            pending_question="visit",
+        )
+        plan = decide(state)
+        assert plan.action == Action.ASK_INFO
+        assert plan.ask_field == "visit"
         assert plan.handoff is False
 
 

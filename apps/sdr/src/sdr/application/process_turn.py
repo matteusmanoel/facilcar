@@ -27,6 +27,7 @@ from sdr.application.tool_executor import execute_tool_calls, tool_results_to_co
 from sdr.domain.decision import decide, inventory_search_key
 from sdr.domain.handoff import (
     compute_temperature,
+    is_ai_silenced,
     mark_handoff_sent,
 )
 from sdr.domain.inbound import InboundTurn, MediaStatus, inbound_from_text_compat
@@ -141,10 +142,14 @@ def _ack_kind_from_facts(
 
 
 def _visit_cta_style(merged: ConversationCanonicalState) -> str:
-    """HOT gets a scheduling ask; WARM/COLD get a low-pressure invite."""
-    temp = merged.temperature or compute_temperature(merged)
+    """HOT gets a concrete day/time ask; WARM/COLD get a low-pressure invite.
+
+    Always recompute temperature — a stale WARM on state must not hide that
+    the lead is now seller-actionable (vehicle + docs).
+    """
+    temp = compute_temperature(merged)
     if temp == LeadTemperature.HOT:
-        return "hot_schedule"
+        return "hot_ask_slot"
     return "warm_invite"
 
 
@@ -200,6 +205,19 @@ def _build_response_directive(
     objective = response_objective_for(
         action=plan.action, should_introduce=should_introduce
     )
+    if merged.last_shown_vehicle_ids:
+        shown = merged.facts.get("desired_model") or merged.facts.get("desired_vehicle_text")
+        label = str(shown).strip() if isinstance(shown, str) and shown.strip() else "o veículo já apresentado"
+        objective += (
+            f" O cliente já viu {label} neste atendimento. "
+            "NÃO pergunte modelo, ano ou o que está buscando. "
+            "Trate o veículo mostrado como o interesse atual, salvo pedido explícito de outro."
+        )
+    if (prev_pending_question == "visit" or merged.pending_question == "visit") and plan.action != Action.HANDOFF_VENDOR:
+        objective += (
+            " O tema deste turno é o convite de visita — peça dia/horário se ainda faltar. "
+            "Não reabra o roteiro de financiamento nem a busca de estoque."
+        )
 
     lang = merged.language
     if not lang or lang == "unknown":
@@ -236,6 +254,8 @@ def _build_response_directive(
     ]
     if merged.lifecycle.status.value in ("HANDOFF_SENT", "HUMAN_ACTIVE"):
         claims_forbidden.append("any_response")
+    if merged.last_shown_vehicle_ids:
+        claims_forbidden.append("reask_shown_vehicle")
 
     # When scope is widened, forbid treating original model as rigid requirement.
     if merged.alternative_scope.value != "NONE":
@@ -263,6 +283,8 @@ def _build_response_directive(
     visit_cta = None
     if plan.action == Action.SEND_LOCATION:
         visit_cta = "location_close"
+    elif plan.action == Action.REGISTER_VISIT_INTEREST:
+        visit_cta = _visit_cta_style(merged)
 
     from sdr.application.inbound_document import document_kind_from_inbound_text
 
@@ -486,6 +508,21 @@ async def process_turn(
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
 
+    # HANDOFF_SENT / HUMAN_ACTIVE: ingest already happened upstream; never reply
+    # and never call Understanding (no tokens after qualification).
+    if is_ai_silenced(state):
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="ai_silenced",
+                reason="Thread already handed off or with human",
+            ),
+            state=state,
+            outbound_texts=[],
+            turn_facts=TurnFacts(),
+            tool_results=[],
+        )
+
     if inbound.is_media_failed:
         failure = inbound.failure_code.value if inbound.failure_code else "unknown"
         if not _is_sandbox():
@@ -526,6 +563,60 @@ async def process_turn(
 
     if has_store_location_request_evidence(inbound.effective_text):
         facts.location_request = True
+
+    # If an image vehicle-hint was extracted with high confidence and the
+    # Understanding LLM did not resolve a vehicle preference from text alone,
+    # inject the vision-extracted data so inventory search can proceed without
+    # forcing the customer to re-type the vehicle name.
+    vehicle_hint = inbound.raw_message_ref.get("vehicle_hint") if inbound.raw_message_ref else None
+    if vehicle_hint and isinstance(vehicle_hint, dict) and vehicle_hint.get("is_vehicle"):
+        hint_model = vehicle_hint.get("model")
+        hint_brand = vehicle_hint.get("brand")
+        hint_color = vehicle_hint.get("color")
+        hint_type = vehicle_hint.get("vehicle_type")
+        # Only inject when LLM understanding did not extract vehicle preference.
+        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
+            injected: dict = {}
+            if hint_model:
+                injected["desired_model"] = hint_model
+            if hint_brand and hint_model:
+                injected["desired_vehicle_text"] = f"{hint_brand} {hint_model}"
+            elif hint_brand:
+                injected["desired_vehicle_text"] = hint_brand
+            if hint_color and "desired_color" not in facts.facts:
+                injected["desired_color"] = hint_color
+            if hint_type and "vehicle_type" not in facts.facts:
+                injected["vehicle_type"] = hint_type
+            facts.facts = {**facts.facts, **injected}
+
+    # If the customer replied to a specific bot vehicle card (via WhatsApp reply
+    # feature), the quoted vehicle text is in raw_message_ref. When Understanding
+    # did not extract a vehicle preference, inject the quoted vehicle so the
+    # decision engine can link the interest without asking again.
+    quoted_vehicle_text = (
+        inbound.raw_message_ref.get("quoted_vehicle_text") if inbound.raw_message_ref else None
+    )
+    if quoted_vehicle_text and isinstance(quoted_vehicle_text, str):
+        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
+            # Store the raw caption text; Understanding/extractor already ran so
+            # we inject directly into facts to seed the next search key.
+            facts.facts = {**facts.facts, "desired_vehicle_text": quoted_vehicle_text[:200]}
+
+    # Document extraction is authoritative for identity fields when present.
+    # Inject into TurnFacts so merge + CRM persistence do not depend only on
+    # the Understanding LLM re-reading the structured inbound text.
+    doc_extracted = (
+        inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
+    )
+    if isinstance(doc_extracted, dict):
+        identity_patch: dict = {}
+        for key in ("cpf", "birth_date", "birth_city", "birth_state", "name"):
+            val = doc_extracted.get(key)
+            if val and key not in facts.facts:
+                identity_patch[key] = val
+        if identity_patch:
+            facts.facts = {**facts.facts, **identity_patch}
+
     prev_pending = state.pending_question
     merged = deterministic_merge(state, facts)
     if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
@@ -578,9 +669,11 @@ async def process_turn(
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            # Extract location pin so the orchestrator sends it before the handoff text.
+            outbound_location = _location_pin_from_tools(tool_results)
         from sdr.domain.handoff import customer_handoff_bubbles
 
-        outbound.extend(customer_handoff_bubbles(merged))
+        outbound.extend(customer_handoff_bubbles(merged, reason_code=plan.reason_code))
         mark_handoff_sent(merged, plan.reason_code)
     elif plan.action == Action.NO_REPLY:
         pass
@@ -736,7 +829,10 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
     if action == Action.REGISTER_VISIT_INTEREST:
-        return ["Que tal passarmos por aqui na loja? Ficamos à disposição para receber você!"]
+        return [
+            "Qual dia e horário fica melhor pra você passar na loja? "
+            "Assim a gente avança essa proposta juntos."
+        ]
     if action == Action.MEDIA_FAILED:
         return ["Tive um problema com a mídia. Pode me contar em texto?"]
     return ["Como posso ajudar?"]

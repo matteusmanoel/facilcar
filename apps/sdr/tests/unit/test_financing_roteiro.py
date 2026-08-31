@@ -348,6 +348,37 @@ def test_visit_pending_short_yes_sets_visit_intent() -> None:
         "Sim, essa semana",
     )
     assert facts.signals.visit_intent is True
+    assert facts.facts.get("timeline") == "essa semana"
+
+
+def test_visit_pending_seria_otimo_does_not_set_visit_intent() -> None:
+    """Positive but slot-less reply must stay on the visit question."""
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Corolla", "deal_type": "purchase"},
+        pending_question="visit",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "Seria ótimo",
+    )
+    assert facts.signals.visit_intent is not True
+
+
+def test_visit_pending_vou_amanha_stores_timeline() -> None:
+    prev = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Corolla"},
+        pending_question="visit",
+    )
+    facts = overlay_pending_question(
+        TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING),
+        prev,
+        "Vou amanhã",
+    )
+    assert facts.signals.visit_intent is True
+    assert facts.facts.get("timeline") == "amanhã"
 
 
 @pytest.mark.asyncio
@@ -591,5 +622,6 @@ async def test_document_after_installment_invites_visit() -> None:
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
     assert "quantos meses" not in joined
-    assert "café" in joined or "cafe" in joined or "portas abertas" in joined
+    assert "sem compromisso" not in joined
+    assert "horário" in joined or "horario" in joined or "dia" in joined
 

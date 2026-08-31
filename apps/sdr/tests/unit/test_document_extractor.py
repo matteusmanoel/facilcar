@@ -56,6 +56,8 @@ async def test_cnh_extraction_fields() -> None:
             "name": "João Souza",
             "cpf": "529.982.247-25",
             "birth_date": "1988-05-20",
+            "birth_city": "CASCAVEL",
+            "birth_state": "PR",
             "plate": None,
             "document_type": "CNH",
         }
@@ -67,7 +69,9 @@ async def test_cnh_extraction_fields() -> None:
     )
     assert extracted.name == "João Souza"
     assert extracted.cpf == "52998224725"
-    assert extracted.birth_date == "1988-05-20"
+    assert extracted.birth_date == "20/05/1988"
+    assert extracted.birth_city == "CASCAVEL"
+    assert extracted.birth_state == "PR"
     assert extracted.document_type == "CNH"
     assert conflict.needs_confirmation is False
     assert conflict.action == "apply"

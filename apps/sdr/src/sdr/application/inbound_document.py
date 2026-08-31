@@ -48,6 +48,8 @@ def document_inbound_text(
             "name": "nome",
             "cpf": "cpf",
             "birth_date": "data_nascimento",
+            "birth_city": "cidade_nascimento",
+            "birth_state": "uf_nascimento",
             "plate": "placa",
             "document_type": "tipo",
         }

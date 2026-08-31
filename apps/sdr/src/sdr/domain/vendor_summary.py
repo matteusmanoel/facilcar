@@ -6,6 +6,9 @@ builder. Canonical enums and raw facts stay in metadataJson / structured tables.
 
 from __future__ import annotations
 
+import re
+from datetime import date
+
 from sdr.domain.types import ConversationCanonicalState
 
 
@@ -36,12 +39,48 @@ def _forma_comercial(state: ConversationCanonicalState) -> str | None:
     return None
 
 
+def _compute_age(birth_date_str: str | None) -> int | None:
+    """Return age in years from a birth date string (DD/MM/AAAA or AAAA-MM-DD)."""
+    if not birth_date_str:
+        return None
+    try:
+        text = birth_date_str.strip()
+        # Try BR format: DD/MM/AAAA
+        m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
+        if m:
+            day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        else:
+            # Try ISO: AAAA-MM-DD
+            m2 = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", text)
+            if not m2:
+                return None
+            year, month, day = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        today = date.today()
+        age = today.year - year - ((today.month, today.day) < (month, day))
+        return age if 0 < age < 130 else None
+    except Exception:
+        return None
+
+
 def build_vendor_summary(state: ConversationCanonicalState) -> str:
     """Human-readable brief for the seller (and handoff confirmation)."""
     parts: list[str] = []
 
     name = (state.customer.name or "").strip()
     if name and not is_placeholder_display_name(name):
+        age = _compute_age(state.facts.get("birth_date"))  # type: ignore[arg-type]
+        birth_city = state.facts.get("birth_city")
+        birth_state = state.facts.get("birth_state")
+        location_str = ""
+        if birth_city or birth_state:
+            city_state = "/".join(filter(None, [
+                str(birth_city).strip() if birth_city else None,
+                str(birth_state).strip() if birth_state else None,
+            ]))
+            location_str = f", {city_state}"
+        age_str = f", {age} anos" if age else ""
+        parts.append(f"Cliente: {name}{age_str}{location_str}")
+    elif name:
         parts.append(f"Cliente: {name}")
 
     vehicle = (
@@ -70,8 +109,15 @@ def build_vendor_summary(state: ConversationCanonicalState) -> str:
         except (TypeError, ValueError):
             pass
 
+    installment = state.facts.get("desired_installment")
+    if installment:
+        try:
+            parts.append(f"Parcela até: R$ {int(installment):,}".replace(",", "."))
+        except (TypeError, ValueError):
+            pass
+
     if state.visit_preferred_time:
-        parts.append(f"Prefere visitar: {state.visit_preferred_time}")
+        parts.append(f"Visita agendada: {state.visit_preferred_time}")
 
     if not parts:
         intent_labels = {

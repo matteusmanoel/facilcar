@@ -86,22 +86,67 @@ def _interest_narrative(state: ConversationCanonicalState, *, es: bool) -> str:
     return "sua negociação"
 
 
-def customer_handoff_bubbles(state: ConversationCanonicalState) -> list[str]:
-    """WhatsApp close: thanks + specialist, then site. CRM keeps vendor_summary."""
+def customer_handoff_bubbles(
+    state: ConversationCanonicalState,
+    reason_code: str | None = None,
+) -> list[str]:
+    """WhatsApp close: context-appropriate thanks + specialist + site link.
+
+    reason_code drives the phrasing:
+    - "visit_intent" + visit_preferred_time → appointment confirmation
+    - "triage_actionable" / "visit_invitation_pre_handoff" → neutral handoff
+    - everything else → classic "Eu quem agradeço" (explicit handoff / offer)
+    """
     es = (state.language or "").lower().startswith("es")
     name = display_first_name(state.customer.name)
-    if es:
-        thanks = (
-            f"Yo te agradezco{f', {name}' if name else ''}. Ya reuní tu información "
-            "y pronto uno de nuestros especialistas se pondrá en contacto. "
-            "Que tengas un excelente día."
-        )
-        return [thanks, HANDOFF_SITE_BUBBLE_ES]
-    thanks = (
-        f"Eu quem agradeço{f', {name}' if name else ''}. Já reuni suas informações "
-        "e logo um dos nossos especialistas entrará em contato. Tenha um excelente dia."
-    )
-    return [thanks, HANDOFF_SITE_BUBBLE_PT]
+    visit_time = state.visit_preferred_time
+
+    _VISIT_REASONS = {"visit_intent", "visit_slot_confirmed"}
+    _TRIAGE_REASONS = {"triage_actionable", "visit_invitation_pre_handoff"}
+
+    if visit_time and reason_code in _VISIT_REASONS:
+        # Customer confirmed a visit slot — acknowledge the appointment.
+        if es:
+            thanks = (
+                f"Combinado{f', {name}' if name else ''}! "
+                f"Esperamos você {visit_time}. "
+                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
+                "Excelente dia!"
+            )
+        else:
+            thanks = (
+                f"Combinado{f', {name}' if name else ''}! "
+                f"Esperamos você {visit_time}. "
+                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
+                "Excelente dia!"
+            )
+    elif reason_code in _TRIAGE_REASONS:
+        # Triage complete without a specific visit slot — neutral warm close.
+        if es:
+            thanks = (
+                f"Perfeito{f', {name}' if name else ''}! "
+                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+            )
+        else:
+            thanks = (
+                f"Perfeito{f', {name}' if name else ''}! "
+                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+            )
+    else:
+        # Default: explicit handoff / offer / high_purchase_intent.
+        if es:
+            thanks = (
+                f"Yo te agradezco{f', {name}' if name else ''}. Ya reuní tu información "
+                "y pronto uno de nuestros especialistas se pondrá en contacto. "
+                "Que tengas un excelente día."
+            )
+        else:
+            thanks = (
+                f"Eu quem agradeço{f', {name}' if name else ''}. Já reuni suas informações "
+                "e logo um dos nossos especialistas entrará em contato. Tenha um excelente dia."
+            )
+
+    return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
 
 
 def should_handoff_now(state: ConversationCanonicalState) -> bool:

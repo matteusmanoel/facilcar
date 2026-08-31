@@ -20,7 +20,9 @@ DOCUMENT_TYPES: frozenset[str] = frozenset(
     {"CNH", "CRLV", "INCOME_PROOF", "RESIDENCE_PROOF", "OTHER"}
 )
 
-EXTRACTED_FIELDS = ("name", "cpf", "birth_date", "plate", "document_type")
+EXTRACTED_FIELDS = (
+    "name", "cpf", "birth_date", "birth_city", "birth_state", "plate", "document_type"
+)
 
 DOCUMENT_JSON_SCHEMA: dict[str, Any] = {
     "name": "sdr_document_extraction",
@@ -32,13 +34,18 @@ DOCUMENT_JSON_SCHEMA: dict[str, Any] = {
             "name": {"type": ["string", "null"]},
             "cpf": {"type": ["string", "null"]},
             "birth_date": {"type": ["string", "null"]},
+            "birth_city": {"type": ["string", "null"]},
+            "birth_state": {"type": ["string", "null"]},
             "plate": {"type": ["string", "null"]},
             "document_type": {
                 "type": "string",
                 "enum": ["CNH", "CRLV", "INCOME_PROOF", "RESIDENCE_PROOF", "OTHER"],
             },
         },
-        "required": ["name", "cpf", "birth_date", "plate", "document_type"],
+        "required": [
+            "name", "cpf", "birth_date", "birth_city", "birth_state",
+            "plate", "document_type",
+        ],
     },
 }
 
@@ -47,10 +54,28 @@ Extraia campos estruturados de documento brasileiro (CNH, CRLV, comprovante de r
 
 Regras:
 - Retorne JSON conforme o schema. Use null quando o campo não estiver legível.
-- Não invente CPF, nome, data de nascimento ou placa.
+- Não invente CPF, nome, data de nascimento, placa, cidade ou estado.
 - document_type: CNH | CRLV | INCOME_PROOF | RESIDENCE_PROOF | OTHER
-- CPF apenas dígitos (11) quando possível; placa no formato brasileiro se visível.
+- CPF: 11 dígitos quando visível (campo CPF na CNH).
+- birth_date: SOMENTE o campo rotulado "DATA DE NASCIMENTO" / "NASCIMENTO" / "DATANASC".
+  NÃO use data de emissão, validade, 1ª habilitação ou qualquer outra data do documento.
+  Prefira o formato DD/MM/AAAA exatamente como impresso.
+- birth_city / birth_state: campo "LOCAL" / "NATURALIDADE" / "NATURAL DE".
+  Formato comum na CNH: "FOZ DO IGUAÇU/PR" ou "FOZ DO IGUAÇU - PR".
+  - birth_city = nome completo da cidade (ex.: "FOZ DO IGUAÇU"), sem a UF.
+  - birth_state = SOMENTE a sigla de 2 letras do estado (ex.: "PR").
+  Nunca invente UF. Se a naturalidade estiver ilegível, use null.
 """
+
+# Valid Brazilian state codes — reject OCR hallucinations like "PE" for "PR" only
+# when we cannot validate; we simply null invalid codes.
+_BR_UFS = frozenset(
+    {
+        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+        "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+        "SP", "SE", "TO",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -58,6 +83,8 @@ class ExtractedDocument:
     name: str | None = None
     cpf: str | None = None
     birth_date: str | None = None
+    birth_city: str | None = None
+    birth_state: str | None = None
     plate: str | None = None
     document_type: DocumentType = "OTHER"
 
@@ -66,6 +93,8 @@ class ExtractedDocument:
             "name": self.name,
             "cpf": self.cpf,
             "birth_date": self.birth_date,
+            "birth_city": self.birth_city,
+            "birth_state": self.birth_state,
             "plate": self.plate,
             "document_type": self.document_type,
         }
@@ -155,7 +184,65 @@ def check_extraction_conflicts(
     )
 
 
-def rasterize_pdf_first_page(data: bytes, *, scale: float = 2.0) -> bytes | None:
+def normalize_birth_date(value: Any) -> str | None:
+    """Normalize birth date to DD/MM/AAAA when parseable; otherwise keep trimmed string."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    # Already BR format
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= day <= 31 and 1 <= month <= 12 and 1900 <= year <= 2100:
+            return f"{day:02d}/{month:02d}/{year}"
+        return None
+    # ISO AAAA-MM-DD → BR
+    m2 = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", text)
+    if m2:
+        year, month, day = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        if 1 <= day <= 31 and 1 <= month <= 12 and 1900 <= year <= 2100:
+            return f"{day:02d}/{month:02d}/{year}"
+        return None
+    return None
+
+
+def normalize_naturalidade(
+    city: Any,
+    state: Any,
+) -> tuple[str | None, str | None]:
+    """Split combined naturalidade strings and validate UF against BR codes."""
+    city_s = str(city).strip() if isinstance(city, str) and city.strip() else None
+    state_s = str(state).strip().upper() if isinstance(state, str) and state.strip() else None
+
+    # Combined forms: "FOZ DO IGUAÇU/PR", "FOZ DO IGUACU - PR", "CIDADE PR"
+    if city_s:
+        combined = re.match(
+            r"^(.+?)\s*[/\-–,]\s*([A-Za-z]{2})$",
+            city_s,
+        )
+        if combined:
+            city_s = combined.group(1).strip() or None
+            if not state_s:
+                state_s = combined.group(2).upper()
+        else:
+            trailing = re.match(r"^(.+?)\s+([A-Za-z]{2})$", city_s)
+            if trailing and trailing.group(2).upper() in _BR_UFS:
+                city_s = trailing.group(1).strip() or None
+                if not state_s:
+                    state_s = trailing.group(2).upper()
+
+    if state_s and state_s not in _BR_UFS:
+        state_s = None
+
+    if city_s:
+        city_s = re.sub(r"\s+", " ", city_s).strip().upper() or None
+
+    return city_s, state_s
+
+
+def rasterize_pdf_first_page(data: bytes, *, scale: float = 3.0) -> bytes | None:
     """Render the first PDF page to JPEG. Vision APIs reject application/pdf."""
     if not data:
         return None
@@ -214,13 +301,19 @@ def _parse_payload(payload: Mapping[str, Any]) -> ExtractedDocument:
 
     name = payload.get("name")
     cpf = normalize_cpf(payload.get("cpf"))
-    birth = payload.get("birth_date")
+    birth = normalize_birth_date(payload.get("birth_date"))
+    birth_city, birth_state = normalize_naturalidade(
+        payload.get("birth_city"),
+        payload.get("birth_state"),
+    )
     plate = payload.get("plate")
 
     return ExtractedDocument(
         name=str(name).strip() if isinstance(name, str) and name.strip() else None,
         cpf=cpf,
-        birth_date=str(birth).strip() if isinstance(birth, str) and birth.strip() else None,
+        birth_date=birth,
+        birth_city=birth_city,
+        birth_state=birth_state,
         plate=str(plate).strip().upper() if isinstance(plate, str) and plate.strip() else None,
         document_type=doc_type,
     )

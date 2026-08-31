@@ -49,6 +49,7 @@ from sdr.domain.types import (
     ActionPlan,
     BusinessIntent,
     ConversationCanonicalState,
+    LeadTemperature,
     LifecycleStatus,
 )
 
@@ -197,6 +198,10 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         tool_calls: list[dict] = []
         if state.signals.visit_intent is True:
             tool_calls.append({"tool": "register_visit_interest"})
+            # When the customer confirmed a specific slot, send the location pin
+            # alongside the handoff confirmation so they have the store address.
+            if state.visit_preferred_time:
+                tool_calls.append({"tool": "send_location"})
         return ActionPlan(
             action=Action.HANDOFF_VENDOR,
             handoff=True,
@@ -282,6 +287,17 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         # (pending_question cleared) always handoffs. This prevents "Obrigado" or
         # a new question from being treated as implicit visit confirmation.
         if state.pending_question == "visit":
+            # Hot lead already invited: ask for a slot instead of inventing a
+            # new commercial question (COMMERCIAL_UNKNOWN restarted the roteiro).
+            if compute_temperature(state) == LeadTemperature.HOT:
+                return ActionPlan(
+                    action=Action.ASK_INFO,
+                    handoff=False,
+                    ask_field="visit",
+                    next_question="visit",
+                    reason_code="visit_schedule_ask",
+                    reason="Ask for visit day/time before handoff",
+                )
             pass  # fall through to COMMERCIAL_UNKNOWN / location / smalltalk
         else:
             state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF

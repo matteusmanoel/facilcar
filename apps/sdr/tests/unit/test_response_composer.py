@@ -285,6 +285,20 @@ async def test_visit_invite_does_not_announce_handoff() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hot_visit_invite_asks_day_and_time() -> None:
+    bubbles = await compose_response(
+        {"language": "pt-BR", "visit_cta_style": "hot_ask_slot"},
+        {"action": "register_visit_interest", "handoff": False, "tool_calls": []},
+        {},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "horário" in joined or "horario" in joined or "dia" in joined
+    assert "loja" in joined
+    assert "sem compromisso" not in joined
+    assert "encaminhar" not in joined
+
+
+@pytest.mark.asyncio
 async def test_installment_tight_asks_indirect_not_term() -> None:
     bubbles = await compose_response(
         {"language": "pt-BR"},

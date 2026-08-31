@@ -30,11 +30,26 @@ def _env(name: str, default: str = "") -> str:
 
 
 def get_documents_bucket() -> str:
+    """Preferred private documents bucket, with fallback to the catalog bucket.
+
+    ``SDR_DOCUMENTS_BUCKET`` may not exist yet in Supabase Storage; the catalog
+    ``STORAGE_BUCKET_NAME`` (typically ``vehicle-images``) is known to work and
+    already hosts ``customer-documents/`` keys when needed.
+    """
     return (
-        _env("STORAGE_BUCKET_NAME")
-        or _env("SDR_DOCUMENTS_BUCKET")
+        _env("SDR_DOCUMENTS_BUCKET")
+        or _env("STORAGE_BUCKET_NAME")
         or DEFAULT_BUCKET
     )
+
+
+def _documents_bucket_candidates() -> list[str]:
+    primary = get_documents_bucket()
+    candidates = [primary]
+    for extra in (_env("STORAGE_BUCKET_NAME"), DEFAULT_BUCKET, "vehicle-images"):
+        if extra and extra not in candidates:
+            candidates.append(extra)
+    return candidates
 
 
 def is_storage_configured() -> bool:
@@ -134,25 +149,47 @@ def upload_document(
             uploaded=False,
         )
 
-    try:
-        client = _s3_client()
-        extra: dict[str, Any] = {}
-        if mime_type:
-            extra["ContentType"] = mime_type
-        client.put_object(Bucket=bucket, Key=key, Body=data or b"", **extra)
-    except Exception:
-        logger.exception("storage_client: upload failed key=%s", key)
-        return UploadResult(
-            storage_key="",
-            bucket=bucket,
-            stub=False,
-            byte_size=size,
-            uploaded=False,
-        )
+    client = _s3_client()
+    extra: dict[str, Any] = {}
+    if mime_type:
+        extra["ContentType"] = mime_type
+
+    last_error: Exception | None = None
+    for candidate in _documents_bucket_candidates():
+        try:
+            client.put_object(Bucket=candidate, Key=key, Body=data or b"", **extra)
+            if candidate != bucket:
+                logger.warning(
+                    "storage_client: primary bucket %s failed; uploaded to fallback %s key=%s",
+                    bucket,
+                    candidate,
+                    key,
+                )
+            return UploadResult(
+                storage_key=key,
+                bucket=candidate,
+                stub=False,
+                byte_size=size,
+                uploaded=True,
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "storage_client: put_object failed bucket=%s key=%s err=%s",
+                candidate,
+                key,
+                exc,
+            )
+
+    logger.error(
+        "storage_client: upload failed all buckets key=%s last_error=%s",
+        key,
+        last_error,
+    )
     return UploadResult(
-        storage_key=key,
+        storage_key="",
         bucket=bucket,
         stub=False,
         byte_size=size,
-        uploaded=True,
+        uploaded=False,
     )

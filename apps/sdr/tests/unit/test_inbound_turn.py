@@ -258,3 +258,42 @@ async def test_process_turn_media_failed_production_is_silent(
         assert result.outbound_texts == []
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_handoff_sent_is_silent_even_for_media_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After handoff, even sandbox media failures must not produce a customer reply."""
+    from sdr.application.process_turn import process_turn
+    from sdr.config import get_settings
+    from sdr.domain.types import (
+        ConversationCanonicalState,
+        CustomerState,
+        LifecycleState,
+        LifecycleStatus,
+    )
+
+    monkeypatch.setenv("SDR_ENVIRONMENT", "sandbox")
+    get_settings.cache_clear()
+    try:
+        state = ConversationCanonicalState(
+            thread_id="t1",
+            customer=CustomerState(phone="5511999999999"),
+            lifecycle=LifecycleState(status=LifecycleStatus.HANDOFF_SENT),
+        )
+        inbound = make_media_failed_inbound(
+            "t1",
+            MediaFailureCode.EXTRACTION_FAILED,
+            content_type=ContentType.DOCUMENT,
+        )
+
+        async def understand(text, s):
+            raise AssertionError("understand must not run after handoff")
+
+        result = await process_turn(state=state, inbound=inbound, understand=understand)
+        assert result.action_plan.action.value == "no_reply"
+        assert result.outbound_texts == []
+        assert result.action_plan.reason_code == "ai_silenced"
+    finally:
+        get_settings.cache_clear()

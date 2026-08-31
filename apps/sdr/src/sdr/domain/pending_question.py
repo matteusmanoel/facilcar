@@ -24,7 +24,8 @@ _FINANCING = re.compile(
 )
 _NO_DOWN = re.compile(
     r"(?:sem\s+entrada|financiar\s+(?:o\s+)?(?:carro\s+)?(?:todo|inteiro|tudo)|"
-    r"valor\s+todo|100\s*%|nenhuma\s+entrada)",
+    r"valor\s+todo|100\s*%|nenhuma\s+entrada|"
+    r"financia(?:r)?\s+(?:em\s+)?100\s*%|financi(?:a|ar|ado)\s+100)",
     re.I,
 )
 _SHORT_YES = re.compile(
@@ -34,6 +35,16 @@ _SHORT_YES = re.compile(
 )
 _SHORT_NO = re.compile(
     r"^\s*(?:n[aã]o|agora\s+n[aã]o|dispenso|seguir(?:mos)?\s+com\s+esse)\b",
+    re.I,
+)
+_VISIT_POSITIVE = re.compile(
+    r"(?:seria\s+[oó]timo|[oó]timo|legal|quero\s+ir|topa|combinado|pode\s+ser|fechado)",
+    re.I,
+)
+_VISIT_TIME = re.compile(
+    r"\b(?:hoje|amanh[ãa]|essa\s+semana|segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo|"
+    r"manh[ãa]|tarde|noite|\d{1,2}\s*h(?:oras)?|\d{1,2}:\d{2})\b"
+    r"(?:\s+(?:ao?\s+)?(?:meio[\s-]dia|manh[ãa]|tarde|noite|\d{1,2}:\d{2}|\d{1,2}h))?",
     re.I,
 )
 _INSTALLMENT_SKIP = re.compile(
@@ -86,6 +97,9 @@ def overlay_pending_question(
     elif pending == "payment_method":
         if _FINANCING.search(text):
             extra["payment_method"] = "financing"
+            # "Financiado. Financia 100%?" → skip the entrada question next.
+            if _NO_DOWN.search(text) and "down_payment" not in facts.facts:
+                extra["down_payment"] = 0
         elif _CASH.search(text):
             extra["payment_method"] = "cash"
     elif pending == "down_payment":
@@ -103,9 +117,17 @@ def overlay_pending_question(
             if money is not None:
                 extra["desired_installment"] = money
     elif pending == "visit":
-        # Protocol: we just invited a visit; a short confirmation is the answer.
-        if _SHORT_YES.search(text) and len(text.split()) <= 8:
+        # Protocol: we just invited a visit. A concrete slot is confirmation;
+        # a short yes without time still counts as visit_intent; a positive
+        # without a slot stays on the visit question so Decision can ask when.
+        time_m = _VISIT_TIME.search(text)
+        if time_m:
+            extra["timeline"] = time_m.group(0)
             facts.signals.visit_intent = True
+        elif _SHORT_YES.search(text) and len(text.split()) <= 8:
+            facts.signals.visit_intent = True
+        elif _VISIT_POSITIVE.search(text) and len(text.split()) <= 12:
+            pass
     elif pending == "alternatives_ok" and facts.pending_resolution is None:
         if _SHORT_YES.search(text) and len(text.split()) <= 10:
             facts.pending_resolution = PendingResolution.ACCEPT
@@ -119,6 +141,21 @@ def overlay_pending_question(
         extra.setdefault("payment_method", "financing")
         if facts.intent in (BusinessIntent.UNKNOWN, BusinessIntent.PURCHASE, BusinessIntent.SMALLTALK):
             facts.intent = BusinessIntent.PURCHASE_FINANCING
+
+    # Explicit "financia 100% / sem entrada" preference — independent of which
+    # roteiro field was pending, as long as down_payment is still unknown.
+    if (
+        _NO_DOWN.search(text)
+        and "down_payment" not in facts.facts
+        and state.facts.get("down_payment") is None
+        and (
+            extra.get("payment_method") == "financing"
+            or state.facts.get("payment_method") == "financing"
+            or facts.intent == BusinessIntent.PURCHASE_FINANCING
+            or _FINANCING.search(text)
+        )
+    ):
+        extra.setdefault("down_payment", 0)
 
     if (
         facts.intent == BusinessIntent.PURCHASE_FINANCING

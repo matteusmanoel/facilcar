@@ -40,7 +40,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "plate": "Se tiver a placa do veículo, pode me passar?",
     "location": "Você está de qual cidade?",
     "city": "Você é de em qual cidade?",
-    "visit": "Quer visitar a loja? Qual período fica melhor pra você?",
+    "visit": "Qual dia e horário fica melhor pra você passar na loja?",
     "timeline": "Em quanto tempo você pensa em fechar?",
     "mileage": "Quantos km rodados tem o veículo, aproximadamente?",
     "asking_price": "Até qual valor você tem em mente?",
@@ -65,7 +65,7 @@ _FIELD_QUESTIONS_ES: dict[str, str] = {
     "trade_in": "¿Me cuentas marca, modelo y año del auto del canje?",
     "plate": "Si tienes la placa del vehículo, ¿me la pasas?",
     "location": "¿En qué ciudad estás?",
-    "visit": "¿Quieres visitar la tienda? ¿Qué horario te queda mejor?",
+    "visit": "¿Qué día y horario te queda mejor para pasar por la tienda?",
     "payment_method": "¿Sería de contado o financiado?",
     "alternatives_ok": "No encontré exactamente lo que pediste en el stock actual. ¿Quieres que te muestre alternativas parecidas?",
 }
@@ -154,6 +154,16 @@ def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
         return [
             "Conseguimos avaliar as condições da negociação aqui na loja. "
             "Se fizer sentido, passa aqui esta semana. Esperamos você!"
+        ]
+    if style == "hot_ask_slot":
+        if es:
+            return [
+                "¿Qué día y horario te queda mejor para pasar por la tienda? "
+                "Así avanzamos la propuesta juntos."
+            ]
+        return [
+            "Qual dia e horário fica melhor pra você passar na loja? "
+            "Assim a gente avança essa proposta juntos."
         ]
     if style == "hot_schedule":
         if es:
@@ -258,16 +268,38 @@ def _ack_followup_bubbles(
             text = "Entendi: vamos incluir seu veículo na negociação."
         return [text, question] if question else [text]
     if kind == "payment_financing":
+        facts = state.get("facts") or {}
+        zero_down = facts.get("down_payment") == 0 or facts.get("down_payment") == "0"
         if es:
-            text = (
-                "Legal, el financiamiento puede ser una buena opción. "
-                "Conseguimos excelentes condiciones aquí en la tienda."
-            )
+            if zero_down:
+                text = (
+                    "Anoté tu interés en financiar el valor total. "
+                    "Las condiciones dependen del análisis de crédito."
+                )
+            else:
+                text = (
+                    "Legal, el financiamiento puede ser una buena opción. "
+                    "Conseguimos excelentes condiciones aquí en la tienda."
+                )
         else:
-            text = (
-                "Legal, financiamento pode ser uma boa opção pra facilitar. "
-                "Conseguimos ótimas condições aqui na loja."
-            )
+            if zero_down:
+                text = (
+                    "Anotei seu interesse em financiar o valor todo. "
+                    "As condições variam conforme a análise de crédito."
+                )
+            else:
+                text = (
+                    "Legal, financiamento pode ser uma boa opção pra facilitar. "
+                    "Conseguimos ótimas condições aqui na loja."
+                )
+        # When zero-down already captured, skip re-asking entrada even if
+        # ask_field somehow still points at down_payment.
+        if zero_down and question and ("entrada" in question.lower() or "entrada" in (question or "").lower()):
+            # Fall through: use next question only if it's not the entrada ask.
+            # Prefer installment/docs question from directive when present.
+            ask = str(action_plan.get("ask_field") or action_plan.get("next_question") or "")
+            if ask == "down_payment":
+                question = None
         return [text, question] if question else [text]
     if kind == "payment_cash":
         if es:
@@ -313,9 +345,9 @@ def _follow_up_bubble(
             key = "deal_type"
         if key == "visit":
             return (
-                "Nuestra tienda está de puertas abiertas. Pasa a tomar un café, sin compromiso."
+                "¿Qué día y horario te queda mejor para pasar por la tienda?"
                 if lang == "es"
-                else "Nossa loja está de portas abertas. Aparece tomar um café, sem compromisso."
+                else "Qual dia e horário fica melhor pra você passar na loja?"
             )
         if key in questions:
             return questions[key]
@@ -757,7 +789,16 @@ async def compose_response(
             "na negociação.' Depois a pergunta à vista ou financiado. Sem 'que ótimo'."
         )
     elif ack_kind == "payment_financing":
-        tone_rule += "\nConfirme o recebimento (financiamento) e avance para a entrada."
+        facts = state.get("facts") or {}
+        if facts.get("down_payment") == 0 or facts.get("down_payment") == "0":
+            tone_rule += (
+                "\nCliente pediu financiar 100%/sem entrada: confirme que anotou o "
+                "interesse em financiar o valor todo, diga que condições dependem da "
+                "análise de crédito (sem prometer aprovação) e avance. "
+                "NÃO pergunte valor de entrada de novo."
+            )
+        else:
+            tone_rule += "\nConfirme o recebimento (financiamento) e avance para a entrada."
     elif ack_kind == "down_payment":
         tone_rule += (
             "\nConfirme que recebeu a informação sobre a entrada e avance. "
@@ -770,6 +811,18 @@ async def compose_response(
         )
     if next_q_text:
         tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
+    forbidden = state.get("claims_forbidden") or []
+    if "reask_shown_vehicle" in forbidden:
+        tone_rule += (
+            "\nVeículo já apresentado neste atendimento. NÃO pergunte modelo, ano, "
+            "versão ou 'o que você está buscando'. O interesse atual é o veículo "
+            "já mostrado (facts.desired_model), salvo o cliente pedir outro explicitamente."
+        )
+    if state.get("visit_cta_style") == "hot_ask_slot":
+        tone_rule += (
+            "\nConvite de visita: peça dia e horário concreto. Não use 'sem compromisso'. "
+            "Não anuncie que vai encaminhar para um especialista neste turno."
+        )
 
     system_prompt = (
         f"{JULIA_PERSONA_SYSTEM_PROMPT}\n\n"

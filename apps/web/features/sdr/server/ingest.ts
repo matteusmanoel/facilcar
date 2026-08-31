@@ -160,17 +160,27 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     // turnFactsJson so the Python worker can download and process the media.
     // The "_sdr_media" key is read by the orchestrator's audio enrichment path.
     let mediaInitJson: Prisma.InputJsonValue | undefined = undefined;
+    const turnFactsBase: Record<string, Prisma.InputJsonValue> = {};
+
     if (msg.hasMedia && msg.mediaRef) {
-      mediaInitJson = {
-        _sdr_media: {
-          key: {
-            remoteJid: msg.remoteJid ?? null,
-            fromMe: msg.fromMe,
-            id: msg.messageId,
-          },
-          message: (msg.rawMessage ?? {}) as Prisma.InputJsonValue,
+      turnFactsBase["_sdr_media"] = {
+        key: {
+          remoteJid: msg.remoteJid ?? null,
+          fromMe: msg.fromMe,
+          id: msg.messageId,
         },
+        message: (msg.rawMessage ?? {}) as Prisma.InputJsonValue,
       };
+    }
+
+    // When the customer used WhatsApp reply feature, store the quoted stanza ID
+    // so the Python orchestrator can look up which vehicle card was referenced.
+    if (msg.quotedStanzaId) {
+      turnFactsBase["_sdr_quoted_id"] = msg.quotedStanzaId;
+    }
+
+    if (Object.keys(turnFactsBase).length > 0) {
+      mediaInitJson = turnFactsBase;
     }
 
     // Extract MIME type from mediaRef when available (e.g., audio/ogg).

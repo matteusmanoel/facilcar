@@ -769,3 +769,37 @@ class ConversationRepository:
                 sql, msg_id, conversation_id, provider_id, instance_name, text, now, ctype
             )
             return str(row["id"]) if row else msg_id
+
+    async def patch_canonical_facts(
+        self, conversation_id: str, facts_patch: dict
+    ) -> None:
+        """Merge new facts into canonicalStateJson.facts without overwriting other state."""
+        import json as _json
+
+        sql = f'''
+            UPDATE "{SCHEMA}"."Conversation"
+            SET "canonicalStateJson" = jsonb_set(
+                COALESCE("canonicalStateJson", '{{}}'::jsonb),
+                '{{facts}}',
+                COALESCE("canonicalStateJson"->'facts', '{{}}'::jsonb) || $2::jsonb,
+                true
+            )
+            WHERE "id" = $1
+        '''
+        async with self._pool.acquire() as conn:
+            await conn.execute(sql, conversation_id, _json.dumps(facts_patch))
+
+    async def find_bot_message_text_by_provider_id(
+        self, provider_message_id: str
+    ) -> str | None:
+        """Return text of a bot-sent message by its Evolution provider message ID."""
+        sql = f'''
+            SELECT "text"
+            FROM "{SCHEMA}"."Message"
+            WHERE "providerMessageId" = $1
+              AND "isBotSent" = true
+            LIMIT 1
+        '''
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(sql, provider_message_id)
+            return str(row["text"]) if row and row["text"] else None

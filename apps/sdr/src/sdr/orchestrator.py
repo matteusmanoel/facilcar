@@ -358,6 +358,30 @@ class Orchestrator:
         except Exception:
             logger.exception("document message %s: persist failed", message_id)
 
+        # Flow safe fields from extracted document into the conversation state so
+        # they appear in vendor summary and can be used by future turns.
+        if extracted is not None and conversation_id:
+            doc_fact_patch: dict[str, Any] = {}
+            if extracted.cpf:
+                doc_fact_patch["cpf"] = extracted.cpf
+            if extracted.birth_date:
+                doc_fact_patch["birth_date"] = extracted.birth_date
+            if extracted.birth_city:
+                doc_fact_patch["birth_city"] = extracted.birth_city
+            if extracted.birth_state:
+                doc_fact_patch["birth_state"] = extracted.birth_state
+            if extracted.name:
+                doc_fact_patch["name"] = extracted.name
+            if doc_fact_patch:
+                try:
+                    await self.conversations.patch_canonical_facts(
+                        conversation_id, doc_fact_patch
+                    )
+                except Exception:
+                    logger.exception(
+                        "document %s: failed to patch canonical facts", message_id
+                    )
+
         if not inbound_text:
             return make_media_failed_inbound(
                 thread_id=message_id,
@@ -365,7 +389,7 @@ class Orchestrator:
                 content_type=ContentType.DOCUMENT,
                 provider_message_id=str(row.get("providerMessageId") or ""),
             )
-        return InboundTurn(
+        inbound = InboundTurn(
             thread_id=message_id,
             content_type=ContentType.DOCUMENT,
             text=inbound_text,
@@ -373,6 +397,9 @@ class Orchestrator:
             provider_message_id=str(row.get("providerMessageId") or ""),
             mime_type=mime,
         )
+        if extracted is not None:
+            inbound.raw_message_ref["document_extracted"] = extracted.as_dict()
+        return inbound
 
     # ------------------------------------------------------------------
     # Batch processing (closed snapshot after quiet window)
@@ -533,10 +560,18 @@ class Orchestrator:
                 },
             )
             return None
-        if bot_status == LifecycleStatus.HUMAN_ACTIVE.value:
+        if bot_status in (
+            LifecycleStatus.HUMAN_ACTIVE.value,
+            LifecycleStatus.HANDOFF_SENT.value,
+        ):
+            skip_reason = (
+                "human_active"
+                if bot_status == LifecycleStatus.HUMAN_ACTIVE.value
+                else "handoff_sent"
+            )
             await self.conversations.finalize_batch_messages(
                 batch.message_ids,
-                status="SKIPPED:HUMAN_ACTIVE",
+                status=f"SKIPPED:{skip_reason.upper()}"[:64],
                 batch_patch={
                     "batch_id": batch.batch_id,
                     "turn_id": batch.batch_id,
@@ -546,7 +581,7 @@ class Orchestrator:
                     "canonical_order": batch.message_ids,
                     "status": "SKIPPED",
                     "result": BatchResult(
-                        outbound_sent=False, action="no_reply", reason_code="human_active"
+                        outbound_sent=False, action="no_reply", reason_code=skip_reason
                     ).to_dict(),
                 },
             )
@@ -605,29 +640,50 @@ class Orchestrator:
             except Exception:
                 logger.exception("failed clearing debounce key after /deletar")
 
+        # Memory wipe is the contract; confirmation delivery is best-effort.
+        # A ReadTimeout / Evolution blip must not leave /deletar stuck in ERROR
+        # (retries would re-enter this path forever while the user sees silence).
         confirmation = RESET_MEMORY_CONFIRMATION_PT
         provider_id = None
+        send_ok = False
         send = getattr(self.evolution, "send_text", None)
         if send is not None:
-            maybe = await self.evolution.send_text(
-                phone, confirmation, instance=instance
+            try:
+                maybe = await self.evolution.send_text(
+                    phone, confirmation, instance=instance
+                )
+                if isinstance(maybe, str):
+                    provider_id = maybe
+                send_ok = True
+            except Exception:
+                logger.exception(
+                    "reset_memory confirmation send failed conversation=%s batch=%s "
+                    "(memory already wiped; finalizing DONE)",
+                    batch.conversation_id,
+                    batch.batch_id,
+                )
+        try:
+            await self.conversations.insert_bot_outbound(
+                conversation_id=batch.conversation_id,
+                instance_name=instance,
+                provider_message_id=provider_id or f"bot-reset-{batch.batch_id}",
+                text=confirmation,
             )
-            if isinstance(maybe, str):
-                provider_id = maybe
-        await self.conversations.insert_bot_outbound(
-            conversation_id=batch.conversation_id,
-            instance_name=instance,
-            provider_message_id=provider_id or f"bot-reset-{batch.batch_id}",
-            text=confirmation,
-        )
+        except Exception:
+            logger.exception(
+                "reset_memory outbound persist failed conversation=%s batch=%s",
+                batch.conversation_id,
+                batch.batch_id,
+            )
 
         batch_result = BatchResult(
-            outbound_texts=[confirmation],
-            outbound_sent=True,
-            outbound_provider_ids=[provider_id],
+            outbound_texts=[confirmation] if send_ok else [],
+            outbound_sent=send_ok,
+            outbound_provider_ids=[provider_id] if provider_id else [],
             action="reset_memory",
             reason_code="command_deletar",
             processed_at=utc_now_naive().isoformat() + "Z",
+            error=None if send_ok else "confirmation_send_failed",
         )
         await self.conversations.finalize_batch_messages(
             batch.message_ids,
@@ -749,15 +805,75 @@ class Orchestrator:
             )
 
         if content_type == "IMAGE":
-            # Caption stays on the same canonical item as the image event.
-            return InboundTurn(
+            caption = (text or "").strip()
+            # Attempt to identify vehicle brand/model/color from the image bytes.
+            # The result is used to pre-fill search facts without requiring the
+            # customer to re-type the vehicle name.
+            media_ref = None
+            turn_facts_raw = row.get("turnFactsJson")
+            if isinstance(turn_facts_raw, dict):
+                media_ref = turn_facts_raw.get("_sdr_media")
+            elif isinstance(turn_facts_raw, str):
+                try:
+                    parsed = json.loads(turn_facts_raw)
+                    media_ref = parsed.get("_sdr_media")
+                except Exception:
+                    pass
+
+            vehicle_hint: dict | None = None
+            if media_ref is not None:
+                img_data, img_mime = await self._download_media_bytes(
+                    message_id, media_ref=media_ref
+                )
+                if img_data:
+                    from sdr.media.image_describer import extract_vehicle_intent_from_image
+
+                    try:
+                        hint = await extract_vehicle_intent_from_image(
+                            img_data, mime_type=img_mime or row.get("mediaMimeType")
+                        )
+                        if (
+                            hint
+                            and hint.get("is_vehicle")
+                            and float(hint.get("confidence") or 0) >= 0.5
+                        ):
+                            vehicle_hint = hint
+                            logger.info(
+                                "image %s: vehicle_hint brand=%s model=%s conf=%.2f",
+                                message_id,
+                                hint.get("brand"),
+                                hint.get("model"),
+                                hint.get("confidence"),
+                            )
+                    except Exception:
+                        logger.exception("image %s: vehicle intent extraction failed", message_id)
+
+            # Build enriched text: prefer caption; fall back to vehicle description.
+            if not caption and vehicle_hint:
+                parts = [
+                    p for p in [
+                        vehicle_hint.get("brand"),
+                        vehicle_hint.get("model"),
+                        vehicle_hint.get("color"),
+                    ]
+                    if p and isinstance(p, str) and p.strip()
+                ]
+                enriched_text = " ".join(parts) if parts else None
+            else:
+                enriched_text = caption or None
+
+            turn_status = MediaStatus.OK if enriched_text else MediaStatus.NONE
+            inbound = InboundTurn(
                 thread_id=message_id,
                 content_type=ContentType.IMAGE,
-                text=(text or "").strip() or None,
-                media_status=MediaStatus.OK if (text or "").strip() else MediaStatus.NONE,
+                text=enriched_text,
+                media_status=turn_status,
                 provider_message_id=str(row.get("providerMessageId") or ""),
                 mime_type=row.get("mediaMimeType"),
             )
+            if vehicle_hint:
+                inbound.raw_message_ref["vehicle_hint"] = vehicle_hint
+            return inbound
 
         if content_type == "DOCUMENT":
             return await self._enrich_document_row(
@@ -766,11 +882,36 @@ class Orchestrator:
                 caption=text,
             )
 
-        return make_text_inbound(
+        # If the customer used WhatsApp reply on a bot vehicle card, inject
+        # the quoted vehicle as context so Understanding does not lose the reference.
+        quoted_vehicle_text: str | None = None
+        turn_facts_raw_text = row.get("turnFactsJson")
+        quoted_id: str | None = None
+        if isinstance(turn_facts_raw_text, dict):
+            quoted_id = turn_facts_raw_text.get("_sdr_quoted_id")
+        elif isinstance(turn_facts_raw_text, str):
+            try:
+                quoted_id = json.loads(turn_facts_raw_text).get("_sdr_quoted_id")
+            except Exception:
+                pass
+        if quoted_id:
+            try:
+                quoted_vehicle_text = (
+                    await self.conversations.find_bot_message_text_by_provider_id(quoted_id)
+                )
+            except Exception:
+                logger.exception(
+                    "text message %s: lookup quoted vehicle failed", message_id
+                )
+
+        inbound = make_text_inbound(
             thread_id=message_id,
             text=text,
             provider_message_id=str(row.get("providerMessageId") or ""),
         )
+        if quoted_vehicle_text:
+            inbound.raw_message_ref["quoted_vehicle_text"] = quoted_vehicle_text
+        return inbound
 
     async def _run_batch_turn(
         self,
@@ -812,10 +953,18 @@ class Orchestrator:
             ):
                 state.customer.name = existing_name
 
-        if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
+        if state.lifecycle.status in (
+            LifecycleStatus.HUMAN_ACTIVE,
+            LifecycleStatus.HANDOFF_SENT,
+        ):
+            skip_reason = (
+                "human_active"
+                if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
+                else "handoff_sent"
+            )
             await self.conversations.finalize_batch_messages(
                 batch.message_ids,
-                status="SKIPPED:HUMAN_ACTIVE",
+                status=f"SKIPPED:{skip_reason.upper()}"[:64],
                 batch_patch={
                     "batch_id": batch.batch_id,
                     "turn_id": batch.batch_id,
@@ -830,7 +979,7 @@ class Orchestrator:
             return ProcessTurnResult(
                 action_plan=ActionPlan(
                     action=Action.NO_REPLY,
-                    reason_code="human_active",
+                    reason_code=skip_reason,
                 ),
                 state=state,
                 outbound_texts=[],

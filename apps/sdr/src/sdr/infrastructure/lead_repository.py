@@ -39,6 +39,32 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _parse_birth_date_for_db(value: Any) -> datetime | None:
+    """Parse DD/MM/AAAA or AAAA-MM-DD into a naive datetime for FinancingRequest.birthDate."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    import re
+
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            return None
+    m2 = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
+    if m2:
+        year, month, day = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            return None
+    return None
+
+
 def build_julia_summary(state: ConversationCanonicalState) -> str:
     """Seller-facing brief persisted on Lead.juliaSummary."""
     return build_vendor_summary(state)
@@ -118,7 +144,8 @@ class LeadRepository:
             INSERT INTO "{SCHEMA}"."Lead"
               ("id", "type", "status", "source", "channel", "name", "phone",
                "whatsapp", "customerId", "conversationId", "juliaSummary",
-               "temperature", "message", "metadataJson", "createdAt", "updatedAt")
+               "temperature", "message", "city", "state", "metadataJson",
+               "createdAt", "updatedAt")
             VALUES (
               $1,
               $2::"{SCHEMA}"."LeadType",
@@ -127,10 +154,18 @@ class LeadRepository:
               'WHATSAPP'::"{SCHEMA}"."LeadChannel",
               $3, $4, $4, $5, $6, $7,
               $8::"{SCHEMA}"."LeadTemperature",
-              $9, $10::jsonb, $11, $11
+              $9, $10, $11, $12::jsonb, $13, $13
             )
             RETURNING *
         '''
+        city = (
+            str(state.facts.get("birth_city") or state.facts.get("city") or "").strip()
+            or None
+        )
+        uf = (
+            str(state.facts.get("birth_state") or state.facts.get("state") or "").strip()
+            or None
+        )
         meta = {"intent": state.intent.value, "facts": state.facts}
         async with self._pool.acquire() as conn:
             lead = await conn.fetchrow(
@@ -144,6 +179,8 @@ class LeadRepository:
                 summary,
                 temperature,
                 summary,
+                city,
+                uf,
                 json.dumps(meta, ensure_ascii=False),
                 now,
             )
@@ -172,12 +209,24 @@ class LeadRepository:
                 "juliaSummary" = $2,
                 "temperature" = $3::"{SCHEMA}"."LeadTemperature",
                 "assignedToUserId" = NULL,
+                "city" = COALESCE($5, "city"),
+                "state" = COALESCE($6, "state"),
                 "updatedAt" = $4
             WHERE "id" = $1
             RETURNING *
         '''
+        city = (
+            str(state.facts.get("birth_city") or state.facts.get("city") or "").strip()
+            or None
+        )
+        uf = (
+            str(state.facts.get("birth_state") or state.facts.get("state") or "").strip()
+            or None
+        )
         async with self._pool.acquire() as conn:
-            lead = await conn.fetchrow(sql, lead_id, summary, temperature, now)
+            lead = await conn.fetchrow(
+                sql, lead_id, summary, temperature, now, city, uf
+            )
             await self._upsert_side_tables(conn, lead_id, state)
             await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
             if not is_placeholder_display_name(state.customer.name):
@@ -352,10 +401,11 @@ class LeadRepository:
         state: ConversationCanonicalState,
     ) -> None:
         facts = state.facts
+        payment = str(facts.get("payment_method") or "").strip().lower()
         if state.intent in (
             BusinessIntent.PURCHASE_FINANCING,
             BusinessIntent.REFINANCING,
-        ):
+        ) or payment == "financing":
             await self._upsert_financing(conn, lead_id, facts)
         if state.intent in (
             BusinessIntent.SALE,
@@ -375,6 +425,14 @@ class LeadRepository:
             lead_id,
         )
         cpf = facts.get("cpf")
+        birth_raw = facts.get("birth_date")
+        birth_dt = _parse_birth_date_for_db(birth_raw)
+        down = facts.get("down_payment")
+        down_num: float | None
+        try:
+            down_num = float(down) if down is not None and down != "" else None
+        except (TypeError, ValueError):
+            down_num = None
         vehicle_model = (
             facts.get("desired_model")
             or facts.get("vehicle_model")
@@ -387,30 +445,40 @@ class LeadRepository:
                 f'''
                 UPDATE "{SCHEMA}"."FinancingRequest"
                 SET "cpf" = COALESCE($2, "cpf"),
-                    "vehicleModel" = COALESCE($3, "vehicleModel"),
-                    "vehicleYear" = COALESCE($4, "vehicleYear"),
-                    "notes" = COALESCE($5, "notes")
+                    "birthDate" = COALESCE($3, "birthDate"),
+                    "downPayment" = COALESCE($4, "downPayment"),
+                    "vehicleModel" = COALESCE($5, "vehicleModel"),
+                    "vehicleYear" = COALESCE($6, "vehicleYear"),
+                    "notes" = COALESCE($7, "notes"),
+                    "hasDriverLicense" = COALESCE($8, "hasDriverLicense")
                 WHERE "leadId" = $1
                 ''',
                 lead_id,
                 cpf,
+                birth_dt,
+                down_num,
                 vehicle_model,
                 int(vehicle_year) if vehicle_year is not None else None,
                 notes,
+                True if facts.get("document_type") == "CNH" or cpf else None,
             )
             return
         await conn.execute(
             f'''
             INSERT INTO "{SCHEMA}"."FinancingRequest"
-              ("id", "leadId", "cpf", "vehicleModel", "vehicleYear", "notes")
-            VALUES ($1, $2, $3, $4, $5, $6)
+              ("id", "leadId", "cpf", "birthDate", "downPayment",
+               "vehicleModel", "vehicleYear", "notes", "hasDriverLicense")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ''',
             _new_id(),
             lead_id,
             cpf,
+            birth_dt,
+            down_num,
             vehicle_model,
             int(vehicle_year) if vehicle_year is not None else None,
             notes,
+            True if facts.get("document_type") == "CNH" or cpf else None,
         )
 
     async def _upsert_sell(
