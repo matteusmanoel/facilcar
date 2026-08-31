@@ -1,49 +1,57 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Dialog, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import { VehicleImage } from "@/components/shared/VehicleImage";
+import { wrapGalleryIndex } from "@/features/vehicle/lib/gallery-nav";
+import { cn } from "@/lib/cn";
 
 type Img = { id: string; url: string; alt?: string | null };
 
-function ChevronLeft({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M15 18l-6-6 6-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M9 18l6-6-6-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const navBtnClass =
+  "flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200/80 bg-white/95 text-zinc-700 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 md:h-12 md:w-12";
 
 export function VehicleGallery({ images, title }: { images: Img[]; title: string }) {
   const [active, setActive] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
   const count = images.length;
 
   const goPrev = useCallback(() => {
-    setActive((i) => (i === 0 ? count - 1 : i - 1));
+    setActive((i) => wrapGalleryIndex(i, count, -1));
   }, [count]);
 
   const goNext = useCallback(() => {
-    setActive((i) => (i === count - 1 ? 0 : i + 1));
+    setActive((i) => wrapGalleryIndex(i, count, 1));
   }, [count]);
+
+  const onKeyNav = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goNext();
+      }
+    },
+    [goPrev, goNext],
+  );
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.changedTouches[0]?.clientX ?? null;
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    const start = touchStartX.current;
+    touchStartX.current = null;
+    if (start == null || count < 2) return;
+    const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+    if (dx > 50) goPrev();
+    else if (dx < -50) goNext();
+  }
 
   if (!count) {
     return (
@@ -60,7 +68,11 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
   return (
     <div className="w-full space-y-4 overflow-hidden">
       <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-md">
-        <div className="relative aspect-[4/3] w-full md:aspect-[16/10]">
+        <div
+          className="relative aspect-[4/3] w-full md:aspect-[16/10]"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
           <VehicleImage
             src={main.url}
             alt={main.alt || title}
@@ -68,12 +80,18 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 60vw, 800px"
             priority
           />
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="absolute inset-0 z-[1] cursor-zoom-in"
+            aria-label="Ampliar foto"
+          />
           {count > 1 && (
             <>
               <button
                 type="button"
                 onClick={goPrev}
-                className="absolute left-2 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200/80 bg-white/95 text-zinc-700 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 md:left-4 md:h-12 md:w-12"
+                className={cn(navBtnClass, "absolute left-2 top-1/2 z-10 -translate-y-1/2 md:left-4")}
                 aria-label="Foto anterior"
               >
                 <ChevronLeft className="h-6 w-6 md:h-7 md:w-7" />
@@ -81,12 +99,12 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
               <button
                 type="button"
                 onClick={goNext}
-                className="absolute right-2 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200/80 bg-white/95 text-zinc-700 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 md:right-4 md:h-12 md:w-12"
+                className={cn(navBtnClass, "absolute right-2 top-1/2 z-10 -translate-y-1/2 md:right-4")}
                 aria-label="Próxima foto"
               >
                 <ChevronRight className="h-6 w-6 md:h-7 md:w-7" />
               </button>
-              <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
+              <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
                 {active + 1} / {count}
               </div>
             </>
@@ -111,6 +129,60 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
           ))}
         </div>
       )}
+
+      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+        <DialogPortal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-[80] bg-black/85 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content
+            className="fixed inset-0 z-[80] flex items-center justify-center p-4 outline-none"
+            onKeyDown={onKeyNav}
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) setLightboxOpen(false);
+            }}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+          >
+            <DialogTitle className="sr-only">
+              {main.alt || title} — foto {active + 1} de {count}
+            </DialogTitle>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={main.url}
+              alt={main.alt || title}
+              className="max-h-[85vh] max-w-[min(92vw,1400px)] object-contain"
+            />
+            <DialogPrimitive.Close
+              className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-zinc-800 transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-facil-orange"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </DialogPrimitive.Close>
+            {count > 1 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  className={cn(navBtnClass, "absolute left-3 top-1/2 z-10 -translate-y-1/2 md:left-6")}
+                  aria-label="Foto anterior"
+                >
+                  <ChevronLeft className="h-6 w-6 md:h-7 md:w-7" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className={cn(navBtnClass, "absolute right-3 top-1/2 z-10 -translate-y-1/2 md:right-6")}
+                  aria-label="Próxima foto"
+                >
+                  <ChevronRight className="h-6 w-6 md:h-7 md:w-7" />
+                </button>
+                <p className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
+                  {active + 1} / {count}
+                </p>
+              </>
+            ) : null}
+          </DialogPrimitive.Content>
+        </DialogPortal>
+      </Dialog>
     </div>
   );
 }
