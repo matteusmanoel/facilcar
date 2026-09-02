@@ -131,6 +131,22 @@ enum VehicleFeatureCategory {
   @@schema("facilcar")
 }
 
+enum VehicleStockType {
+  OWNED
+  CONSIGNED
+
+  @@schema("facilcar")
+}
+
+enum VehicleCommercialHistory {
+  CLEAN
+  AUCTION
+  RECOVERED_CLAIM
+  AUCTION_AND_RECOVERED_CLAIM
+
+  @@schema("facilcar")
+}
+
 model User {
   id           String    @id @default(cuid())
   name         String
@@ -174,12 +190,24 @@ model Vehicle {
   mileage           Int?
   fuelType          FuelType?
   transmission      Transmission?
+  engineDisplacementLiters Decimal? @db.Decimal(3, 1)
   color             String?
   doors             Int?
   plateFinal        String?
+  plate             String?
   priceCash         Decimal?       @db.Decimal(12, 2)
   priceTradeIn      Decimal?       @db.Decimal(12, 2)
   pricePromotional  Decimal?       @db.Decimal(12, 2)
+  priceFipe         Decimal?       @db.Decimal(12, 2)
+  priceRetailWithWarranty Decimal? @db.Decimal(12, 2)
+  priceRetailAsIs   Decimal?       @db.Decimal(12, 2)
+  priceOwnerAsking  Decimal?       @db.Decimal(12, 2)
+  stockType         VehicleStockType?
+  commercialHistory VehicleCommercialHistory?
+  commercialHistoryRaw String?
+  sourceRawDescription String?
+  spreadsheetKey    String?
+  lastSpreadsheetSeenAt DateTime?
   city              String?
   state             String?
   featured             Boolean        @default(false)
@@ -198,8 +226,13 @@ model Vehicle {
   features          VehicleFeature[]
   leads             Lead[]
   financingRequests FinancingRequest[]
+  vehicleInterests  LeadVehicleInterest[]
+  owners            VehicleOwner[]
+  inventoryImportItems VehicleInventoryImportItem[]
 
   @@schema("facilcar")
+  @@unique([plate])
+  @@unique([spreadsheetKey])
   @@index([status])
   @@index([featured])
   @@index([brandId])
@@ -207,6 +240,8 @@ model Vehicle {
   @@index([fuelType])
   @@index([transmission])
   @@index([publishedAt])
+  @@index([stockType])
+  @@index([commercialHistory])
 }
 
 model VehicleImage {
@@ -233,14 +268,74 @@ model VehicleFeature {
   @@schema("facilcar")
 }
 
+model Partner {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  slug      String         @unique
+  isActive  Boolean         @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  vehicles  VehicleOwner[]
+
+  @@schema("facilcar")
+}
+
+model VehicleOwner {
+  vehicleId    String
+  partnerId    String
+  sharePercent Decimal? @db.Decimal(5, 2)
+  vehicle      Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  partner      Partner  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@id([vehicleId, partnerId])
+  @@schema("facilcar")
+  @@index([partnerId])
+}
+
+model VehicleInventoryImportRun {
+  id            String                       @id @default(cuid())
+  sourceFile    String
+  schemaVersion String?
+  dryRun        Boolean
+  applied       Boolean                      @default(false)
+  summary       Json
+  createdAt     DateTime                     @default(now())
+  items         VehicleInventoryImportItem[]
+
+  @@schema("facilcar")
+  @@index([createdAt])
+}
+
+model VehicleInventoryImportItem {
+  id            String                    @id @default(cuid())
+  runId         String
+  run           VehicleInventoryImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  spreadsheetKey String
+  plateNormalized String?
+  action        String
+  confidence    String
+  vehicleId     String?
+  vehicle       Vehicle?                  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  notes         String?
+  payload       Json
+  createdAt     DateTime                  @default(now())
+
+  @@schema("facilcar")
+  @@index([runId])
+  @@index([vehicleId])
+  @@index([spreadsheetKey])
+}
+
 model Customer {
   id        String   @id @default(cuid())
   name      String
   phone     String   @unique
   email     String?
+  notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   leads     Lead[]
+  documents CustomerDocument[]
 
   @@schema("facilcar")
   @@index([name])
@@ -274,10 +369,18 @@ model Lead {
   metadataJson     Json?
   internalNote     String?
   deletedAt        DateTime?
+  juliaSummary     String?
+  temperature      LeadTemperature?
+  conversationId   String?
+  conversation     Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   financingRequest FinancingRequest?
   sellRequest      SellRequest?
+  visitInterests   VisitInterest[]
+  sdrDocuments     SdrDocument[]
+  sdrNotifications SdrNotification[]
+  vehicleInterests LeadVehicleInterest[]
 
   @@schema("facilcar")
   @@index([type])
@@ -286,6 +389,39 @@ model Lead {
   @@index([customerId])
   @@index([deletedAt])
   @@index([createdAt(sort: Desc)])
+  @@index([conversationId])
+}
+
+model LeadVehicleInterest {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([leadId, vehicleId])
+  @@index([leadId])
+  @@index([vehicleId])
+  @@schema("facilcar")
+}
+
+model CustomerDocument {
+  id               String             @id @default(cuid())
+  customerId       String
+  customer         Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  fileName         String
+  storageKey       String
+  mimeType         String?
+  byteSize         Int?
+  documentType     String             @default("CONTRACT")
+  retentionPolicy  SdrRetentionPolicy @default(PERMANENT)
+  uploadedByUserId String?
+  createdAt        DateTime           @default(now())
+
+  @@index([customerId])
+  @@schema("facilcar")
 }
 
 model FinancingRequest {
@@ -321,6 +457,8 @@ model SellRequest {
   fuelType        String?
   transmission    String?
   observations    String?
+  saleMode        String?
+  photoUrls       String[] @default([])
 
   @@schema("facilcar")
 }
@@ -367,6 +505,9 @@ model SiteSettings {
   city                String?
   state               String?
   zipCode             String?
+  googleMapsUrl       String?
+  latitude            Float?
+  longitude           Float?
   facebookUrl         String?
   instagramUrl       String?
   youtubeUrl          String?
@@ -377,5 +518,306 @@ model SiteSettings {
   heroSubtitle        String?
   publicTheme         String   @default("dark")
 
+  @@schema("facilcar")
+}
+
+enum CatalogEventStatus {
+  RECEIVED
+  QUEUED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+
+  @@schema("facilcar")
+}
+
+enum CatalogItemStatus {
+  COLLECTING
+  READY
+  PROCESSING
+  IMPORTED
+  FAILED
+
+  @@schema("facilcar")
+}
+
+enum CatalogMediaStatus {
+  PENDING
+  UPLOADED
+  FAILED
+  SKIPPED_DEDUPED
+
+  @@schema("facilcar")
+}
+
+enum CatalogTextKind {
+  VEHICLE_START
+  CONTINUATION
+  MEDIA_ONLY
+  UNKNOWN
+
+  @@schema("facilcar")
+}
+
+model CatalogImportEvent {
+  id                  String              @id @default(cuid())
+  instance            String
+  messageId           String
+  remoteJid           String?
+  fromMe              Boolean
+  messageType         String?
+  textKind            CatalogTextKind?
+  waTimestamp         DateTime?
+  sequence            Int
+  payloadHash         String
+  rawPayload          Json
+  rawPayloadTruncated Boolean             @default(false)
+  text                String?
+  hasMedia            Boolean             @default(false)
+  mediaRef            Json?
+  mediaStatus         CatalogMediaStatus?
+  processingStatus    CatalogEventStatus  @default(RECEIVED)
+  importItemId        String?
+  importItem          CatalogImportItem?  @relation(fields: [importItemId], references: [id])
+  error               String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([instance, messageId])
+  @@index([processingStatus, createdAt])
+  @@index([importItemId, sequence])
+  @@schema("facilcar")
+}
+
+model CatalogImportItem {
+  id                 String             @id @default(cuid())
+  sessionKey         String
+  sourceMessageId    String?
+  rawText            String?
+  parsedJson         Json?
+  vehicleFingerprint String?
+  status             CatalogItemStatus  @default(COLLECTING)
+  vehicleId          String?
+  lockedAt           DateTime?
+  lockedBy           String?
+  attemptCount       Int                @default(0)
+  lastAttemptAt      DateTime?
+  idleClosedAt       DateTime?
+  completedAt        DateTime?
+  error              String?
+  warnings           String[]           @default([])
+  events             CatalogImportEvent[]
+  mediaAssets        CatalogMediaAsset[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([sessionKey, status])
+  @@index([status, lockedAt])
+  @@index([vehicleFingerprint])
+  @@schema("facilcar")
+}
+
+model CatalogMediaBlob {
+  id         String              @id @default(cuid())
+  sha256     String              @unique
+  storageKey String
+  publicUrl  String
+  mimeType   String?
+  byteSize   Int?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  assets     CatalogMediaAsset[]
+
+  @@schema("facilcar")
+}
+
+model CatalogMediaAsset {
+  id           String             @id @default(cuid())
+  importItemId String
+  importItem   CatalogImportItem  @relation(fields: [importItemId], references: [id], onDelete: Cascade)
+  eventId      String?            @unique
+  blobId       String?
+  blob         CatalogMediaBlob?  @relation(fields: [blobId], references: [id])
+  sortOrder    Int                @default(0)
+  status       CatalogMediaStatus @default(PENDING)
+  error        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([importItemId, sortOrder])
+  @@schema("facilcar")
+}
+
+// --- Júlia SDR core (WP-000) ---
+
+enum ConversationBotStatus {
+  BOT_ACTIVE
+  QUALIFYING
+  READY_FOR_HANDOFF
+  HANDOFF_SENT
+  HUMAN_ACTIVE
+  HUMAN_CLOSED
+
+  @@schema("facilcar")
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+
+  @@schema("facilcar")
+}
+
+enum MessageContentType {
+  TEXT
+  AUDIO
+  IMAGE
+  DOCUMENT
+  VIDEO
+  STICKER
+  UNKNOWN
+
+  @@schema("facilcar")
+}
+
+enum SdrDocumentType {
+  CNH
+  CRLV
+  INCOME_PROOF
+  RESIDENCE_PROOF
+  OTHER
+
+  @@schema("facilcar")
+}
+
+enum SdrDocumentExtractionStatus {
+  PENDING
+  DONE
+  FAILED
+
+  @@schema("facilcar")
+}
+
+enum SdrRetentionPolicy {
+  PERMANENT
+  DAYS_180
+
+  @@schema("facilcar")
+}
+
+enum SdrNotificationType {
+  NEW_QUALIFIED
+  NEW_HOT_LEAD
+  DOCUMENT_UPLOAD_FAILED
+
+  @@schema("facilcar")
+}
+
+enum LeadTemperature {
+  HOT
+  WARM
+  COLD
+
+  @@schema("facilcar")
+}
+
+model Conversation {
+  id                  String                @id @default(cuid())
+  phone               String
+  instanceName        String
+  botStatus           ConversationBotStatus @default(BOT_ACTIVE)
+  language            String?
+  accumulatedSummary  String?
+  lastMessageAt       DateTime?
+  activeLeadIds       String[]              @default([])
+  handoffAt           DateTime?
+  canonicalStateJson  Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  messages            Message[]
+  leads               Lead[]
+  visitInterests      VisitInterest[]
+  sdrDocuments        SdrDocument[]
+
+  @@unique([instanceName, phone])
+  @@index([phone])
+  @@schema("facilcar")
+}
+
+model Message {
+  id                String             @id @default(cuid())
+  conversationId    String
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  providerMessageId String
+  instanceName      String
+  direction         MessageDirection
+  contentType       MessageContentType
+  text              String?
+  mediaStorageKey   String?
+  mediaMimeType     String?
+  transcription     String?
+  fromMe            Boolean
+  isHumanSent       Boolean            @default(false)
+  isBotSent         Boolean            @default(false)
+  language          String?
+  turnFactsJson     Json?
+  processingStatus  String?            @default("PENDING")
+  createdAt         DateTime           @default(now())
+  processedAt       DateTime?
+
+  @@unique([instanceName, providerMessageId])
+  @@index([conversationId, createdAt])
+  @@schema("facilcar")
+}
+
+model VisitInterest {
+  id             String        @id @default(cuid())
+  leadId         String
+  lead           Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  dateHint       String?
+  period         String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([conversationId])
+  @@schema("facilcar")
+}
+
+model SdrDocument {
+  id               String                       @id @default(cuid())
+  leadId           String?
+  lead             Lead?                        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  conversationId   String?
+  conversation     Conversation?                @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  documentType     SdrDocumentType
+  storageKey       String
+  mimeType         String?
+  byteSize         Int?
+  extractedJson    Json?
+  extractionStatus SdrDocumentExtractionStatus  @default(PENDING)
+  retentionPolicy  SdrRetentionPolicy           @default(DAYS_180)
+  expiresAt        DateTime?
+  createdAt        DateTime                     @default(now())
+
+  @@index([leadId])
+  @@index([conversationId])
+  @@schema("facilcar")
+}
+
+model SdrNotification {
+  id           String              @id @default(cuid())
+  leadId       String
+  lead         Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type         SdrNotificationType
+  seenAt       DateTime?
+  seenByUserId String?
+  createdAt    DateTime            @default(now())
+
+  @@index([seenAt, createdAt])
+  @@index([leadId])
   @@schema("facilcar")
 }

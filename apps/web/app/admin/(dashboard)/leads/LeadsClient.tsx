@@ -1,23 +1,15 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback, useMemo } from "react";
-import Link from "next/link";
+import { useTransition, useCallback, useState, useRef } from "react";
+import type { MouseEvent } from "react";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, X } from "lucide-react";
-import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import { DateRangePicker } from "@/components/ui/date-picker";
-import { useDebounce } from "@/hooks/useDebounce";
+import { LeadsFilterToolbar } from "./LeadsFilterToolbar";
 import { cn } from "@/lib/cn";
+import { rangeIds, toggleId, unionIds } from "@/lib/range-select";
+import { useClearSelectionOnEscape } from "@/hooks/useClearSelectionOnEscape";
 
 type Lead = {
   id: string;
@@ -29,12 +21,36 @@ type Lead = {
   source: string;
   message: string | null;
   internalNote: string | null;
+  temperature?: string | null;
   createdAt: string;
   assignedToUser: { id: string; name: string } | null;
   vehicle: { title: string; slug: string } | null;
+  vehicleLabel?: string | null;
 };
 
 type Seller = { id: string; name: string };
+
+const TEMPERATURE_LABELS: Record<string, string> = {
+  HOT: "Quente",
+  WARM: "Morno",
+  COLD: "Frio",
+};
+
+const TEMPERATURE_CLASSES: Record<string, string> = {
+  HOT: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
+  WARM: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  COLD: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
+};
+
+function TemperatureBadge({ temperature }: { temperature: string }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${TEMPERATURE_CLASSES[temperature] ?? "bg-zinc-100 text-zinc-600"}`}
+    >
+      {TEMPERATURE_LABELS[temperature] ?? temperature}
+    </span>
+  );
+}
 
 const WA_ICON = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -42,49 +58,14 @@ const WA_ICON = (
   </svg>
 );
 
-const PERIOD_CUSTOM = "custom";
-
-function getPresetRange(period: string): { from: Date; to: Date } | null {
-  if (period === "7d") {
-    const to = startOfDay(new Date());
-    return { from: startOfDay(subDays(to, 6)), to };
-  }
-  if (period === "30d") {
-    const to = startOfDay(new Date());
-    return { from: startOfDay(subDays(to, 29)), to };
-  }
-  return null;
-}
-
-const STATUS_LABELS: Record<LeadStatus, string> = {
-  NEW: "Novo",
-  IN_PROGRESS: "Em progresso",
-  CONTACTED: "Contactado",
-  QUALIFIED: "Qualificado",
-  WON: "Ganho",
-  LOST: "Perdido",
-  SPAM: "Spam",
-};
-
-const TYPE_LABELS: Record<LeadType, string> = {
-  CONTACT: "Contato",
-  VEHICLE_INTEREST: "Interesse veículo",
-  FINANCING: "Financiamento",
-  SELL_VEHICLE: "Vender veículo",
-  REFINANCING: "Refinanciamento",
-  TRADE_IN: "Troca",
-  CONSIGNMENT: "Consignação",
-  THIRD_PARTY_FINANCING: "Financiamento terceiros",
-};
-
 interface LeadsClientProps {
   leads: Lead[];
   totalCount: number;
   page: number;
   pageSize: number;
-  currentStatus?: LeadStatus;
-  currentType?: LeadType;
-  currentAssignee?: string;
+  statuses: LeadStatus[];
+  types: LeadType[];
+  assignees: string[];
   sellers: Seller[];
   currentPeriod?: string;
   fromKey?: string;
@@ -97,9 +78,9 @@ export function LeadsClient({
   totalCount,
   page,
   pageSize,
-  currentStatus,
-  currentType,
-  currentAssignee,
+  statuses,
+  types,
+  assignees,
   sellers,
   currentPeriod = "all",
   fromKey,
@@ -110,26 +91,10 @@ export function LeadsClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-
-  const [search, setSearch] = useState(initialSearch);
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const debouncedSearch = useDebounce(search, 350);
-
-  useEffect(() => {
-    setSearch(initialSearch);
-  }, [initialSearch]);
-
-  useEffect(() => {
-    const currentQ = searchParams.get("q") ?? "";
-    if (debouncedSearch === currentQ) return;
-    startTransition(() => {
-      const sp = new URLSearchParams(searchParams.toString());
-      if (debouncedSearch.trim()) sp.set("q", debouncedSearch.trim());
-      else sp.delete("q");
-      sp.set("page", "1");
-      router.replace(`${pathname}?${sp.toString()}`);
-    });
-  }, [debouncedSearch, pathname, router, searchParams]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const anchorIdRef = useRef<string | null>(null);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  useClearSelectionOnEscape(clearSelection, selectedIds.size > 0);
 
   const pushSearchParams = useCallback(
     (mutate: (sp: URLSearchParams) => void) => {
@@ -138,248 +103,55 @@ export function LeadsClient({
         mutate(sp);
         const qs = sp.toString();
         router.push(qs ? `${pathname}?${qs}` : pathname);
+        router.refresh();
       });
     },
     [pathname, router, searchParams],
   );
 
-  function applyFilter(updates: Record<string, string | undefined>) {
-    pushSearchParams((sp: URLSearchParams) => {
-      Object.entries(updates).forEach(([k, v]) => {
-        if (v === undefined || v === "" || v === "all") sp.delete(k);
-        else sp.set(k, v);
-      });
-
-      const hasPeriodUpdate = Object.prototype.hasOwnProperty.call(updates, "periodo");
-      const hasDateUpdate =
-        Object.prototype.hasOwnProperty.call(updates, "from") ||
-        Object.prototype.hasOwnProperty.call(updates, "to");
-
-      if (hasPeriodUpdate && !hasDateUpdate) {
-        const period = updates.periodo;
-        if (period === "7d" || period === "30d") {
-          const preset = getPresetRange(period);
-          if (preset) {
-            sp.set("from", format(preset.from, "yyyy-MM-dd"));
-            sp.set("to", format(preset.to, "yyyy-MM-dd"));
-          }
-        } else if (!period || period === "all") {
-          sp.delete("from");
-          sp.delete("to");
-        }
-      }
-
-      if (hasDateUpdate && !hasPeriodUpdate) {
-        sp.delete("periodo");
-      }
-
-      if (!Object.prototype.hasOwnProperty.call(updates, "page")) {
-        sp.set("page", "1");
-      }
-    });
-  }
-
-  function clearFilters() {
-    startTransition(() => {
-      router.push("/admin/leads");
-      setSearch("");
-    });
-  }
-
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const qActive = (searchParams.get("q") ?? "").trim();
-  const hasActiveFilters = !!(
-    currentStatus ||
-    currentType ||
-    currentAssignee ||
-    (currentPeriod && currentPeriod !== "all") ||
-    (fromKey && toKey) ||
-    qActive
-  );
+  const leadIds = leads.map((l) => l.id);
 
-  const presetRange = useMemo(
-    () => getPresetRange(currentPeriod),
-    [currentPeriod],
-  );
-
-  const rangeFrom = fromKey
-    ? parseISO(`${fromKey}T12:00:00`)
-    : presetRange?.from;
-  const rangeTo = toKey
-    ? parseISO(`${toKey}T12:00:00`)
-    : presetRange?.to;
-
-  const periodSelectValue =
-    currentPeriod === "7d"
-      ? "7d"
-      : currentPeriod === "30d"
-        ? "30d"
-        : fromKey && toKey
-          ? PERIOD_CUSTOM
-          : currentPeriod || "all";
-
-  const assigneeLabel =
-    currentAssignee === "none"
-      ? "Sem responsável"
-      : currentAssignee
-        ? sellers.find((s) => s.id === currentAssignee)?.name
-        : undefined;
+  function handleRowClick(lead: Lead, event: MouseEvent) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const range = rangeIds(leadIds, anchorIdRef.current, lead.id);
+        setSelectedIds((prev) => unionIds(prev, range));
+      } else {
+        setSelectedIds((prev) => toggleId(prev, lead.id));
+        anchorIdRef.current = lead.id;
+      }
+      return;
+    }
+    anchorIdRef.current = lead.id;
+    router.push(`/admin/leads/${lead.id}`);
+  }
 
   return (
     <>
-      <div className="flex flex-col gap-3">
-        {/* Search row */}
-        <div className="relative w-full">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-facil-muted" />
-          <Input
-            placeholder="Buscar por nome, telefone…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            disabled={isPending}
-            className="pl-9 pr-8"
-          />
-          {search ? (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-facil-muted hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-        </div>
+      <LeadsFilterToolbar
+        sellers={sellers}
+        statuses={statuses}
+        types={types}
+        assignees={assignees}
+        currentPeriod={currentPeriod}
+        fromKey={fromKey}
+        toKey={toKey}
+        initialSearch={initialSearch}
+        totalCount={totalCount}
+      />
 
-        {/* Filters row */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <Select
-            value={currentStatus ?? "all"}
-            disabled={isPending}
-            onValueChange={(v) => applyFilter({ status: v === "all" ? undefined : v })}
-          >
-            <SelectTrigger className="h-9 w-full">
-              <span className={cn("truncate", !currentStatus && "text-facil-muted")}>
-                {currentStatus ? STATUS_LABELS[currentStatus] : "Status"}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os status</SelectItem>
-              <SelectItem value="NEW">Novo</SelectItem>
-              <SelectItem value="IN_PROGRESS">Em progresso</SelectItem>
-              <SelectItem value="CONTACTED">Contactado</SelectItem>
-              <SelectItem value="QUALIFIED">Qualificado</SelectItem>
-              <SelectItem value="WON">Ganho</SelectItem>
-              <SelectItem value="LOST">Perdido</SelectItem>
-              <SelectItem value="SPAM">Spam</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={currentType ?? "all"}
-            disabled={isPending}
-            onValueChange={(v) => applyFilter({ tipo: v === "all" ? undefined : v })}
-          >
-            <SelectTrigger className="h-9 w-full">
-              <span className={cn("truncate", !currentType && "text-facil-muted")}>
-                {currentType ? TYPE_LABELS[currentType] : "Tipo"}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os tipos</SelectItem>
-              <SelectItem value="CONTACT">Contato</SelectItem>
-              <SelectItem value="VEHICLE_INTEREST">Interesse veículo</SelectItem>
-              <SelectItem value="FINANCING">Financiamento</SelectItem>
-              <SelectItem value="SELL_VEHICLE">Vender veículo</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={currentAssignee ?? "all"}
-            disabled={isPending}
-            onValueChange={(v) => applyFilter({ responsavel: v === "all" ? undefined : v })}
-          >
-            <SelectTrigger className="h-9 w-full">
-              <span className={cn("truncate", !currentAssignee && "text-facil-muted")}>
-                {assigneeLabel ?? "Responsável"}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os responsáveis</SelectItem>
-              <SelectItem value="none">Sem responsável</SelectItem>
-              {sellers.map((seller) => (
-                <SelectItem key={seller.id} value={seller.id}>
-                  {seller.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={periodSelectValue}
-            disabled={isPending}
-            onValueChange={(v) => {
-              if (v === PERIOD_CUSTOM) {
-                setCalendarOpen(true);
-                return;
-              }
-              applyFilter({ periodo: v === "all" ? undefined : v });
-            }}
-          >
-            <SelectTrigger className="h-9 w-full">
-              <span
-                className={cn(
-                  "truncate",
-                  periodSelectValue === "all" && "text-facil-muted",
-                )}
-              >
-                {periodSelectValue === "7d"
-                  ? "Últimos 7 dias"
-                  : periodSelectValue === "30d"
-                    ? "Últimos 30 dias"
-                    : periodSelectValue === PERIOD_CUSTOM
-                      ? "Intervalo personalizado…"
-                      : "Período"}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todo o período</SelectItem>
-              <SelectItem value="7d">Últimos 7 dias</SelectItem>
-              <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value={PERIOD_CUSTOM}>Intervalo personalizado…</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <DateRangePicker
-            key={`${periodSelectValue}-${fromKey ?? ""}-${toKey ?? ""}`}
-            from={rangeFrom}
-            to={rangeTo}
-            disabled={isPending}
-            open={calendarOpen}
-            onOpenChange={setCalendarOpen}
-            className="w-full"
-            onApply={({ from: f, to: t }) =>
-              applyFilter({
-                from: f ? format(f, "yyyy-MM-dd") : undefined,
-                to: t ? format(t, "yyyy-MM-dd") : undefined,
-                periodo: undefined,
-              })
-            }
-          />
-
-          {hasActiveFilters ? (
-            <Button variant="outline" size="sm" onClick={clearFilters} disabled={isPending} className="w-full sm:w-auto">
-              <X className="mr-1 h-3.5 w-3.5" />
-              Limpar filtros
-            </Button>
-          ) : null}
-        </div>
-
-        <span className="text-sm text-facil-muted">
-          {totalCount} resultado(s)
-          {isPending ? " · atualizando…" : ""}
-        </span>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
+      <div
+        className="overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+            e.preventDefault();
+            setSelectedIds(new Set(leadIds));
+          }
+        }}
+      >
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead className="border-b border-facil-border bg-facil-surface">
@@ -397,12 +169,12 @@ export function LeadsClient({
             <tbody>
               {leads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-sm text-zinc-400">
+                  <td colSpan={8} className="py-12 text-center text-sm text-facil-muted">
                     Nenhum lead encontrado.
                   </td>
                 </tr>
               ) : (
-                leads.map((lead) => {
+                leads.map((lead, i) => {
                   const phone = lead.phone.replace(/\D/g, "");
                   const waUrl = phone
                     ? `https://wa.me/${phone}?text=${encodeURIComponent(`Olá ${lead.name}, aqui é da FácilCar!`)}`
@@ -410,13 +182,23 @@ export function LeadsClient({
                   return (
                     <tr
                       key={lead.id}
-                      className="border-t border-facil-border hover:bg-facil-surface/70"
+                      className={cn(
+                        "admin-row-enter cursor-pointer border-t border-facil-border hover:bg-facil-surface/70",
+                        selectedIds.has(lead.id) && "bg-facil-orange-light/50",
+                      )}
+                      style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
+                      onClick={(e) => handleRowClick(lead, e)}
                     >
                       <td className="admin-table-cell text-facil-muted">
                         {new Date(lead.createdAt).toLocaleDateString("pt-BR")}
                       </td>
                       <td className="admin-table-cell font-medium text-foreground">
-                        {lead.name}
+                        <div className="flex items-center gap-1.5">
+                          <span>{lead.name}</span>
+                          {lead.temperature ? (
+                            <TemperatureBadge temperature={lead.temperature} />
+                          ) : null}
+                        </div>
                       </td>
                       <td className="admin-table-cell text-foreground/80">
                         {lead.phone}
@@ -431,27 +213,21 @@ export function LeadsClient({
                         {lead.assignedToUser?.name ?? "—"}
                       </td>
                       <td className="admin-table-cell max-w-[160px] text-facil-muted">
-                        <span className="line-clamp-1">{lead.vehicle?.title ?? "—"}</span>
+                        <span className="line-clamp-1">
+                          {lead.vehicleLabel ?? lead.vehicle?.title ?? "—"}
+                        </span>
                       </td>
                       <td className="admin-table-cell" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/admin/leads/${lead.id}`}
-                            className="text-xs font-medium text-facil-orange hover:underline"
+                        {waUrl ? (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600"
                           >
-                            Detalhes
-                          </Link>
-                          {waUrl ? (
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600"
-                            >
-                              {WA_ICON}
-                            </a>
-                          ) : null}
-                        </div>
+                            {WA_ICON}
+                          </a>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -473,11 +249,20 @@ export function LeadsClient({
               return (
                 <div
                   key={lead.id}
-                  className="px-4 py-3 hover:bg-facil-surface/70"
+                  className={cn(
+                    "cursor-pointer px-4 py-3 hover:bg-facil-surface/70",
+                    selectedIds.has(lead.id) && "bg-facil-orange-light/50",
+                  )}
+                  onClick={(e) => handleRowClick(lead, e)}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">{lead.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate font-medium text-foreground">{lead.name}</p>
+                        {lead.temperature ? (
+                          <TemperatureBadge temperature={lead.temperature} />
+                        ) : null}
+                      </div>
                       <p className="text-xs text-facil-muted">{lead.phone}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -523,7 +308,7 @@ export function LeadsClient({
                 size="sm"
                 disabled={page <= 1 || isPending}
                 onClick={() =>
-                  pushSearchParams((sp: URLSearchParams) => {
+                  pushSearchParams((sp) => {
                     sp.set("page", String(page - 1));
                   })
                 }
@@ -535,7 +320,7 @@ export function LeadsClient({
                 size="sm"
                 disabled={page >= totalPages || isPending}
                 onClick={() =>
-                  pushSearchParams((sp: URLSearchParams) => {
+                  pushSearchParams((sp) => {
                     sp.set("page", String(page + 1));
                   })
                 }

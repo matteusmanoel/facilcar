@@ -1,0 +1,17 @@
+[
+  {
+    "case": "A",
+    "instance": "facilcar",
+    "data": {
+      "key": {
+        "id": "fixture-case-a-1",
+        "remoteJid": "5545999974232@s.whatsapp.net",
+        "fromMe": true
+      },
+      "message": {
+        "conversation": "Honda Civic 2020 EXL\nR$ 98.900\n32.000 km\nAutomático"
+      },
+      "messageTimestamp": 1700000000
+    }
+  }
+]

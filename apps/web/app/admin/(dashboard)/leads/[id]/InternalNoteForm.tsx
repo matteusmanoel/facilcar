@@ -34,7 +34,7 @@ export function InternalNoteForm({ leadId, currentNote }: Props) {
         defaultValue={currentNote ?? ""}
         placeholder="Anotações internas sobre este lead…"
         disabled={isPending}
-        className="box-border w-full resize-y rounded-lg border border-facil-border bg-facil-card px-3 py-2 text-sm text-foreground placeholder:text-facil-muted focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-inset focus:ring-facil-orange/30 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+        className="box-border w-full resize-y rounded-lg border border-facil-border bg-facil-card px-3 py-2 text-sm text-foreground placeholder:text-facil-muted focus:border-facil-orange focus:outline-none focus:ring-2 focus:ring-inset focus:ring-facil-orange/30 disabled:opacity-50"
       />
       <Button type="submit" variant="primary" size="sm" disabled={isPending} className="self-start">
         {isPending ? "Salvando…" : "Salvar nota"}

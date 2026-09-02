@@ -12,6 +12,7 @@ import { createVehicleSchema } from "@/schemas/vehicle";
 import type { VehicleStatus } from "@prisma/client";
 import { slugify } from "@/features/vehicle/server/slug";
 import { uniqueSlug } from "@/features/vehicle/server/unique-slug";
+import { normalizePlate, plateFinalFromPlate } from "@/features/vehicle/lib/plate";
 
 const QUICK_STATUSES: VehicleStatus[] = ["DRAFT", "PUBLISHED", "RESERVED", "SOLD", "ARCHIVED"];
 
@@ -63,9 +64,13 @@ export async function createVehicle(formData: FormData) {
   });
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().fieldErrors };
 
-  const { imageUrls, features: featuresStr, ...data } = parsed.data;
+  const { imageUrls, features: featuresStr, partnerIds, plate, ...data } = parsed.data;
   const images = parseImageUrls(imageUrls);
   const features = parseFeatures(featuresStr);
+  const normalizedPlate = normalizePlate(plate ?? null);
+  const announcedPrice =
+    data.priceCash ??
+    (data.stockType === "CONSIGNED" ? data.priceRetailWithWarranty : undefined);
 
   const baseSlug = data.slug?.trim() || slugify(data.title);
   const slug = await uniqueSlug(baseSlug);
@@ -86,12 +91,23 @@ export async function createVehicle(formData: FormData) {
       mileage: data.mileage ?? null,
       fuelType: data.fuelType ?? null,
       transmission: data.transmission ?? null,
+      engineDisplacementLiters:
+        data.engineDisplacementLiters != null
+          ? data.engineDisplacementLiters
+          : null,
       color: data.color ?? null,
       doors: data.doors ?? null,
-      plateFinal: data.plateFinal?.trim() || null,
-      priceCash: data.priceCash ?? null,
+      plate: normalizedPlate,
+      plateFinal: plateFinalFromPlate(normalizedPlate) ?? (data.plateFinal?.trim() || null),
+      stockType: data.stockType ?? null,
+      commercialHistory: data.commercialHistory ?? null,
+      priceCash: announcedPrice ?? null,
       priceTradeIn: data.priceTradeIn ?? null,
       pricePromotional: data.pricePromotional ?? null,
+      priceFipe: data.priceFipe ?? null,
+      priceRetailWithWarranty: data.priceRetailWithWarranty ?? null,
+      priceRetailAsIs: data.priceRetailAsIs ?? null,
+      priceOwnerAsking: data.priceOwnerAsking ?? null,
       city: data.city ?? null,
       state: data.state ?? null,
       featured: data.featured ?? false,
@@ -108,6 +124,11 @@ export async function createVehicle(formData: FormData) {
       features: features.length ? { create: features } : undefined,
     },
   });
+  if (partnerIds.length) {
+    await prisma.vehicleOwner.createMany({
+      data: partnerIds.map((partnerId) => ({ vehicleId: vehicle.id, partnerId })),
+    });
+  }
   revalidatePath("/admin/veiculos");
   revalidatePath(`/admin/veiculos/${vehicle.id}`);
   return { ok: true, id: vehicle.id, slug: vehicle.slug, title: vehicle.title, priceCash: vehicle.priceCash, status: vehicle.status, thumbnailUrl: images[0]?.url ?? null };
@@ -132,7 +153,7 @@ export async function updateVehicle(formData: FormData) {
   });
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().fieldErrors };
 
-  const { imageUrls, features: featuresStr, ...data } = parsed.data;
+  const { imageUrls, features: featuresStr, partnerIds, plate, ...data } = parsed.data;
 
   const updatePayload: Record<string, unknown> = {};
   if (data.slug != null) updatePayload.slug = data.slug;
@@ -150,14 +171,31 @@ export async function updateVehicle(formData: FormData) {
   if (data.yearManufacture !== undefined) updatePayload.yearManufacture = data.yearManufacture ?? null;
   if (data.yearModel !== undefined) updatePayload.yearModel = data.yearModel ?? null;
   if (data.mileage !== undefined) updatePayload.mileage = data.mileage ?? null;
-  if (data.fuelType !== undefined) updatePayload.fuelType = data.fuelType ?? null;
+  if ("fuelType" in raw) updatePayload.fuelType = data.fuelType ?? null;
   if (data.transmission !== undefined) updatePayload.transmission = data.transmission ?? null;
+  if (data.engineDisplacementLiters !== undefined) {
+    updatePayload.engineDisplacementLiters = data.engineDisplacementLiters ?? null;
+  }
   if (data.color !== undefined) updatePayload.color = data.color ?? null;
   if (data.doors !== undefined) updatePayload.doors = data.doors ?? null;
-  if (data.plateFinal !== undefined) updatePayload.plateFinal = data.plateFinal?.trim() || null;
+  if (plate !== undefined) {
+    const normalizedPlate = normalizePlate(plate ?? null);
+    updatePayload.plate = normalizedPlate;
+    updatePayload.plateFinal = plateFinalFromPlate(normalizedPlate);
+  } else if (data.plateFinal !== undefined) {
+    updatePayload.plateFinal = data.plateFinal?.trim() || null;
+  }
+  if (data.stockType !== undefined) updatePayload.stockType = data.stockType ?? null;
+  if (data.commercialHistory !== undefined) updatePayload.commercialHistory = data.commercialHistory ?? null;
   if (data.priceCash !== undefined) updatePayload.priceCash = data.priceCash ?? null;
   if (data.priceTradeIn !== undefined) updatePayload.priceTradeIn = data.priceTradeIn ?? null;
   if (data.pricePromotional !== undefined) updatePayload.pricePromotional = data.pricePromotional ?? null;
+  if (data.priceFipe !== undefined) updatePayload.priceFipe = data.priceFipe ?? null;
+  if (data.priceRetailWithWarranty !== undefined) {
+    updatePayload.priceRetailWithWarranty = data.priceRetailWithWarranty ?? null;
+  }
+  if (data.priceRetailAsIs !== undefined) updatePayload.priceRetailAsIs = data.priceRetailAsIs ?? null;
+  if (data.priceOwnerAsking !== undefined) updatePayload.priceOwnerAsking = data.priceOwnerAsking ?? null;
   if (data.city !== undefined) updatePayload.city = data.city ?? null;
   if (data.state !== undefined) updatePayload.state = data.state ?? null;
   if (typeof data.featured === "boolean") updatePayload.featured = data.featured;
@@ -185,6 +223,14 @@ export async function updateVehicle(formData: FormData) {
       await prisma.vehicleFeature.createMany({
         data: features.map((f) => ({ ...f, vehicleId: id })),
       });
+  }
+  if (partnerIds) {
+    await prisma.vehicleOwner.deleteMany({ where: { vehicleId: id } });
+    if (partnerIds.length) {
+      await prisma.vehicleOwner.createMany({
+        data: partnerIds.map((partnerId) => ({ vehicleId: id, partnerId })),
+      });
+    }
   }
 
   try {

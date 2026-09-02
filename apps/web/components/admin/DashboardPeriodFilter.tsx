@@ -22,6 +22,7 @@ export function DashboardPeriodFilter({
         if (f) sp.set("from", format(f, "yyyy-MM-dd"));
         if (t) sp.set("to", format(t, "yyyy-MM-dd"));
         router.push(`/admin?${sp.toString()}`);
+        router.refresh();
       }}
       className="min-w-[200px]"
     />

@@ -1,0 +1,87 @@
+# Evolution API v2 — stack local FácilCar (isolado do daynails)
+# Uso: docker-compose -f docker-compose.evolution.yml --env-file .env.evolution up -d
+
+services:
+  facilcar-evolution-postgres:
+    image: postgres:15-alpine
+    container_name: facilcar-evolution-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-evolution}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.evolution}
+      POSTGRES_DB: ${POSTGRES_DB:-evolution}
+    volumes:
+      - facilcar_evolution_postgres_data:/var/lib/postgresql/data
+    networks:
+      - facilcar-evolution
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-evolution} -d ${POSTGRES_DB:-evolution}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  facilcar-evolution-redis:
+    image: redis:7-alpine
+    container_name: facilcar-evolution-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.evolution}
+    volumes:
+      - facilcar_evolution_redis_data:/data
+    networks:
+      - facilcar-evolution
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  facilcar-evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: facilcar-evolution-api
+    restart: unless-stopped
+    depends_on:
+      facilcar-evolution-postgres:
+        condition: service_healthy
+      facilcar-evolution-redis:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_URL: ${SERVER_URL:-http://localhost:8081}
+      AUTHENTICATION_API_KEY: ${AUTHENTICATION_API_KEY:?set AUTHENTICATION_API_KEY in .env.evolution}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      DEL_INSTANCE: "false"
+      LOG_LEVEL: ERROR,WARN,INFO
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER:-evolution}:${POSTGRES_PASSWORD}@facilcar-evolution-postgres:5432/${POSTGRES_DB:-evolution}?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: facilcar_evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://:${REDIS_PASSWORD}@facilcar-evolution-redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: facilcar
+      CACHE_LOCAL_ENABLED: "false"
+      RABBITMQ_ENABLED: "false"
+      S3_ENABLED: "false"
+      QRCODE_LIMIT: "30"
+      # Fingerprint do companion Baileys — use nomes de browser reais.
+      # "FacilCar" como CLIENT foi associado a falhas de link / rate-limit.
+      CONFIG_SESSION_PHONE_CLIENT: ${CONFIG_SESSION_PHONE_CLIENT:-Chrome}
+      CONFIG_SESSION_PHONE_NAME: ${CONFIG_SESSION_PHONE_NAME:-Chrome}
+    volumes:
+      - facilcar_evolution_instances:/evolution/instances
+    networks:
+      - facilcar-evolution
+
+networks:
+  facilcar-evolution:
+    name: facilcar-evolution-net
+
+volumes:
+  facilcar_evolution_postgres_data:
+  facilcar_evolution_redis_data:
+  facilcar_evolution_instances:

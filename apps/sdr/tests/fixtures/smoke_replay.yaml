@@ -1,0 +1,105 @@
+name: "Smoke replay — real WhatsApp failure sequence"
+description: >
+  Reproduces the original 4-turn smoke test failure (Honda CG 160, audio turn).
+  Product terms appear only in fixtures — never in runtime heuristics.
+  Canonical free-text vehicle interest uses desired_vehicle_text.
+
+turns:
+  - role: customer
+    text: "Olá"
+    content_type: TEXT
+
+  - role: customer
+    text: "Oi, gostaria de saber se vocês têm uma Honda CG 160 disponível"
+    content_type: AUDIO
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_vehicle_text
+          value: Honda CG 160
+        - key: brand
+          value: Honda
+        - key: desired_model
+          value: CG 160
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.91
+
+  - role: customer
+    text: "Gostaria de ver mais informações sobre uma Honda CG que vocês tem aí"
+    content_type: TEXT
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_vehicle_text
+          value: Honda CG
+        - key: brand
+          value: Honda
+        - key: desired_model
+          value: CG
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.88
+
+  - role: customer
+    text: "Tranquilo Júlia, vocês vendem motos?"
+    content_type: TEXT
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_vehicle_text
+          value: moto
+        - key: category
+          value: moto
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.80
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+  commercial_intent_recognized: true
+
+turn_assertions:
+  - turn: 2
+    intent: purchase
+    action_not: smalltalk
+    reason_not: greeting_or_chitchat
+    facts_include:
+      brand: Honda
+    no_greeting_in_response: true
+    no_generic_restart: true
+
+  - turn: 3
+    intent: purchase
+    prior_facts_preserved:
+      brand: Honda
+    reason_not: high_purchase_intent
+    no_generic_restart: true
+
+  - turn: 4
+    intent: purchase
+    action_not: smalltalk
+    reason_not: high_purchase_intent
+    no_generic_restart: true

@@ -1,0 +1,170 @@
+name: "Corolla engine displacement — authoritative stock"
+description: >
+  Live/deterministic smoke against published Supabase inventory.
+  Does not send WhatsApp photos. Photos remain a known outbound limitation.
+
+turns:
+  - role: customer
+    text: "Quero ver um Corolla"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_model
+          value: Corolla
+        - key: desired_vehicle_text
+          value: Corolla
+        - key: brand
+          value: Toyota
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.92
+
+  - role: customer
+    text: "Quero um Corolla 2.0"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_model
+          value: Corolla
+        - key: desired_engine_displacement_liters
+          value: "2.0"
+        - key: desired_vehicle_text
+          value: Corolla 2.0
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.93
+
+  - role: customer
+    text: "Pode ser 1.8 também"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_engine_displacement_liters
+          value: "1.8"
+        - key: desired_engine_flexible
+          value: "true"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.90
+
+  - role: customer
+    text: "Tem automático?"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.80
+
+  - role: customer
+    text: "Até 85 mil"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: budget
+          value: "85000"
+      budget_status: provided
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.88
+
+  - role: customer
+    text: "Quero ver fotos"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.70
+
+assertions:
+  no_reintro_after_first_turn: true
+  commercial_intent_recognized: true
+  tool_executed_inventory: true
+  state_persists_across_turns: true
+
+turn_assertions:
+  - turn: 1
+    intent: purchase
+    action_not: smalltalk
+    inventory_outcome: SUCCESS_FOUND
+    facts_include:
+      desired_model: Corolla
+
+  - turn: 2
+    intent: purchase
+    search_key_changed: true
+    inventory_outcome: SUCCESS_FOUND
+    facts_include:
+      desired_engine_displacement_liters: 2.0
+    prior_facts_preserved:
+      desired_model: Corolla
+
+  - turn: 3
+    intent: purchase
+    search_key_changed: true
+    facts_include:
+      desired_engine_flexible: true
+
+  - turn: 4
+    intent: purchase
+    prior_facts_preserved:
+      desired_model: Corolla
+      desired_engine_flexible: true
+    no_generic_restart: true
+
+  - turn: 5
+    intent: purchase
+    facts_include:
+      budget: 85000
+    prior_facts_preserved:
+      desired_model: Corolla
+
+  - turn: 6
+    intent: purchase
+    prior_facts_preserved:
+      desired_model: Corolla
+      budget: 85000
+    no_generic_restart: true

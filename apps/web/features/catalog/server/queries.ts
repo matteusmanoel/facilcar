@@ -93,8 +93,59 @@ export async function listPublicVehicles(filters: CatalogFilters = {}) {
   };
 }
 
+export async function getPublicPriceBounds() {
+  const agg = await prisma.vehicle.aggregate({
+    where: { status: "PUBLISHED", priceCash: { not: null } },
+    _min: { priceCash: true },
+    _max: { priceCash: true },
+  });
+  const min = agg._min.priceCash != null ? Math.floor(Number(agg._min.priceCash)) : 0;
+  const max = agg._max.priceCash != null ? Math.ceil(Number(agg._max.priceCash)) : 300000;
+  return { min, max: Math.max(min, max) };
+}
+
+export async function getPublicYearBounds() {
+  const currentYear = new Date().getFullYear();
+  const agg = await prisma.vehicle.aggregate({
+    where: { status: "PUBLISHED", yearModel: { not: null } },
+    _min: { yearModel: true },
+    _max: { yearModel: true },
+  });
+  const min = agg._min.yearModel ?? 2000;
+  const max = agg._max.yearModel ?? currentYear;
+  return { min, max: Math.max(min, max) };
+}
+
 export async function getBrandsForFilter() {
   return prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, slug: true },
+  });
+}
+
+/** Brands for vehicle form / admin filters, including usage count for inline delete. */
+export async function getBrandsForVehicleForm() {
+  const rows = await prisma.brand.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      _count: { select: { vehicles: true } },
+    },
+  });
+  return rows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    slug: b.slug,
+    vehicleCount: b._count.vehicles,
+  }));
+}
+
+export async function getPartnersForVehicleForm() {
+  return prisma.partner.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
     select: { id: true, name: true, slug: true },

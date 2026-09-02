@@ -31,6 +31,13 @@ export async function updateSettingsAction(formData: FormData) {
   const publicTheme = themeModeSchema.safeParse(publicThemeRaw);
   if (!publicTheme.success) return { success: false };
 
+  const parseFloat_ = (v: FormDataEntryValue | null): number | null => {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (s === "") return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  };
+
   await prisma.siteSettings.update({
     where: { id },
     data: {
@@ -42,6 +49,9 @@ export async function updateSettingsAction(formData: FormData) {
       city: emptyToNull(formData.get("city")),
       state: emptyToNull(formData.get("state")),
       zipCode: emptyToNull(formData.get("zipCode")),
+      googleMapsUrl: emptyToNull(formData.get("googleMapsUrl")),
+      latitude: parseFloat_(formData.get("latitude")),
+      longitude: parseFloat_(formData.get("longitude")),
       facebookUrl: emptyToNull(formData.get("facebookUrl")),
       instagramUrl: emptyToNull(formData.get("instagramUrl")),
       youtubeUrl: emptyToNull(formData.get("youtubeUrl")),

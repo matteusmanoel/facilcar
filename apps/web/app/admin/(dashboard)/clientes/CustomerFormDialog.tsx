@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+import { formatPhoneBR } from "@/lib/input-masks";
 
 type Props = {
   open: boolean;
@@ -56,6 +57,8 @@ export function CustomerFormDialog({
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<CustomerFormInput>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,7 +141,12 @@ export function CustomerFormDialog({
           <div className="space-y-1">
             <AdminFieldLabel required>Telefone</AdminFieldLabel>
             <Input
-              {...register("phone")}
+              value={formatPhoneBR(watch("phone") ?? "")}
+              onChange={(e) =>
+                setValue("phone", formatPhoneBR(e.target.value), { shouldValidate: true, shouldDirty: true })
+              }
+              inputMode="numeric"
+              autoComplete="tel"
               placeholder="(11) 99999-9999"
               className={cn(errors.phone && "border-red-400")}
             />

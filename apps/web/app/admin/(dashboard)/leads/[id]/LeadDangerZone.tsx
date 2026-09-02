@@ -52,7 +52,7 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
 
   if (currentStatus === "LOST" || currentStatus === "SPAM" || currentStatus === "WON") {
     return (
-      <div className="mt-6 rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+      <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
         <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Zona sensível</h3>
         <p className="mt-1 text-xs text-red-700/90 dark:text-red-400/90">
           Este lead está encerrado. Você ainda pode excluí-lo permanentemente.
@@ -68,7 +68,7 @@ export function LeadDangerZone({ leadId, currentStatus }: Props) {
 
   return (
     <>
-      <div className="mt-6 rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+      <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/30">
         <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Zona sensível</h3>
         <p className="mt-1 text-xs text-red-700/90 dark:text-red-400/90">
           Ações que fecham ou removem este lead.

@@ -1,0 +1,49 @@
+"""Vendor-facing CRM summary — human brief, not Intent/Facts dump."""
+
+from __future__ import annotations
+
+from sdr.domain.types import (
+    BusinessIntent,
+    ConversationCanonicalState,
+    CustomerState,
+)
+from sdr.domain.vendor_summary import build_vendor_summary, is_placeholder_display_name
+
+
+def test_placeholder_whatsapp_name() -> None:
+    assert is_placeholder_display_name("WhatsApp 0845") is True
+    assert is_placeholder_display_name("Maria Silva") is False
+    assert is_placeholder_display_name("") is True
+
+
+def test_vendor_summary_is_human_brief_not_debug_dump() -> None:
+    state = ConversationCanonicalState(
+        thread_id="t1",
+        customer=CustomerState(phone="554588230845", name="WhatsApp 0845"),
+        intent=BusinessIntent.PURCHASE,
+        facts={"desired_model": "corolla"},
+    )
+    summary = build_vendor_summary(state)
+    assert "Intent:" not in summary
+    assert "Facts:" not in summary
+    assert "Actionability" not in summary
+    assert "corolla" in summary.lower()
+    assert "Compra" in summary
+
+
+def test_vendor_summary_financing_not_cash() -> None:
+    state = ConversationCanonicalState(
+        thread_id="t1",
+        customer=CustomerState(phone="554588230845", name="Ana Souza"),
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={
+            "desired_model": "Civic",
+            "deal_type": "purchase",
+            "payment_method": "financing",
+            "down_payment": 15000,
+        },
+    )
+    summary = build_vendor_summary(state)
+    assert "Cliente: Ana Souza" in summary
+    assert "Compra financiada" in summary
+    assert "à vista" not in summary.lower()

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { List, Columns3 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -9,10 +10,20 @@ interface ViewTabsProps {
 }
 
 export function ViewTabs({ currentView }: ViewTabsProps) {
+  const searchParams = useSearchParams();
+
+  function buildHref(view: "lista" | "kanban") {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (view === "kanban") sp.set("view", "kanban");
+    else sp.delete("view");
+    const qs = sp.toString();
+    return qs ? `/admin/leads?${qs}` : "/admin/leads";
+  }
+
   return (
     <div className="admin-tab-list">
       <Link
-        href="/admin/leads"
+        href={buildHref("lista")}
         className={cn(
           "admin-tab",
           currentView === "lista" ? "admin-tab-active" : "admin-tab-inactive",
@@ -22,7 +33,7 @@ export function ViewTabs({ currentView }: ViewTabsProps) {
         Lista
       </Link>
       <Link
-        href="/admin/leads?view=kanban"
+        href={buildHref("kanban")}
         className={cn(
           "admin-tab",
           currentView === "kanban" ? "admin-tab-active" : "admin-tab-inactive",

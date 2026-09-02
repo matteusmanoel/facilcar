@@ -1,0 +1,6 @@
+name: Refinanciamento mínimo desejável
+messages:
+  - "Quero levantar 40 mil usando minha Hilux 2021. Ela está quitada, vale perto de 180 mil, ganho 8 mil e penso em 36 meses."
+expect:
+  business_type: REFINANCING
+  handoff: true

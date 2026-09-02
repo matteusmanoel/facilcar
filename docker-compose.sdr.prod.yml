@@ -1,0 +1,90 @@
+# Production-oriented SDR stack (Hostinger VPS) — NOT purchased yet.
+# Copy to server, fill .env, put behind Caddy/nginx TLS.
+#
+# Do NOT use this for local Colima development (use docker-compose.sdr.yml).
+
+services:
+  facilcar-sdr-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    volumes:
+      - facilcar_sdr_redis_data:/data
+    networks: [facilcar-sdr]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  facilcar-sdr-api:
+    build:
+      context: ./apps/sdr
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      facilcar-sdr-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@facilcar-sdr-redis:6379/0
+      SDR_WEBHOOK_SECRET: ${SDR_WEBHOOK_SECRET}
+      JULIA_ENABLED: ${JULIA_ENABLED:-true}
+      SDR_TRANSPORT_MODE: ${SDR_TRANSPORT_MODE:-direct}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      EVOLUTION_SDR_INSTANCE: ${EVOLUTION_SDR_INSTANCE:-facilcar-sdr}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-vehicle-images}
+      STORAGE_S3_REGION: ${STORAGE_S3_REGION:-sa-east-1}
+      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-vehicle-images}
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [facilcar-sdr]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  facilcar-sdr-worker:
+    build:
+      context: ./apps/sdr
+      dockerfile: Dockerfile
+    command: ["python", "-m", "sdr.worker"]
+    restart: unless-stopped
+    depends_on:
+      facilcar-sdr-redis:
+        condition: service_healthy
+      facilcar-sdr-api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@facilcar-sdr-redis:6379/0
+      JULIA_ENABLED: ${JULIA_ENABLED:-true}
+      SDR_TRANSPORT_MODE: ${SDR_TRANSPORT_MODE:-direct}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      EVOLUTION_SDR_INSTANCE: ${EVOLUTION_SDR_INSTANCE:-facilcar-sdr}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-vehicle-images}
+      STORAGE_S3_REGION: ${STORAGE_S3_REGION:-sa-east-1}
+      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-vehicle-images}
+    networks: [facilcar-sdr]
+
+networks:
+  facilcar-sdr:
+    name: facilcar-sdr-prod-net
+
+volumes:
+  facilcar_sdr_redis_data:

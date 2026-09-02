@@ -1,0 +1,8 @@
+name: Recusa de documento não mata lead
+messages:
+  - "Quero financiar um Onix, tenho 20 mil de entrada e ganho uns 6 mil."
+  - "Prefiro não mandar minha CNH por aqui."
+expect:
+  sensitive_data_refusal: true
+  must_not_insist: true
+  handoff_if_actionable: true

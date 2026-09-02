@@ -1,0 +1,137 @@
+name: "Corolla photos + deal type (real 2026-08-27 thread class)"
+description: >
+  Observed WhatsApp thread: customer greets, asks about a Corolla seen in stock,
+  confirms "esse mesmo, tem fotos?", then volunteers budget.
+  Contract:
+  - SHOW_OFFERS sends photos with complete caption on the last image
+  - never "Olha o que encontrei"
+  - never solicit budget
+  - follow-up is deal_type (compra ou troca)
+  - explicit photo request executes SEND_PHOTOS of the last shown vehicle
+
+turns:
+  - role: customer
+    text: "/deletar"
+    command: reset_memory
+
+  - role: customer
+    text: "Olá, tudo bem?"
+    understanding:
+      intent: smalltalk
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.99
+
+  - role: customer
+    coalesce:
+      - text: "Estou bem, Julia. Graças a Deus. E você?"
+      - text: "Gostaria de ver um corolla que vi no estoque de vocês e fiquei interessado"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: desired_model
+          value: corolla
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.93
+
+  - role: customer
+    text: "TOP! Esse mesmo, tem fotos?"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "Sim, pode mandar por aqui. Meu orçamento é até 100 mil"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: PROVIDED
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: budget
+          value: "100000"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+  tool_executed_inventory: true
+
+turn_assertions:
+  - turn: 1
+    intent: smalltalk
+    action: smalltalk
+
+  - turn: 2
+    intent: purchase
+    action: show_offers
+    facts_include:
+      desired_model: corolla
+    inventory_outcome: SUCCESS_FOUND
+    no_greeting_in_response: true
+    no_olha_o_que_encontrei: true
+    no_budget_question: true
+    has_outbound_media: true
+    caption_on_last: true
+    follow_up_deal_type: true
+
+  - turn: 3
+    intent: purchase
+    action: send_photos
+    no_budget_question: true
+    no_olha_o_que_encontrei: true
+    has_outbound_media: true
+    caption_on_last: true
+    follow_up_deal_type: true
+
+  - turn: 4
+    intent: purchase
+    budget_status: PROVIDED
+    facts_include:
+      budget: 100000
+    no_budget_question: true
+    no_olha_o_que_encontrei: true

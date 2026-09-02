@@ -1,5 +1,10 @@
 import { getPageBySlug } from "@/features/content/server/queries";
+import { cmsPageMetadata } from "@/features/content/server/page-metadata";
 import { notFound } from "next/navigation";
+
+export async function generateMetadata() {
+  return cmsPageMetadata("termos-de-uso", "Termos de uso");
+}
 
 export default async function TermosUsoPage() {
   const page = await getPageBySlug("termos-de-uso");

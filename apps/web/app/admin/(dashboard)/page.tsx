@@ -8,6 +8,7 @@ import { StatCard } from "@/components/admin/StatCard";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { DashboardCharts } from "@/components/admin/charts/DashboardCharts";
 import { DashboardPeriodFilter } from "@/components/admin/DashboardPeriodFilter";
+import { AdminRevealGroup, AdminRevealItem } from "@/components/motion/AdminPageReveal";
 import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canAccessSection } from "@/features/auth/rbac-config";
 import {
@@ -16,6 +17,7 @@ import {
   getLeadsBySourceInRange,
   parseDashboardDateParam,
 } from "@/features/lead/server/queries";
+import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
 
 export default async function AdminDashboardPage({
   searchParams,
@@ -54,7 +56,20 @@ export default async function AdminDashboardPage({
           where: { deletedAt: null },
           take: 10,
           orderBy: { createdAt: "desc" },
-          include: { vehicle: { select: { title: true, slug: true } } },
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            status: true,
+            createdAt: true,
+            metadataJson: true,
+            vehicle: { select: { title: true, slug: true } },
+            vehicleInterests: {
+              orderBy: { isPrimary: "desc" as const },
+              take: 1,
+              select: { isPrimary: true, vehicle: { select: { title: true } } },
+            },
+          },
         })
       : Promise.resolve([]),
     isEditor ? prisma.blogPost.count() : Promise.resolve(0),
@@ -91,7 +106,8 @@ export default async function AdminDashboardPage({
 
       {isEditor ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <AdminRevealGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <AdminRevealItem>
             <StatCard
               title="Posts no blog"
               value={blogPostsCount}
@@ -99,6 +115,8 @@ export default async function AdminDashboardPage({
               linkLabel="Gerenciar blog"
               icon={BookOpen}
             />
+            </AdminRevealItem>
+            <AdminRevealItem>
             <StatCard
               title="Páginas institucionais"
               value={pagesCount}
@@ -106,6 +124,8 @@ export default async function AdminDashboardPage({
               linkLabel="Gerenciar páginas"
               icon={FileText}
             />
+            </AdminRevealItem>
+            <AdminRevealItem>
             <StatCard
               title="Configurações"
               value="—"
@@ -113,7 +133,8 @@ export default async function AdminDashboardPage({
               linkLabel="Abrir configurações"
               icon={Settings}
             />
-          </div>
+            </AdminRevealItem>
+          </AdminRevealGroup>
 
           <div className="admin-card">
             <h2 className="admin-section-title">Áreas de conteúdo</h2>
@@ -145,8 +166,9 @@ export default async function AdminDashboardPage({
         </>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <AdminRevealGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {showVehicles && (
+              <AdminRevealItem>
               <StatCard
                 title="Veículos publicados"
                 value={vehiclesCount}
@@ -154,9 +176,11 @@ export default async function AdminDashboardPage({
                 linkLabel="Gerenciar estoque"
                 icon={Car}
               />
+              </AdminRevealItem>
             )}
             {showLeads && (
               <>
+                <AdminRevealItem>
                 <StatCard
                   title="Total de leads"
                   value={leadsCount}
@@ -164,6 +188,8 @@ export default async function AdminDashboardPage({
                   linkLabel="Ver todos os leads"
                   icon={Users}
                 />
+                </AdminRevealItem>
+                <AdminRevealItem>
                 <StatCard
                   title="Leads novos"
                   value={newLeadsCount}
@@ -172,6 +198,8 @@ export default async function AdminDashboardPage({
                   icon={Sparkles}
                   variant="highlight"
                 />
+                </AdminRevealItem>
+                <AdminRevealItem>
                 <StatCard
                   title="Simulações pendentes"
                   value={financingNewCount}
@@ -180,9 +208,10 @@ export default async function AdminDashboardPage({
                   icon={TrendingUp}
                   variant={financingNewCount > 0 ? "warning" : "default"}
                 />
+                </AdminRevealItem>
               </>
             )}
-          </div>
+          </AdminRevealGroup>
 
           {showLeads && (
             <>
@@ -221,7 +250,9 @@ export default async function AdminDashboardPage({
                             </td>
                           </tr>
                         ) : (
-                          recentLeads.map((lead) => (
+                          recentLeads.map((lead) => {
+                            const vehicleLabel = leadVehicleLabel(lead);
+                            return (
                             <tr
                               key={lead.id}
                               className="border-t border-facil-border hover:bg-facil-surface/50"
@@ -239,8 +270,8 @@ export default async function AdminDashboardPage({
                                 <StatusBadge status={lead.status} />
                               </td>
                               <td className="admin-table-cell text-facil-muted">
-                                {lead.vehicle ? (
-                                  <span className="line-clamp-1">{lead.vehicle.title}</span>
+                                {vehicleLabel ? (
+                                  <span className="line-clamp-1">{vehicleLabel}</span>
                                 ) : (
                                   "—"
                                 )}
@@ -254,7 +285,8 @@ export default async function AdminDashboardPage({
                                 </Link>
                               </td>
                             </tr>
-                          ))
+                            );
+                          })
                         )}
                       </tbody>
                     </table>

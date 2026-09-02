@@ -1,0 +1,6 @@
+name: Consignação
+messages:
+  - "Quero consignar meu Corolla 2020, 55 mil km. Quero receber 105 mil e posso deixar o carro na loja."
+expect:
+  business_type: CONSIGNMENT
+  handoff_if_actionable: true

@@ -32,6 +32,9 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Schema engine (migrate/db push) cannot use PgBouncer transaction pooler
+    // (:6543) — prepared statements fail with `s0 does not exist`. Prefer the
+    // direct session URL (db.<ref>.supabase.co:5432) when present.
+    url: process.env["DATABASE_URL_DIRECT"] || process.env["DATABASE_URL"],
   },
 });

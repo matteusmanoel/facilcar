@@ -10,7 +10,7 @@ import { getSiteSettings } from "@/features/settings/server/queries";
 import { FinancingSimulationForm } from "@/features/lead/ui/FinancingSimulationForm";
 import { VehicleGallery } from "@/features/vehicle/ui/VehicleGallery";
 import { VehicleDetailAccordion } from "@/features/vehicle/ui/VehicleDetailAccordion";
-import { VehicleImage } from "@/components/shared/VehicleImage";
+import { VehicleCard } from "@/features/catalog/ui/VehicleCard";
 import { BRAND } from "@/lib/brand";
 import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 import { buildCarJsonLd } from "@/lib/seo";
@@ -20,7 +20,7 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const vehicle = await getVehicleBySlug(slug);
-  if (!vehicle) return { title: "Veículo" };
+  if (!vehicle) notFound();
 
   const title = vehicle.metaTitle ?? vehicle.title;
   const description =
@@ -102,6 +102,7 @@ export default async function VehicleDetailPage({ params }: Props) {
     mileage: vehicle.mileage,
     color: vehicle.color,
     fuelType: vehicle.fuelType ?? undefined,
+    engineDisplacementLiters: vehicle.engineDisplacementLiters ?? undefined,
     brand: vehicle.brand,
     images: sortedImages,
   });
@@ -240,30 +241,15 @@ export default async function VehicleDetailPage({ params }: Props) {
             <h2 className="text-2xl font-bold text-foreground">
               Veículos relacionados
             </h2>
-            <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-8 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((v: VehicleWithBrandAndPreviewImages) => (
-                <Link
+                <VehicleCard
                   key={v.id}
-                  href={`/estoque/${v.slug}`}
-                  className="group overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm hover:border-facil-orange/30"
-                >
-                  <div className="relative aspect-video overflow-hidden bg-facil-surface">
-                    <VehicleImage
-                      src={v.images[0]?.url}
-                      alt={v.title}
-                      className="h-full w-full object-cover transition group-hover:scale-105"
-                    />
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-semibold text-foreground">{v.title}</h3>
-                    <p className="mt-1 font-bold text-facil-orange">
-                      {v.priceCash != null
-                        ? `R$ ${Number(v.priceCash).toLocaleString("pt-BR")}`
-                        : "Consultar"}
-                    </p>
-                    <p className="mt-2 text-xs text-facil-muted">Simule o financiamento →</p>
-                  </div>
-                </Link>
+                  vehicle={v}
+                  compact
+                  headingLevel="h3"
+                  footerLabel="Simule o financiamento →"
+                />
               ))}
             </div>
           </section>

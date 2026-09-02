@@ -14,30 +14,27 @@ export type AdminSection =
   | "dashboard"
   | "veiculos"
   | "leads"
+  | "clientes"
   | "usuarios"
   | "paginas"
   | "blog"
-  | "configuracoes"
-  | "marcas"
-  | "clientes";
+  | "configuracoes";
 
 export type NavItemKey =
   | "dashboard"
   | "veiculos"
   | "leads"
+  | "clientes"
   | "usuarios"
   | "paginas"
   | "blog"
-  | "configuracoes"
-  | "marcas"
-  | "clientes";
+  | "configuracoes";
 
 export const NAV_ITEM_KEYS: NavItemKey[] = [
   "dashboard",
   "veiculos",
   "leads",
   "clientes",
-  "marcas",
   "usuarios",
   "paginas",
   "blog",
@@ -48,12 +45,11 @@ const SECTION_ROLES: Record<AdminSection, UserRole[]> = {
   dashboard: ["SUPER_ADMIN", "ADMIN", "LEAD_MANAGER", "EDITOR"],
   veiculos: VEHICLE_READ_ROLES,
   leads: LEAD_ROLES,
+  clientes: CUSTOMER_READ_ROLES,
   usuarios: FULL_ACCESS_ROLES,
   paginas: CONTENT_ROLES,
   blog: CONTENT_ROLES,
   configuracoes: CONTENT_ROLES,
-  marcas: BRAND_READ_ROLES,
-  clientes: CUSTOMER_READ_ROLES,
 };
 
 export function canAccessSection(role: UserRole, section: AdminSection): boolean {
@@ -78,20 +74,19 @@ export function getBottomNavPriority(role: UserRole): NavItemKey[] {
     return ["dashboard", "blog", "paginas", "configuracoes"];
   }
   if (role === "LEAD_MANAGER") {
-    return ["dashboard", "leads", "clientes", "veiculos"];
+    return ["dashboard", "leads", "veiculos", "clientes"];
   }
-  return ["dashboard", "veiculos", "leads", "configuracoes"];
+  return ["dashboard", "veiculos", "leads", "clientes", "configuracoes"];
 }
 
 export function resolveSectionFromPathname(pathname: string): AdminSection | null {
   if (pathname === "/admin") return "dashboard";
   if (pathname.startsWith("/admin/veiculos")) return "veiculos";
   if (pathname.startsWith("/admin/leads") || pathname.startsWith("/admin/crm")) return "leads";
+  if (pathname.startsWith("/admin/clientes")) return "clientes";
   if (pathname.startsWith("/admin/usuarios")) return "usuarios";
   if (pathname.startsWith("/admin/paginas")) return "paginas";
   if (pathname.startsWith("/admin/blog")) return "blog";
   if (pathname.startsWith("/admin/configuracoes")) return "configuracoes";
-  if (pathname.startsWith("/admin/marcas")) return "marcas";
-  if (pathname.startsWith("/admin/clientes")) return "clientes";
   return null;
 }

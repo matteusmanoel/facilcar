@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TurnFacts",
+  "type": "object",
+  "required": [
+    "intent",
+    "facts",
+    "signals"
+  ],
+  "properties": {
+    "intent": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "facts": {
+      "type": "object"
+    },
+    "signals": {
+      "type": "object",
+      "properties": {
+        "explicit_handoff": {
+          "type": "boolean"
+        },
+        "explicit_offer": {
+          "type": "boolean"
+        },
+        "visit_intent": {
+          "type": "boolean"
+        },
+        "high_purchase_intent": {
+          "type": "boolean"
+        },
+        "sensitive_data_refusal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "confidence": {
+      "type": "object"
+    }
+  }
+}

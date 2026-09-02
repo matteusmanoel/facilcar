@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import type { LeadStatus, LeadType } from "@prisma/client";
 import { eachDayOfInterval, endOfDay, format, startOfDay } from "date-fns";
+import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
 
 const NOT_DELETED: Prisma.LeadWhereInput = { deletedAt: null };
 
@@ -109,43 +110,93 @@ const ADMIN_LEAD_SELECT = {
   source: true,
   message: true,
   internalNote: true,
+  temperature: true,
   createdAt: true,
+  metadataJson: true,
   assignedToUser: { select: { id: true, name: true } },
   vehicle: { select: { title: true, slug: true } },
+  vehicleInterests: {
+    orderBy: { isPrimary: "desc" as const },
+    take: 3,
+    select: {
+      isPrimary: true,
+      vehicle: { select: { title: true } },
+    },
+  },
 } as const;
 
 export type AdminLeadRow = Prisma.LeadGetPayload<{ select: typeof ADMIN_LEAD_SELECT }>;
 
-export async function listAdminLeads(opts: {
-  page: number;
-  pageSize: number;
-  status?: LeadStatus;
-  type?: LeadType;
+export type AdminLeadFilterInput = {
+  statuses?: LeadStatus[];
+  types?: LeadType[];
+  assignees?: string[];
   search?: string;
   from?: Date;
   to?: Date;
-  assignedToUserId?: string | null;
-}) {
+};
+
+export function buildAdminLeadWhere(opts: AdminLeadFilterInput): Prisma.LeadWhereInput {
   const where: Prisma.LeadWhereInput = { ...NOT_DELETED };
-  if (opts.status) where.status = opts.status;
-  if (opts.type) where.type = opts.type;
-  if (opts.assignedToUserId === null) {
-    where.assignedToUserId = null;
-  } else if (opts.assignedToUserId) {
-    where.assignedToUserId = opts.assignedToUserId;
+
+  if (opts.statuses?.length) where.status = { in: opts.statuses };
+  if (opts.types?.length) where.type = { in: opts.types };
+
+  if (opts.assignees?.length) {
+    const ids = opts.assignees.filter((a) => a !== "none");
+    const includeNone = opts.assignees.includes("none");
+    if (includeNone && ids.length) {
+      where.OR = [
+        { assignedToUserId: null },
+        { assignedToUserId: { in: ids } },
+      ];
+    } else if (includeNone) {
+      where.assignedToUserId = null;
+    } else if (ids.length) {
+      where.assignedToUserId = { in: ids };
+    }
   }
+
   const ca = createdAtRangeFilter(opts.from, opts.to);
   if (ca) where.createdAt = ca;
 
   const q = opts.search?.trim();
   if (q) {
-    where.OR = [
+    const searchOr: Prisma.LeadWhereInput[] = [
       { name: { contains: q, mode: "insensitive" } },
       { phone: { contains: q } },
       { email: { contains: q, mode: "insensitive" } },
       { vehicle: { title: { contains: q, mode: "insensitive" } } },
     ];
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: searchOr }];
+      delete where.OR;
+    } else {
+      where.OR = searchOr;
+    }
   }
+
+  return where;
+}
+
+export async function listAdminLeads(opts: {
+  page: number;
+  pageSize: number;
+  statuses?: LeadStatus[];
+  types?: LeadType[];
+  search?: string;
+  from?: Date;
+  to?: Date;
+  assignees?: string[];
+}) {
+  const where = buildAdminLeadWhere({
+    statuses: opts.statuses,
+    types: opts.types,
+    assignees: opts.assignees,
+    search: opts.search,
+    from: opts.from,
+    to: opts.to,
+  });
 
   const skip = (Math.max(1, opts.page) - 1) * opts.pageSize;
 
@@ -160,7 +211,53 @@ export async function listAdminLeads(opts: {
     }),
   ]);
 
-  return { leads, totalCount };
+  return {
+    leads: leads.map((lead) => ({
+      ...lead,
+      vehicleLabel: leadVehicleLabel(lead),
+    })),
+    totalCount,
+  };
+}
+
+export async function listAdminLeadsForKanban(opts: AdminLeadFilterInput & { take?: number }) {
+  const where = buildAdminLeadWhere(opts);
+  const leads = await prisma.lead.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: opts.take ?? 300,
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      type: true,
+      status: true,
+      createdAt: true,
+      metadataJson: true,
+      vehicle: { select: { title: true } },
+      vehicleInterests: {
+        orderBy: { isPrimary: "desc" as const },
+        take: 3,
+        select: {
+          isPrimary: true,
+          vehicle: { select: { title: true } },
+        },
+      },
+    },
+  });
+
+  return leads.map((lead) => {
+    const label = leadVehicleLabel(lead);
+    return {
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      type: lead.type,
+      status: lead.status,
+      createdAt: lead.createdAt,
+      vehicle: label ? { title: label } : null,
+    };
+  });
 }
 
 export async function getLeadsByPeriod(days: number) {

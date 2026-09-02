@@ -15,7 +15,6 @@ const nav = [
   { href: "/vender-seu-veiculo", label: "Vender" },
   { href: "/quem-somos", label: "Quem somos" },
   { href: "/blog", label: "Blog" },
-  { href: "/contato", label: "Contato" },
 ];
 
 const WA_ICON = (
@@ -45,8 +44,8 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
   return (
     <>
       <header
-        className={`sticky top-0 z-50 border-b border-zinc-800/60 transition-shadow duration-300 glass ${
-          scrolled ? "shadow-2xl shadow-black/40" : "shadow-none"
+        className={`sticky top-0 z-50 border-b border-white/10 bg-zinc-950 text-white backdrop-blur-md transition-shadow duration-300 ${
+          scrolled ? "shadow-lg shadow-black/40" : "shadow-none"
         }`}
       >
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
@@ -70,12 +69,12 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
           </Link>
 
           {/* Desktop nav — visible at xl (1280px) */}
-          <nav className="hidden items-center gap-0 text-xs font-medium text-zinc-300 xl:flex">
+          <nav className="hidden items-center gap-0 text-xs font-medium text-white xl:flex">
             {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="rounded-md px-2 py-1.5 transition hover:bg-white/10 hover:text-white"
+                className="rounded-md px-2 py-1.5 text-white transition hover:bg-white/10 hover:text-white"
               >
                 {item.label}
               </Link>
@@ -125,7 +124,7 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-white transition hover:border-facil-orange hover:text-white"
               aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -150,7 +149,7 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-white transition hover:border-facil-orange hover:text-white"
               aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
               aria-expanded={menuOpen}
             >
@@ -180,16 +179,16 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
           onClick={() => setMenuOpen(false)}
         />
         <nav
-          className={`absolute right-0 top-0 h-full w-72 bg-zinc-950 shadow-2xl transition-transform duration-300 ease-out ${
+          className={`absolute right-0 top-0 h-full w-72 bg-facil-card text-foreground shadow-2xl transition-transform duration-300 ease-out dark:bg-zinc-950 ${
             menuOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >
-          <div className="flex h-14 items-center justify-between border-b border-zinc-800 px-4">
-            <span className="font-bold text-white">{siteName}</span>
+          <div className="flex h-14 items-center justify-between border-b border-facil-border px-4">
+            <span className="font-bold text-foreground">{siteName}</span>
             <button
               type="button"
               onClick={() => setMenuOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-facil-muted transition hover:text-foreground"
               aria-label="Fechar menu"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -203,12 +202,12 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
                 key={item.href}
                 href={item.href}
                 onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
+                className="rounded-lg px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-facil-surface"
               >
                 {item.label}
               </Link>
             ))}
-            <div className="mt-4 space-y-2 border-t border-zinc-800 pt-4">
+            <div className="mt-4 space-y-2 border-t border-facil-border pt-4">
               <Link
                 href="/financiamento"
                 onClick={() => setMenuOpen(false)}

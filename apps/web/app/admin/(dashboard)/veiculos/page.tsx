@@ -1,28 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canWriteVehicles } from "@/features/auth/rbac-config";
-import { listAdminVehicles } from "@/features/vehicle/server/queries";
+import { getBrandsForFilter } from "@/features/catalog/server/queries";
+import { parseAdminVehicleListParams } from "@/features/vehicle/lib/admin-vehicle-filters";
+import { getAdminVehicleNumericBounds, listAdminVehicles } from "@/features/vehicle/server/queries";
 import { Button } from "@/components/ui/button";
 import { VehiclesClient } from "./VehiclesClient";
 
-import type { VehicleStatus } from "@prisma/client";
-
-const VEHICLE_STATUSES: VehicleStatus[] = [
-  "DRAFT",
-  "PUBLISHED",
-  "RESERVED",
-  "SOLD",
-  "ARCHIVED",
-];
-
 type SearchParams = { [key: string]: string | string[] | undefined };
-
-function parseVehicleStatus(value: string | undefined): VehicleStatus | undefined {
-  if (!value) return undefined;
-  return VEHICLE_STATUSES.includes(value as VehicleStatus) ? (value as VehicleStatus) : undefined;
-}
 
 export default async function AdminVeiculosPage({
   searchParams,
@@ -31,24 +17,37 @@ export default async function AdminVeiculosPage({
 }) {
   const user = await guardAdminSection("veiculos");
   const canWrite = canWriteVehicles(user.role);
-  const params = await searchParams;
-  const page = Math.max(1, parseInt(String(params.page ?? "1"), 10) || 1);
-  const pageSize = Math.min(100, Math.max(5, parseInt(String(params.pageSize ?? "20"), 10) || 20));
-  const q = typeof params.q === "string" ? params.q : undefined;
-  const status = parseVehicleStatus(typeof params.status === "string" ? params.status : undefined);
+  const parsed = parseAdminVehicleListParams(await searchParams);
 
-  const { vehicles, totalCount } = await listAdminVehicles({
-    page,
-    pageSize,
-    status,
-    search: q,
-  });
+  const [{ vehicles, totalCount }, brands, numericBounds] = await Promise.all([
+    listAdminVehicles({
+      page: parsed.page,
+      pageSize: parsed.pageSize,
+      statuses: parsed.statuses,
+      search: parsed.search,
+      brandIds: parsed.brandIds,
+      types: parsed.types,
+      featuredValues: parsed.featuredValues,
+      fuelTypes: parsed.fuelTypes,
+      transmissions: parsed.transmissions,
+      stockTypes: parsed.stockTypes,
+      commercialHistories: parsed.commercialHistories,
+      hasPhotoValues: parsed.hasPhotoValues,
+      priceMin: parsed.priceMin,
+      priceMax: parsed.priceMax,
+      yearMin: parsed.yearMin,
+      yearMax: parsed.yearMax,
+    }),
+    getBrandsForFilter(),
+    getAdminVehicleNumericBounds(),
+  ]);
 
   const serializedVehicles = vehicles.map((vehicle) => ({
     id: vehicle.id,
     slug: vehicle.slug,
     title: vehicle.title,
     status: vehicle.status,
+    stockType: vehicle.stockType,
     priceCash: vehicle.priceCash != null ? Number(vehicle.priceCash) : null,
     brand: vehicle.brand,
     images: vehicle.images,
@@ -74,11 +73,28 @@ export default async function AdminVeiculosPage({
       <VehiclesClient
         vehicles={serializedVehicles}
         totalCount={totalCount}
-        page={page}
-        pageSize={pageSize}
-        currentStatus={status}
-        initialSearch={q ?? ""}
+        page={parsed.page}
+        pageSize={parsed.pageSize}
+        brands={brands}
+        filters={{
+          statuses: parsed.statuses,
+          brandIds: parsed.brandIds,
+          types: parsed.types,
+          featuredValues: parsed.featuredValues,
+          fuelTypes: parsed.fuelTypes,
+          transmissions: parsed.transmissions,
+          stockTypes: parsed.stockTypes,
+          commercialHistories: parsed.commercialHistories,
+          hasPhotoValues: parsed.hasPhotoValues,
+          priceMin: parsed.priceMin,
+          priceMax: parsed.priceMax,
+          yearMin: parsed.yearMin,
+          yearMax: parsed.yearMax,
+        }}
+        initialSearch={parsed.search ?? ""}
         canWrite={canWrite}
+        priceBounds={numericBounds.price}
+        yearBounds={numericBounds.year}
       />
     </div>
   );

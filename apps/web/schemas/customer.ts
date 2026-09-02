@@ -8,6 +8,7 @@ export const customerFormSchema = z.object({
     .email("E-mail inválido")
     .optional()
     .or(z.literal("")),
+  notes: z.string().optional().or(z.literal("")),
 });
 
 export type CustomerFormInput = z.infer<typeof customerFormSchema>;

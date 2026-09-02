@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contrato de Licença de Uso e Prestação de Serviços — Facilcar Multimarcas</title>
+  <style>
+    /* ───────── RESET & BASE ───────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink:       #1a1a2e;
+      --ink-soft:  #3d3d5c;
+      --accent:    #1a4b8c;
+      --accent-lt: #e8f0fb;
+      --border:    #c8d4e8;
+      --bg:        #ffffff;
+      --rule:      #dde4ef;
+      --font-body: 'Georgia', 'Times New Roman', serif;
+      --font-sans: 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    html { font-size: 11pt; }
+
+    body {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.7;
+      padding: 0;
+      margin: 0;
+    }
+
+    /* ───────── PAGE WRAPPER ───────── */
+    .page {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 56px 64px 72px;
+    }
+
+    /* ───────── HEADER ───────── */
+    .contract-header {
+      text-align: center;
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: 28px;
+      margin-bottom: 36px;
+    }
+
+    .contract-header .logo-area {
+      font-family: var(--font-sans);
+      font-size: 10pt;
+      color: var(--ink-soft);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .contract-header h1 {
+      font-family: var(--font-sans);
+      font-size: 15pt;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      line-height: 1.4;
+      margin-bottom: 8px;
+    }
+
+    .contract-header .contract-subtitle {
+      font-family: var(--font-sans);
+      font-size: 10pt;
+      color: var(--ink-soft);
+    }
+
+    .contract-header .contract-ref {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 4px 14px;
+      background: var(--accent-lt);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: var(--font-sans);
+      font-size: 9pt;
+      color: var(--accent);
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    /* ───────── PARTIES BOX ───────── */
+    .parties-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 36px;
+      align-items: stretch;
+    }
+
+    .party-card {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0;
+      overflow: hidden;
+      min-height: 100%;
+    }
+
+    .party-card .party-role {
+      font-family: var(--font-sans);
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #ffffff;
+      background: var(--accent);
+      padding: 10px 16px;
+      margin: 0;
+      border: none;
+    }
+
+    .party-card .party-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 16px 16px 14px;
+    }
+
+    .party-card .party-name {
+      font-family: var(--font-sans);
+      font-size: 11pt;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 0 0 12px;
+      line-height: 1.3;
+      min-height: 2.6em;
+    }
+
+    .party-fields {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 7px 10px;
+      flex: 1;
+      align-content: start;
+    }
+
+    .party-fields .field-label {
+      font-family: var(--font-sans);
+      font-size: 8pt;
+      font-weight: 700;
+      color: var(--ink-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding-top: 1px;
+    }
+
+    .party-fields .field-value {
+      font-family: var(--font-sans);
+      font-size: 9.5pt;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .party-card .party-alias {
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      font-family: var(--font-sans);
+      font-size: 9pt;
+      color: var(--ink-soft);
+    }
+
+    .party-card .party-alias strong {
+      color: var(--accent);
+    }
+
+    /* ───────── SECTIONS ───────── */
+    .section {
+      margin-bottom: 32px;
+    }
+
+    .section-title {
+      font-family: var(--font-sans);
+      font-size: 11pt;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-left: 4px solid var(--accent);
+      padding-left: 12px;
+      margin-bottom: 16px;
+      line-height: 1.3;
+    }
+
+    .section-number {
+      font-size: 9pt;
+      color: var(--ink-soft);
+      margin-right: 6px;
+    }
+
+    /* ───────── CLAUSES ───────── */
+    .clause {
+      margin-bottom: 14px;
+    }
+
+    .clause-num {
+      font-family: var(--font-sans);
+      font-size: 10pt;
+      font-weight: 700;
+      color: var(--ink);
+      display: inline;
+      margin-right: 4px;
+    }
+
+    .clause p, .clause-text {
+      font-size: 10.5pt;
+      line-height: 1.75;
+      text-align: justify;
+      color: var(--ink);
+      display: inline;
+    }
+
+    .clause-block {
+      margin-bottom: 14px;
+    }
+
+    .clause-block p {
+      font-size: 10.5pt;
+      line-height: 1.75;
+      text-align: justify;
+      color: var(--ink);
+    }
+
+    /* paragrafos numerados em bloco */
+    .numbered-clause {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      align-items: flex-start;
+    }
+
+    .numbered-clause .n {
+      font-family: var(--font-sans);
+      font-size: 10pt;
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 44px;
+      padding-top: 2px;
+    }
+
+    .numbered-clause .text {
+      font-size: 10.5pt;
+      line-height: 1.75;
+      text-align: justify;
+      flex: 1;
+    }
+
+    /* listas */
+    .contract-list {
+      list-style: none;
+      margin: 10px 0 10px 0;
+      padding: 0;
+    }
+
+    .contract-list li {
+      position: relative;
+      font-size: 10.5pt;
+      line-height: 1.7;
+      padding: 4px 0 4px 18px;
+      border-bottom: 1px solid var(--rule);
+      text-align: justify;
+    }
+
+    .contract-list li:last-child { border-bottom: none; }
+
+    .contract-list li::before {
+      content: "▸";
+      position: absolute;
+      left: 0;
+      top: 4px;
+      color: var(--accent);
+      font-size: 9pt;
+    }
+
+    .contract-list li strong {
+      font-weight: 700;
+      white-space: normal;
+    }
+
+    /* alíneas */
+    .alinea-list {
+      list-style: none;
+      margin: 8px 0 8px 20px;
+      padding: 0;
+      counter-reset: alinea-counter;
+    }
+
+    .alinea-list li {
+      counter-increment: alinea-counter;
+      font-size: 10.5pt;
+      line-height: 1.7;
+      margin-bottom: 6px;
+      text-align: justify;
+    }
+
+    .alinea-list li::before {
+      content: counter(alinea-counter, lower-alpha) ") ";
+      font-family: var(--font-sans);
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    /* ───────── PAYMENT TABLE ───────── */
+    .payment-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-family: var(--font-sans);
+      font-size: 9.5pt;
+    }
+
+    .payment-table thead th {
+      background: var(--accent);
+      color: #ffffff;
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .payment-table tbody tr:nth-child(even) {
+      background: var(--accent-lt);
+    }
+
+    .payment-table tbody td {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--rule);
+      color: var(--ink);
+    }
+
+    .payment-table tfoot td {
+      padding: 9px 12px;
+      font-weight: 700;
+      border-top: 2px solid var(--accent);
+      background: #f4f6fb;
+    }
+
+    .badge-license { color: #1a7a3a; font-weight: 600; }
+    .badge-monthly { color: #1a4b8c; font-weight: 600; }
+
+    /* ───────── ALERT BOX ───────── */
+    .alert-box {
+      border: 1px solid #d4a017;
+      background: #fffbec;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 14px 0;
+      font-size: 10pt;
+    }
+
+    .alert-box .alert-title {
+      font-family: var(--font-sans);
+      font-size: 9.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #8a5c00;
+      margin-bottom: 6px;
+      letter-spacing: 0.05em;
+    }
+
+    .info-box {
+      border: 1px solid var(--border);
+      background: var(--accent-lt);
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 14px 0;
+      font-size: 10pt;
+    }
+
+    .info-box .info-title {
+      font-family: var(--font-sans);
+      font-size: 9.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 6px;
+      letter-spacing: 0.05em;
+    }
+
+    /* ───────── DIVIDER ───────── */
+    hr.section-divider {
+      border: none;
+      border-top: 1px solid var(--rule);
+      margin: 32px 0;
+    }
+
+    /* ───────── SIGNATURE BLOCK ───────── */
+    .signature-section {
+      margin-top: 48px;
+      page-break-inside: avoid;
+    }
+
+    .signature-intro {
+      font-size: 10.5pt;
+      text-align: justify;
+      margin-bottom: 36px;
+      line-height: 1.75;
+    }
+
+    .signature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      margin-bottom: 40px;
+    }
+
+    .sig-block {
+      text-align: center;
+    }
+
+    .sig-line {
+      border-top: 1px solid var(--ink);
+      margin-bottom: 10px;
+    }
+
+    .sig-name {
+      font-family: var(--font-sans);
+      font-size: 10pt;
+      font-weight: 700;
+    }
+
+    .sig-detail {
+      font-family: var(--font-sans);
+      font-size: 9pt;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .witness-title {
+      font-family: var(--font-sans);
+      font-size: 9.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--ink-soft);
+      margin-bottom: 24px;
+      text-align: center;
+      border-bottom: 1px dashed var(--rule);
+      padding-bottom: 10px;
+    }
+
+    /* ───────── FOOTER ───────── */
+    .contract-footer {
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid var(--rule);
+      font-family: var(--font-sans);
+      font-size: 8.5pt;
+      color: var(--ink-soft);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* ───────── PRINT / PDF ───────── */
+    @media print {
+      html { font-size: 10.5pt; }
+      .page { padding: 32px 40px; max-width: 100%; }
+      .parties-grid { break-inside: avoid; }
+      .section { break-inside: avoid; }
+      .signature-section { page-break-before: always; }
+      .payment-table { break-inside: avoid; }
+    }
+
+    @page {
+      size: A4;
+      margin: 20mm 18mm 24mm 18mm;
+    }
+
+    /* ───────── UTILITY ───────── */
+    strong { font-weight: 700; }
+    em { font-style: italic; }
+    .muted { color: var(--ink-soft); font-size: 9.5pt; }
+    .placeholder { background: #fff3cd; border-radius: 2px; padding: 0 3px; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════════════
+       CABEÇALHO
+  ═══════════════════════════════════════════════════════════ -->
+  <header class="contract-header">
+    <div class="logo-area">Instrumento Particular</div>
+    <h1>Contrato de Licença de Uso de Software<br>e Prestação de Serviços de Manutenção</h1>
+    <div class="contract-subtitle">Plataforma Digital de Catálogo e CRM Automotivo</div>
+    <div class="contract-ref">REF: FCR-2026-001 &nbsp;|&nbsp; Cascavel – PR &nbsp;|&nbsp; Agosto/2026</div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PREÂMBULO
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <p style="font-size:10.5pt; line-height:1.75; text-align:justify;">
+      Pelo presente instrumento particular, as partes abaixo qualificadas celebram o presente
+      <strong>Contrato de Licença de Uso de Software e Prestação de Serviços de Manutenção</strong>
+      ("Contrato"), que se regerá pelas cláusulas e condições a seguir estipuladas e, no que
+      couber, pela Lei n.º 9.609/1998 (Lei de Software), pela Lei n.º 10.406/2002 (Código Civil),
+      pela Lei n.º 13.709/2018 (Lei Geral de Proteção de Dados – LGPD) e demais diplomas
+      legais aplicáveis.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PARTES
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="parties-grid">
+    <div class="party-card">
+      <div class="party-role">Contratada — Licenciante / Prestadora</div>
+      <div class="party-body">
+        <div class="party-name">Mateus Manoel Ferreira</div>
+        <div class="party-fields">
+          <span class="field-label">CNPJ</span>
+          <span class="field-value">43.317.136/0001-32</span>
+          <span class="field-label">Natureza</span>
+          <span class="field-value">Microempresa (ME)</span>
+          <span class="field-label">Representante</span>
+          <span class="field-value">Mateus Manoel Ferreira</span>
+          <span class="field-label">Endereço</span>
+          <span class="field-value">Av. Eng. Hildemar Leite França, 493<br>Itaipu A – Foz do Iguaçu/PR<br>CEP 85860-320</span>
+        </div>
+        <div class="party-alias">Doravante: <strong>"CONTRATADA"</strong></div>
+      </div>
+    </div>
+    <div class="party-card">
+      <div class="party-role">Contratante — Licenciada / Tomadora</div>
+      <div class="party-body">
+        <div class="party-name">Facil Car Multimarcas LTDA</div>
+        <div class="party-fields">
+          <span class="field-label">CNPJ</span>
+          <span class="field-value">58.502.256/0001-87</span>
+          <span class="field-label">Natureza</span>
+          <span class="field-value">Sociedade Limitada (LTDA)</span>
+          <span class="field-label">Representante</span>
+          <span class="field-value">Eraldo Lopes Ramos</span>
+          <span class="field-label">Endereço</span>
+          <span class="field-value">Rua Ipanema, 1.206<br>Periolo – Cascavel/PR<br>CEP 85.817-020</span>
+        </div>
+        <div class="party-alias">Doravante: <strong>"CONTRATANTE"</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 1 — OBJETO
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">1.</span> Do Objeto</div>
+
+    <div class="numbered-clause">
+      <span class="n">1.1.</span>
+      <span class="text">O presente Contrato tem por objeto a concessão, pela CONTRATADA à CONTRATANTE, de
+      <strong>licença de uso não exclusiva, intransferível e indivisível</strong> do software denominado
+      <strong>"Facilcar Multimarcas"</strong> — plataforma digital de catálogo de veículos e gestão de
+      relacionamento com clientes (CRM) —, bem como a prestação de serviços contínuos de
+      suporte, manutenção preventiva e corretiva da referida plataforma.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">1.2.</span>
+      <span class="text">A plataforma licenciada compreende o conjunto de funcionalidades disponíveis no endereço
+      eletrônico <strong>https://facilcarmultimarcas.com.br</strong>, incluindo, mas não se limitando a:</span>
+    </div>
+
+    <ul class="contract-list" style="margin-left:56px;">
+      <li>Catálogo digital público de veículos com filtros de busca e páginas individuais por veículo;</li>
+      <li>Formulários de captação de interesse dos usuários finais (compra, venda, consignação, financiamento, refinanciamento e troca);</li>
+      <li>Painel administrativo (CRM) para gestão e acompanhamento de leads, com controle de status e atribuição de responsáveis;</li>
+      <li>Módulo de publicação e gerenciamento do estoque de veículos (cadastro, fotos, preços e status);</li>
+      <li>Sistema de blog e páginas institucionais editáveis;</li>
+      <li>Configurações de identidade visual e dados da loja (nome, contatos, endereço, redes sociais);</li>
+      <li>Integração com banco de dados em nuvem para armazenamento seguro das informações.</li>
+    </ul>
+
+    <div class="numbered-clause" style="margin-top:12px;">
+      <span class="n">1.3.</span>
+      <span class="text">A licença é concedida para uso exclusivo em <strong>uma única unidade operacional</strong> da
+      CONTRATANTE. A extensão do uso a outras unidades, marcas ou terceiros exige aditamento
+      contratual e, eventualmente, novo ajuste de contraprestação.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">1.4.</span>
+      <span class="text">O software é de titularidade exclusiva da CONTRATADA, que detém todos os direitos
+      de propriedade intelectual sobre o código-fonte, arquitetura, design e demais
+      elementos que o compõem. A presente licença não implica cessão de direitos autorais
+      sobre o software.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 2 — VIGÊNCIA
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">2.</span> Da Vigência e Renovação</div>
+
+    <div class="numbered-clause">
+      <span class="n">2.1.</span>
+      <span class="text">O presente Contrato entra em vigor na data de sua assinatura e vigorará pelo prazo de
+      <strong>12 (doze) meses</strong>, com término previsto para <strong>21 de agosto de 2027</strong>.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">2.2.</span>
+      <span class="text">Findo o prazo previsto no item 2.1, o Contrato será <strong>renovado automaticamente</strong> por
+      períodos iguais e sucessivos de 12 (doze) meses, salvo manifestação contrária de qualquer
+      das partes, mediante notificação por escrito à outra parte com antecedência mínima de
+      <strong>30 (trinta) dias</strong> antes do término do período vigente.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">2.3.</span>
+      <span class="text">Na renovação contratual, os valores de mensalidade serão reajustados pelo índice
+      acumulado do <strong>IPCA</strong> (Índice de Preços ao Consumidor Amplo), divulgado pelo IBGE,
+      referente aos 12 (doze) meses imediatamente anteriores à data de renovação. Na ausência
+      de divulgação do índice, utilizar-se-á o último índice disponível.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 3 — CONDIÇÕES FINANCEIRAS
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">3.</span> Das Condições Financeiras</div>
+
+    <div class="numbered-clause">
+      <span class="n">3.1.</span>
+      <span class="text">Em contraprestação pela licença de uso e pelos serviços de manutenção, a CONTRATANTE
+      pagará à CONTRATADA os seguintes valores:</span>
+    </div>
+
+    <ul class="alinea-list">
+      <li><strong>Licença de uso e implantação:</strong> R$ 2.000,00 (dois mil reais), pagos em
+        <strong>4 (quatro) parcelas mensais de R$ 500,00</strong> cada;</li>
+      <li><strong>Mensalidade de manutenção e infraestrutura:</strong> R$ 100,00 (cem reais) mensais,
+        cobrados simultaneamente às parcelas da licença e de forma contínua após a quitação.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">3.2.</span>
+      <span class="text">O pagamento será realizado por meio de <strong>boleto bancário</strong>, emitido pela
+      CONTRATADA com vencimento todo dia <strong>10 (dez) de cada mês</strong>, conforme o cronograma abaixo:</span>
+    </div>
+
+    <table class="payment-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Vencimento</th>
+          <th>Valor</th>
+          <th>Composição</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1ª</td>
+          <td>10/09/2026</td>
+          <td><strong>R$ 600,00</strong></td>
+          <td><span class="badge-license">R$ 500 (licença)</span> + <span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>2ª</td>
+          <td>10/10/2026</td>
+          <td><strong>R$ 600,00</strong></td>
+          <td><span class="badge-license">R$ 500 (licença)</span> + <span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>3ª</td>
+          <td>10/11/2026</td>
+          <td><strong>R$ 600,00</strong></td>
+          <td><span class="badge-license">R$ 500 (licença)</span> + <span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>4ª</td>
+          <td>10/12/2026</td>
+          <td><strong>R$ 600,00</strong></td>
+          <td><span class="badge-license">R$ 500 (licença)</span> + <span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>5ª</td>
+          <td>10/01/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>6ª</td>
+          <td>10/02/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>7ª</td>
+          <td>10/03/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>8ª</td>
+          <td>10/04/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>9ª</td>
+          <td>10/05/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>10ª</td>
+          <td>10/06/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>11ª</td>
+          <td>10/07/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+        <tr>
+          <td>12ª</td>
+          <td>10/08/2027</td>
+          <td><strong>R$ 100,00</strong></td>
+          <td><span class="badge-monthly">R$ 100 (manutenção)</span></td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Total (12 meses)</td>
+          <td colspan="2"><strong>R$ 3.200,00</strong></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="numbered-clause">
+      <span class="n">3.3.</span>
+      <span class="text">O não pagamento de qualquer boleto até a data de vencimento sujeitará a CONTRATANTE à
+      incidência de <strong>multa moratória de 2% (dois por cento)</strong> sobre o valor devido, acrescida de
+      <strong>juros de mora de 1% (um por cento) ao mês</strong>, calculados pro rata die a partir do vencimento.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">3.4.</span>
+      <span class="text">Decorridos <strong>15 (quinze) dias corridos</strong> sem a regularização do débito, a CONTRATADA fica
+      desde já autorizada a <strong>suspender preventivamente o acesso</strong> à plataforma, sem que tal medida
+      configure rescisão contratual ou gere obrigação de restituição de valores já pagos.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">3.5.</span>
+      <span class="text">Decorridos <strong>60 (sessenta) dias</strong> de inadimplência contínua, o Contrato será considerado
+      rescindido de pleno direito, independentemente de notificação judicial, ficando a CONTRATADA
+      autorizada a encerrar definitivamente o ambiente da plataforma após prévia notificação por
+      escrito à CONTRATANTE com antecedência mínima de <strong>10 (dez) dias úteis</strong>.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">3.6.</span>
+      <span class="text">Os valores referentes à mensalidade de manutenção (item "b" da cláusula 3.1) são
+      devidos enquanto o Contrato estiver ativo, independentemente do volume de uso da
+      plataforma pela CONTRATANTE.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 4 — MANUTENÇÃO E SUPORTE
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">4.</span> Da Manutenção e Suporte Técnico</div>
+
+    <div class="numbered-clause">
+      <span class="n">4.1.</span>
+      <span class="text">A mensalidade prevista na alínea "b" da cláusula 3.1 cobre os seguintes serviços:</span>
+    </div>
+
+    <ul class="alinea-list">
+      <li><strong>Manutenção corretiva:</strong> correção de falhas funcionais (bugs) que impeçam ou prejudiquem
+        o funcionamento regular das funcionalidades descritas no item 1.2;</li>
+      <li><strong>Manutenção preventiva:</strong> atualização de dependências críticas de segurança e
+        compatibilidade da plataforma;</li>
+      <li><strong>Infraestrutura em nuvem:</strong> custos operacionais dos serviços de hospedagem,
+        banco de dados e armazenamento de arquivos necessários ao funcionamento da plataforma;</li>
+      <li><strong>Suporte básico:</strong> atendimento de dúvidas operacionais sobre o uso da plataforma,
+        via canal de comunicação a ser definido entre as partes (preferencialmente WhatsApp),
+        em regime de melhor esforço.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">4.2.</span>
+      <span class="text"><strong>Não estão incluídos</strong> na mensalidade de manutenção, salvo acordo expresso em aditamento
+      contratual:</span>
+    </div>
+
+    <ul class="alinea-list">
+      <li>Desenvolvimento de novas funcionalidades, módulos ou integrações não descritos no item 1.2;</li>
+      <li>Personalizações de design que representem criação de novo layout ou identidade visual;</li>
+      <li>Migração para outra plataforma ou fornecedor de infraestrutura a pedido da CONTRATANTE;</li>
+      <li>Treinamentos presenciais ou remotos para a equipe da CONTRATANTE;</li>
+      <li>Horas de desenvolvimento para projetos fora do escopo deste Contrato.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">4.3.</span>
+      <span class="text">Solicitações fora do escopo da manutenção poderão ser contratadas mediante proposta
+      adicional emitida pela CONTRATADA, com aprovação prévia e por escrito da CONTRATANTE.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">4.4.</span>
+      <span class="text">A CONTRATADA envidará seus melhores esforços para manter a plataforma disponível e
+      operacional, mas não garante disponibilidade ininterrupta de 100%, em razão de possíveis
+      janelas de manutenção, instabilidades de terceiros (provedores de infraestrutura, DNS,
+      CDN) ou casos de força maior, conforme previsto na cláusula 12.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 5 — OBRIGAÇÕES DA CONTRATADA
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">5.</span> Das Obrigações da Contratada</div>
+
+    <p style="font-size:10.5pt; line-height:1.75; margin-bottom:10px;">São obrigações da CONTRATADA:</p>
+
+    <ul class="contract-list">
+      <li>Disponibilizar o acesso à plataforma nas condições descritas neste Contrato;</li>
+      <li>Manter os dados da CONTRATANTE e dos usuários finais armazenados em ambiente seguro, adotando medidas técnicas e organizacionais adequadas;</li>
+      <li>Realizar backups periódicos dos dados armazenados na plataforma;</li>
+      <li>Notificar a CONTRATANTE sobre incidentes de segurança que afetem dados pessoais, no prazo máximo de <strong>72 (setenta e duas) horas</strong> após a ciência do evento;</li>
+      <li>Corrigir falhas funcionais (bugs) que impeçam o uso regular da plataforma em prazo razoável, de acordo com a criticidade;</li>
+      <li>Agir como <strong>Operador de Dados</strong> nos termos da LGPD, processando dados pessoais somente conforme as instruções e finalidades definidas pela CONTRATANTE;</li>
+      <li>Guardar sigilo sobre as informações confidenciais da CONTRATANTE e de seus clientes;</li>
+      <li>Comunicar à CONTRATANTE qualquer alteração relevante na infraestrutura que possa impactar a disponibilidade da plataforma, com antecedência mínima de <strong>48 (quarenta e oito) horas</strong>, salvo emergências.</li>
+    </ul>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 6 — OBRIGAÇÕES DA CONTRATANTE
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">6.</span> Das Obrigações da Contratante</div>
+
+    <p style="font-size:10.5pt; line-height:1.75; margin-bottom:10px;">São obrigações da CONTRATANTE:</p>
+
+    <ul class="contract-list">
+      <li>Efetuar os pagamentos nas datas e valores estipulados na cláusula 3;</li>
+      <li>Utilizar a plataforma exclusivamente para as finalidades previstas neste Contrato e em conformidade com a legislação vigente;</li>
+      <li>Não compartilhar credenciais de acesso ao painel administrativo com terceiros não autorizados;</li>
+      <li>Não copiar, reproduzir, distribuir, sublicenciar, vender, modificar, decompilar ou realizar engenharia reversa do software;</li>
+      <li>Responsabilizar-se pelo conteúdo publicado na plataforma (informações sobre veículos, preços, imagens), garantindo que não viola direitos de terceiros;</li>
+      <li>Informar à CONTRATADA, com a maior antecedência possível, a ocorrência de falhas, comportamentos anômalos ou necessidade de ajustes;</li>
+      <li>Atuar como <strong>Controladora de Dados</strong> nos termos da LGPD, sendo responsável pela coleta, finalidade e bases legais aplicáveis ao tratamento dos dados pessoais dos seus clientes (usuários finais da plataforma);</li>
+      <li>Manter em seu site uma <strong>Política de Privacidade</strong> e <strong>Termos de Uso</strong> atualizados, informando aos usuários finais como seus dados são coletados e tratados.</li>
+    </ul>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 7 — PROPRIEDADE INTELECTUAL
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">7.</span> Da Propriedade Intelectual</div>
+
+    <div class="numbered-clause">
+      <span class="n">7.1.</span>
+      <span class="text">O software, seu código-fonte, interfaces, estrutura, arquitetura, design gráfico, algoritmos
+      e demais elementos que o integram são e permanecerão de propriedade exclusiva da
+      <strong>CONTRATADA</strong>, protegidos pela Lei n.º 9.609/1998 e pela Lei n.º 9.610/1998.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">7.2.</span>
+      <span class="text">A CONTRATANTE não adquire qualquer direito de propriedade sobre o software em razão
+      deste Contrato. O pagamento da licença de uso concede apenas o direito de utilizar a
+      plataforma enquanto o Contrato estiver vigente e adimplido.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">7.3.</span>
+      <span class="text"><strong>Os dados inseridos pela CONTRATANTE na plataforma</strong> — incluindo estoque de veículos,
+      leads, conteúdos e configurações — pertencem exclusivamente à CONTRATANTE, sendo
+      a CONTRATADA responsável apenas pelo seu armazenamento e tratamento técnico.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">7.4.</span>
+      <span class="text">O domínio <strong>facilcarmultimarcas.com.br</strong> está registrado em nome da CONTRATANTE ou
+      em processo de transferência para ela. A CONTRATADA não possui qualquer direito sobre
+      o domínio e, caso o mesmo esteja temporariamente em seu nome, realizará a transferência
+      formal em até <strong>30 (trinta) dias</strong> após a solicitação por escrito da CONTRATANTE.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 8 — PROTEÇÃO DE DADOS (LGPD)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">8.</span> Da Proteção de Dados Pessoais (LGPD)</div>
+
+    <div class="info-box">
+      <div class="info-title">Nota sobre LGPD</div>
+      Esta cláusula constitui o Acordo de Processamento de Dados (APD/DPA) exigido pela
+      Lei n.º 13.709/2018 para regular a relação entre Controlador e Operador de Dados.
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">8.1.</span>
+      <span class="text">Para os fins desta cláusula, ficam definidos os seguintes papéis nos termos da LGPD:</span>
+    </div>
+    <ul class="alinea-list">
+      <li><strong>CONTRATANTE como Controladora de Dados:</strong> é a entidade que determina as finalidades
+        e os meios do tratamento dos dados pessoais dos usuários finais (clientes da loja de veículos)
+        coletados por meio da plataforma;</li>
+      <li><strong>CONTRATADA como Operadora de Dados:</strong> realiza o tratamento de dados pessoais em nome
+        da CONTRATANTE, conforme as instruções e finalidades por ela definidas.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">8.2.</span>
+      <span class="text">Os dados pessoais tratados por meio da plataforma incluem, entre outros: nome completo,
+      telefone, endereço de e-mail, CPF, data de nascimento, renda mensal e informações sobre
+      veículos de interesse dos usuários finais. Tais dados são considerados dados pessoais nos
+      termos do art. 5º, I, da LGPD e devem ser tratados com o rigor previsto na lei.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">8.3.</span>
+      <span class="text">A CONTRATADA compromete-se a:</span>
+    </div>
+    <ul class="alinea-list">
+      <li>Tratar os dados pessoais apenas para as finalidades previstas neste Contrato;</li>
+      <li>Não compartilhar, vender, ceder ou utilizar os dados pessoais para fins próprios ou de terceiros;</li>
+      <li>Adotar medidas técnicas e organizacionais adequadas para proteger os dados contra acesso não autorizado, destruição, alteração ou divulgação indevida;</li>
+      <li>Notificar a CONTRATANTE sobre incidentes de segurança envolvendo dados pessoais em até <strong>72 horas</strong> após a ciência;</li>
+      <li>Cooperar com a CONTRATANTE em solicitações de titulares de dados (acesso, correção, exclusão, portabilidade), nos termos dos arts. 18 e 19 da LGPD;</li>
+      <li>Ao término do Contrato, fornecer à CONTRATANTE, em até <strong>30 (trinta) dias</strong>, uma exportação completa dos dados armazenados na plataforma em formato legível (CSV, JSON ou equivalente), após o que os dados serão permanentemente deletados dos servidores da CONTRATADA, exceto quando obrigada a retê-los por exigência legal ou regulatória.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">8.4.</span>
+      <span class="text">A CONTRATANTE, na qualidade de Controladora, é responsável por:</span>
+    </div>
+    <ul class="alinea-list">
+      <li>Garantir que a coleta e o tratamento dos dados pessoais dos usuários finais possuem base legal adequada (consentimento, legítimo interesse ou outra hipótese prevista no art. 7º da LGPD);</li>
+      <li>Disponibilizar e manter atualizados a Política de Privacidade e os Termos de Uso da plataforma;</li>
+      <li>Responder perante a Autoridade Nacional de Proteção de Dados (ANPD) e perante os titulares dos dados por eventuais infrações à LGPD decorrentes do exercício de sua função de Controladora.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">8.5.</span>
+      <span class="text">A CONTRATADA poderá utilizar suboperadores (provedores de infraestrutura em nuvem,
+      como serviços de banco de dados e armazenamento) para o processamento técnico dos dados,
+      desde que esses suboperadores ofereçam garantias de segurança e conformidade equivalentes
+      às previstas neste Contrato e na LGPD. A CONTRATADA permanece responsável perante a
+      CONTRATANTE pelos atos dos suboperadores que utilizar.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 9 — RESCISÃO
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">9.</span> Da Rescisão</div>
+
+    <div class="numbered-clause">
+      <span class="n">9.1.</span>
+      <span class="text">Qualquer das partes poderá rescindir o presente Contrato, a qualquer momento e sem
+      necessidade de apresentar justificativa, mediante <strong>notificação por escrito</strong> à outra parte
+      com antecedência mínima de <strong>30 (trinta) dias corridos</strong>.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">9.2.</span>
+      <span class="text">A rescisão por iniciativa da CONTRATANTE <strong>não exime</strong> esta do pagamento das parcelas
+      vencidas até a data efetiva de encerramento do Contrato. Valores já pagos não serão
+      restituídos, exceto em caso de rescisão motivada por descumprimento contratual da
+      CONTRATADA, conforme previsto no item 9.4.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">9.3.</span>
+      <span class="text">A rescisão por iniciativa da <strong>CONTRATADA</strong> durante o período de vigência, sem justa
+      causa, obrigará esta última a:</span>
+    </div>
+    <ul class="alinea-list">
+      <li>Manter a plataforma em operação pelo prazo do aviso prévio de 30 dias;</li>
+      <li>Fornecer à CONTRATANTE a exportação completa dos dados prevista no item 8.3, f;</li>
+      <li>Restituir, proporcionalmente, os valores referentes à mensalidade de manutenção do mês em curso não usufruída, se aplicável.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">9.4.</span>
+      <span class="text">Qualquer das partes poderá rescindir imediatamente o Contrato, independentemente de
+      aviso prévio, nos seguintes casos:</span>
+    </div>
+    <ul class="alinea-list">
+      <li>Falência, insolvência ou recuperação judicial da outra parte;</li>
+      <li>Descumprimento reiterado de obrigações essenciais deste Contrato, após notificação formal concedendo prazo de <strong>15 (quinze) dias úteis</strong> para regularização;</li>
+      <li>Uso da plataforma para fins ilícitos ou contrários à ordem pública, comprovado documentalmente.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">9.5.</span>
+      <span class="text">Em caso de inadimplência, aplica-se o procedimento previsto nos itens 3.4 e 3.5 deste
+      Contrato.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 10 — CONFIDENCIALIDADE
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">10.</span> Da Confidencialidade</div>
+
+    <div class="numbered-clause">
+      <span class="n">10.1.</span>
+      <span class="text">Ambas as partes comprometem-se a manter sigilo sobre todas as informações confidenciais
+      a que tiverem acesso em razão deste Contrato, incluindo dados de negócios, estratégias
+      comerciais, dados de clientes, informações técnicas e financeiras, durante a vigência do
+      Contrato e por um período de <strong>2 (dois) anos</strong> após o seu término.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">10.2.</span>
+      <span class="text">São excluídas da obrigação de sigilo as informações que: (a) sejam de domínio público
+      por meios lícitos; (b) sejam obtidas de terceiros sem restrição de divulgação; ou
+      (c) devam ser divulgadas por força de lei ou determinação judicial.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 11 — LIMITAÇÃO DE RESPONSABILIDADE
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">11.</span> Da Limitação de Responsabilidade</div>
+
+    <div class="numbered-clause">
+      <span class="n">11.1.</span>
+      <span class="text">A CONTRATADA não se responsabiliza por:</span>
+    </div>
+    <ul class="alinea-list">
+      <li>Danos decorrentes de uso inadequado ou não autorizado da plataforma pela CONTRATANTE ou seus usuários;</li>
+      <li>Conteúdo publicado pela CONTRATANTE na plataforma, incluindo informações incorretas sobre veículos, preços ou disponibilidade;</li>
+      <li>Perda de oportunidades de negócio, danos emergentes ou lucros cessantes decorrentes de indisponibilidade eventual da plataforma;</li>
+      <li>Falhas em serviços de terceiros (provedores de internet, plataformas de pagamento, registradoras de domínio) fora do controle direto da CONTRATADA;</li>
+      <li>Ataques cibernéticos (DDoS, ransomware, phishing) de terceiros, desde que a CONTRATADA tenha adotado as medidas de segurança razoáveis previstas neste Contrato.</li>
+    </ul>
+
+    <div class="numbered-clause">
+      <span class="n">11.2.</span>
+      <span class="text">Em qualquer hipótese, a responsabilidade total da CONTRATADA perante a CONTRATANTE
+      fica limitada ao valor equivalente a <strong>3 (três) mensalidades</strong> efetivamente pagas pela
+      CONTRATANTE no período de 12 meses imediatamente anterior ao evento que deu
+      causa à responsabilização.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 12 — FORÇA MAIOR
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">12.</span> Da Força Maior e Caso Fortuito</div>
+
+    <div class="numbered-clause">
+      <span class="n">12.1.</span>
+      <span class="text">Nenhuma das partes será responsabilizada por atrasos ou descumprimento de obrigações
+      decorrentes de eventos fora de seu controle razoável, incluindo, mas não se limitando a:
+      desastres naturais, pandemias, interrupções generalizadas de energia, bloqueios por
+      autoridade governamental, greves ou falhas sistêmicas de infraestrutura global de internet.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">12.2.</span>
+      <span class="text">A parte afetada deverá notificar a outra no menor prazo possível, indicando a natureza
+      do evento e a previsão de normalização. As obrigações financeiras em aberto permanecem
+      exigíveis após a cessação do evento de força maior.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 13 — CESSÃO
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">13.</span> Da Cessão</div>
+
+    <div class="numbered-clause">
+      <span class="n">13.1.</span>
+      <span class="text">A CONTRATANTE <strong>não poderá ceder</strong>, transferir ou sublicenciar os direitos decorrentes
+      deste Contrato, no todo ou em parte, a terceiros sem o prévio consentimento por escrito
+      da CONTRATADA.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">13.2.</span>
+      <span class="text">A CONTRATADA poderá subcontratar parcialmente serviços técnicos de infraestrutura,
+      permanecendo responsável pelo resultado perante a CONTRATANTE.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 14 — DISPOSIÇÕES GERAIS
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">14.</span> Das Disposições Gerais</div>
+
+    <div class="numbered-clause">
+      <span class="n">14.1.</span>
+      <span class="text"><strong>Integralidade:</strong> Este instrumento constitui o acordo integral entre as partes com
+      relação ao seu objeto, substituindo todos os entendimentos, propostas ou negociações
+      anteriores, sejam escritas ou verbais.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">14.2.</span>
+      <span class="text"><strong>Aditamentos:</strong> Qualquer alteração ao presente Contrato só terá validade se formalizada
+      por escrito em aditamento assinado por ambas as partes.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">14.3.</span>
+      <span class="text"><strong>Independência:</strong> As partes não estabelecem, por meio deste Contrato, qualquer vínculo
+      empregatício, societário ou de parceria empresarial entre si. Cada parte é responsável por
+      suas próprias obrigações trabalhistas, previdenciárias, fiscais e tributárias.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">14.4.</span>
+      <span class="text"><strong>Tolerância:</strong> A tolerância de qualquer das partes em relação ao descumprimento de
+      obrigações pela outra não importará em novação ou renúncia de direitos, podendo a
+      parte tolerante, a qualquer momento, exigir o estrito cumprimento das obrigações.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">14.5.</span>
+      <span class="text"><strong>Comunicações:</strong> As notificações e comunicações formais previstas neste Contrato deverão
+      ser realizadas por escrito, podendo ser enviadas por e-mail com confirmação de leitura ou
+      por serviço de mensagens com registro de entrega (ex.: WhatsApp). Para fins de prova,
+      é recomendável o uso de e-mail com aviso de recebimento ou aplicativo que registre
+      data e hora de envio e leitura.</span>
+    </div>
+
+    <div class="numbered-clause">
+      <span class="n">14.6.</span>
+      <span class="text"><strong>Separabilidade:</strong> Se qualquer cláusula ou disposição deste Contrato for declarada inválida
+      ou inaplicável por autoridade competente, as demais cláusulas permanecerão em pleno vigor.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       CLÁUSULA 15 — FORO
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title"><span class="section-number">15.</span> Do Foro</div>
+
+    <div class="numbered-clause">
+      <span class="n">15.1.</span>
+      <span class="text">As partes elegem o foro da Comarca de <strong>Cascavel, Estado do Paraná</strong>, como competente
+      para dirimir quaisquer dúvidas, litígios ou questões oriundas do presente Contrato,
+      com renúncia expressa a qualquer outro, por mais privilegiado que seja, exceto nos
+      casos em que a legislação determinar foro especial.</span>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ═══════════════════════════════════════════════════════
+       ASSINATURAS
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="signature-section">
+    <p class="signature-intro">
+      E, por estarem justas e contratadas, as partes assinam o presente instrumento em
+      <strong>2 (duas) vias de igual teor e forma</strong>.
+    </p>
+    <p class="signature-intro" style="text-align:center; font-family: var(--font-sans); font-size:10pt;">
+      <strong>Cascavel/PR, 21 de agosto de 2026.</strong>
+    </p>
+
+    <div class="signature-grid" style="margin-top:48px;">
+      <div class="sig-block">
+        <div style="height:60px;"></div>
+        <div class="sig-line"></div>
+        <div class="sig-name">Mateus Manoel Ferreira</div>
+        <div class="sig-detail">
+          CNPJ: 43.317.136/0001-32<br>
+          <strong>CONTRATADA</strong>
+        </div>
+      </div>
+      <div class="sig-block">
+        <div style="height:60px;"></div>
+        <div class="sig-line"></div>
+        <div class="sig-name">Facil Car Multimarcas LTDA</div>
+        <div class="sig-detail">
+          CNPJ: 58.502.256/0001-87<br>
+          Representada por: Eraldo Lopes Ramos<br>
+          <strong>CONTRATANTE</strong>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       RODAPÉ
+  ═══════════════════════════════════════════════════════════ -->
+  <footer class="contract-footer">
+    Contrato de Licença de Uso de Software e Prestação de Serviços — Ref. FCR-2026-001<br>
+    Mateus Manoel Ferreira (CNPJ 43.317.136/0001-32) &nbsp;×&nbsp; Facil Car Multimarcas LTDA (CNPJ 58.502.256/0001-87)<br>
+    Regido pela Lei n.º 9.609/1998, Lei n.º 10.406/2002 e Lei n.º 13.709/2018
+  </footer>
+
+</div>
+</body>
+</html>

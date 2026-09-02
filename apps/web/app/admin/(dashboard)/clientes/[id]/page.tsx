@@ -3,8 +3,12 @@ import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { guardAdminSection } from "@/features/auth/server/rbac";
+import { CUSTOMER_WRITE_ROLES } from "@/features/auth/rbac-config";
+import type { UserRole } from "@prisma/client";
 import { getCustomerById } from "@/features/admin/server/customers";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { CustomerNotesForm } from "../CustomerNotesForm";
+import { CustomerDocumentsPanel } from "../CustomerDocumentsPanel";
 
 function formatPhone(phone: string): string {
   if (phone.length === 11) {
@@ -21,10 +25,18 @@ export default async function AdminClienteDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await guardAdminSection("clientes");
+  const user = await guardAdminSection("clientes");
   const { id } = await params;
   const customer = await getCustomerById(id);
   if (!customer) notFound();
+  const canWrite = CUSTOMER_WRITE_ROLES.includes(user.role as UserRole);
+  const sdrDocs = customer.leads.flatMap((lead) =>
+    lead.sdrDocuments.map((doc) => ({
+      ...doc,
+      leadId: lead.id,
+      createdAt: doc.createdAt.toISOString(),
+    })),
+  );
 
   return (
     <div className="admin-page admin-section">
@@ -37,7 +49,7 @@ export default async function AdminClienteDetailPage({
         </Link>
         <h1 className="mt-3 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{customer.name}</h1>
         <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          Cliente consolidado — somente leitura
+          Pessoa consolidada por telefone — documentos e histórico de negócios
         </p>
       </div>
 
@@ -109,6 +121,33 @@ export default async function AdminClienteDetailPage({
               ))}
             </ul>
           )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="admin-card">
+          <h2 className="text-base font-semibold text-foreground">Descrição</h2>
+          <div className="mt-3">
+            <CustomerNotesForm
+              customerId={customer.id}
+              currentNotes={customer.notes}
+              canWrite={canWrite}
+            />
+          </div>
+        </div>
+        <div className="admin-card">
+          <h2 className="text-base font-semibold text-foreground">Documentos</h2>
+          <div className="mt-3">
+            <CustomerDocumentsPanel
+              customerId={customer.id}
+              canWrite={canWrite}
+              manualDocs={customer.documents.map((doc) => ({
+                ...doc,
+                createdAt: doc.createdAt.toISOString(),
+              }))}
+              sdrDocs={sdrDocs}
+            />
+          </div>
         </div>
       </div>
     </div>

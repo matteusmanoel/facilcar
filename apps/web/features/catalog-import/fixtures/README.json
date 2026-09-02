@@ -1,0 +1,9 @@
+{
+  "description": "Sanitized fixtures from Fase 0 (cases A–D). Replace with real Evolution payloads after inspect.",
+  "cases": {
+    "A": "single complete listing",
+    "B": "continuation messages",
+    "C": "two vehicles",
+    "D": "orphan media / allowlist miss"
+  }
+}

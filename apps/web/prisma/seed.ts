@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { hashPassword } from "../features/auth/server/passwords";
 import { getPgPoolSslExtras, normalizeDatabaseUrl } from "../lib/database-url";
+import { SEED_BLOG_POSTS } from "./blog-seed-posts";
 
 const rawUrl =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/facilcar";
@@ -680,51 +681,7 @@ Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assu
     });
   }
 
-  const posts = [
-    {
-      slug: "como-escolher-seu-proximo-seminovo",
-      title: "Como escolher seu próximo seminovo",
-      excerpt: "Pontos práticos para avaliar um seminovo.",
-      body: "Verifique histórico, laudo cautelar, estado dos pneus e revisões. Um test drive é essencial.\n\nNa FácilCar você pode agendar visita e tirar dúvidas com a equipe antes de decidir.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog1/800/450",
-    },
-    {
-      slug: "financiar-veiculo-sem-entrada",
-      title: "Financiar veículo: é possível sem entrada?",
-      excerpt: "Entenda as opções do mercado.",
-      body: "Algumas instituições permitem financiamento com entrada zero, mas as parcelas tendem a ser maiores. Compare CET e prazo total.\n\nNossa equipe simula em várias financeiras para achar o cenário que melhor encaixa no seu orçamento.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog2/800/450",
-    },
-    {
-      slug: "vantagens-do-seminovo",
-      title: "Vantagens de comprar um seminovo",
-      excerpt: "Menos depreciação e mais equipamentos.",
-      body: "O seminovo oferece melhor custo-benefício que o zero km na maioria dos casos, com desvalorização já absorvida pelo primeiro dono.\n\nVocê leva mais opcionais pelo mesmo investimento.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog3/800/450",
-    },
-    {
-      slug: "revisao-pre-compra",
-      title: "Checklist antes de fechar negócio",
-      excerpt: "O que conferir no dia da compra.",
-      body: "Documentação, multas, gravames, chave reserva e manual do proprietário devem estar em ordem.\n\nSe tiver dúvida, peça apoio profissional ou laudo cautelar.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog4/800/450",
-    },
-    {
-      slug: "documentacao-para-comprar-carro",
-      title: "Documentação para comprar carro usado",
-      excerpt: "Lista do que você vai precisar.",
-      body: "RG, CPF, comprovante de residência e comprovação de renda são os básicos para financiamento.\n\nComprador PJ ou estrangeiro pode ter requisitos extras — consulte sempre a financeira.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog5/800/450",
-    },
-    {
-      slug: "tendencias-mercado-automoveis-2025",
-      title: "Tendências do mercado automotivo",
-      excerpt: "SUVs, híbridos e seminovos premium.",
-      body: "O mercado brasileiro segue aquecido para SUVs e veículos híbridos. Seminovos premium também têm boa liquidez.\n\nAcompanhe nosso estoque — sempre atualizado com o que há de melhor na região.",
-      coverImageUrl: "https://picsum.photos/seed/facilcar-blog6/800/450",
-    },
-  ];
-  for (const post of posts) {
+  for (const post of SEED_BLOG_POSTS) {
     await prisma.blogPost.upsert({
       where: { slug: post.slug },
       create: {
@@ -733,6 +690,8 @@ Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assu
         excerpt: post.excerpt,
         body: post.body,
         coverImageUrl: post.coverImageUrl,
+        metaTitle: post.metaTitle,
+        metaDescription: post.metaDescription,
         status: "PUBLISHED",
         publishedAt: new Date(),
       },
@@ -741,6 +700,8 @@ Envie seu currículo para o e-mail contato@facilcarmultimarcas.com.br com o assu
         title: post.title,
         excerpt: post.excerpt,
         coverImageUrl: post.coverImageUrl,
+        metaTitle: post.metaTitle,
+        metaDescription: post.metaDescription,
       },
     });
   }

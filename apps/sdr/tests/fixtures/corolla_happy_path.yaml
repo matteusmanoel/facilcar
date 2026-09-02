@@ -1,0 +1,273 @@
+name: "Corolla happy path (first-contact greeting + financing roteiro + dissertative handoff)"
+description: >
+  Class-level golden for the exported Corolla thread: first commercial turn
+  greets and sends photos (cover last, bold title), deal_type recap, installment
+  after down payment, document ack then visit, handoff with site URL.
+  No brand/model heuristics — contracts are cadence, roteiro and presentation.
+
+turns:
+  - role: customer
+    text: "Gostaria de mais informações sobre o Corolla, está disponível?"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: desired_model
+          value: Corolla
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.93
+
+  - role: customer
+    text: "Compra"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: deal_type
+          value: purchase
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.95
+
+  - role: customer
+    text: "Financiar"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: payment_method
+          value: financing
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.95
+
+  - role: customer
+    text: "Posso dar 30 mil de entrada"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: down_payment
+          value: "30000"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "até 2000"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: desired_installment
+          value: "2000"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    content_type: DOCUMENT
+    text: "nome: MATEUS MANOEL FERREIRA\ntipo: CNH"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: name
+          value: MATEUS MANOEL FERREIRA
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "Adoraria! Onde fica?"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "Combinado então, obrigado"
+    understanding:
+      intent: purchase_financing
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+  tool_executed_inventory: true
+
+turn_assertions:
+  - turn: 1
+    intent: purchase
+    action: show_offers
+    greeting_in_response: true
+    facts_include:
+      desired_model: Corolla
+    inventory_outcome: SUCCESS_FOUND
+    has_outbound_media: true
+    caption_on_last: true
+    caption_title_bold: true
+    media_count: 6
+    last_media_url_contains: corolla-1
+    response_contains:
+      - Deixa eu te enviar umas fotos
+    follow_up_deal_type: true
+    no_olha_o_que_encontrei: true
+    response_must_not:
+      - orçamento
+      - olha o que encontrei
+
+  - turn: 2
+    intent: purchase
+    action: ask_info
+    ask_field: payment_method
+    no_greeting_in_response: true
+    response_contains:
+      - Entendi seu interesse na compra
+    response_must_not:
+      - Que ótimo saber
+      - bacana
+      - condições tendem
+
+  - turn: 3
+    intent: purchase_financing
+    action: ask_info
+    ask_field: down_payment
+    response_must_not:
+      - consórcio
+      - uso pessoal
+      - meses
+
+  - turn: 4
+    intent: purchase_financing
+    action: ask_info
+    ask_field: desired_installment
+    response_contains:
+      - parcela
+    response_must_not:
+      - 30 mil
+      - quantos meses
+      - prazo mais curto
+
+  - turn: 5
+    intent: purchase_financing
+    action: ask_info
+    ask_field: documents
+    has_outbound_media: false
+    response_must_not:
+      - quantos meses
+      - prazo mais curto
+
+  - turn: 6
+    intent: purchase_financing
+    action: register_visit_interest
+    response_contains:
+      - Mateus
+      - CNH salva
+      - comprovante de renda
+    response_must_not:
+      - encaminhar
+      - quantos meses
+      - manhã ou tarde
+      - MATEUS MANOEL
+
+  - turn: 7
+    intent: purchase_financing
+    action: send_location
+    response_contains:
+      - Esperamos você
+    response_must_not:
+      - sem compromisso
+      - encaminhar
+
+  - turn: 8
+    intent: purchase_financing
+    action: handoff_vendor
+    handoff_site: true
+    response_contains:
+      - agradeço
+      - especialistas
+      - facilcarmultimarcas.com.br
+    response_must_not:
+      - MATEUS MANOEL
+      - Intent:

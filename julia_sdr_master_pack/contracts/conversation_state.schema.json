@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JuliaConversationState",
+  "type": "object",
+  "required": [
+    "thread_id",
+    "customer",
+    "business",
+    "lifecycle"
+  ],
+  "properties": {
+    "thread_id": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string",
+      "enum": [
+        "pt-BR",
+        "es",
+        "other",
+        "unknown"
+      ]
+    },
+    "customer": {
+      "type": "object",
+      "properties": {
+        "phone": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name_confirmed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "business": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "PURCHASE",
+            "TRADE_IN",
+            "SALE",
+            "CONSIGNMENT",
+            "REFINANCING",
+            "UNKNOWN"
+          ]
+        },
+        "actionability": {
+          "type": "string",
+          "enum": [
+            "INSUFFICIENT",
+            "ACTIONABLE",
+            "HANDOFF_NOW"
+          ]
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "BOT_ACTIVE",
+            "QUALIFYING",
+            "READY_FOR_HANDOFF",
+            "HANDOFF_SENT",
+            "HUMAN_ACTIVE",
+            "HUMAN_CLOSED"
+          ]
+        },
+        "handoff_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

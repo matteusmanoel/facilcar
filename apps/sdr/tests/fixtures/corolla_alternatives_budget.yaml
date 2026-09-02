@@ -1,0 +1,139 @@
+name: "Corolla alternatives + undefined budget (real history class)"
+description: >
+  Regression for the 2026-08-27 WhatsApp thread class of failures:
+  - resilient title fallback finds published Corolla when model is corrupt
+  - desired_model preserved as original preference
+  - accept ANY_VEHICLE widens search with a new inventory key
+  - budget_status=UNDEFINED does not re-ask budget
+  - Composer must not treat Corolla as rigid requirement after widening
+  - SUCCESS_EMPTY sets pending_interaction; acceptance consumes it
+
+  Deterministic understanding injects TurnFacts (same schema as live LLM).
+  Inventory is mocked in the scenario test; use --with-db for live stock.
+
+turns:
+  - role: customer
+    text: "/deletar"
+    command: reset_memory
+
+  - role: customer
+    text: "oi"
+    understanding:
+      intent: smalltalk
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.99
+
+  - role: customer
+    coalesce:
+      - text: "Tudo bem julia"
+      - text: "Gostaria de ver um corolla"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries:
+        - key: desired_model
+          value: corolla
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.93
+
+  - role: customer
+    text: "Sim, pode me mandar qualquer opcao de carro por favor"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: null
+      pending_resolution: ACCEPT
+      alternative_scope: ANY_VEHICLE
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+
+  - role: customer
+    text: "Sem orçamento definido"
+    understanding:
+      intent: purchase
+      language: pt-BR
+      budget_status: UNDEFINED
+      pending_resolution: null
+      alternative_scope: null
+      facts_entries: []
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.88
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+  tool_executed_inventory: true
+
+turn_assertions:
+  - turn: 1
+    intent: smalltalk
+    action: smalltalk
+
+  - turn: 2
+    intent: purchase
+    action: show_offers
+    facts_include:
+      desired_model: corolla
+    inventory_outcome: SUCCESS_FOUND
+    pending_interaction: NONE
+    no_greeting_in_response: true
+
+  - turn: 3
+    intent: purchase
+    action: show_offers
+    alternative_scope: ANY_VEHICLE
+    prior_facts_preserved:
+      desired_model: corolla
+    search_key_changed: true
+    pending_interaction: NONE
+    inventory_outcome: SUCCESS_FOUND
+    no_rigid_corolla_requirement: true
+    no_greeting_in_response: true
+
+  - turn: 4
+    intent: purchase
+    budget_status: UNDEFINED
+    prior_facts_preserved:
+      desired_model: corolla
+    alternative_scope: ANY_VEHICLE
+    no_budget_question: true
+    no_rigid_corolla_requirement: true
+    action: ask_info
+    no_greeting_in_response: true

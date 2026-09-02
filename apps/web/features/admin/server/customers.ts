@@ -24,6 +24,7 @@ const CUSTOMER_SELECT = {
   name: true,
   phone: true,
   email: true,
+  notes: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { leads: { where: { deletedAt: null } } } },
@@ -80,6 +81,28 @@ export async function getCustomerById(id: string) {
           type: true,
           status: true,
           createdAt: true,
+          sdrDocuments: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              documentType: true,
+              extractionStatus: true,
+              createdAt: true,
+              mimeType: true,
+              storageKey: true,
+            },
+          },
+        },
+      },
+      documents: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          documentType: true,
+          mimeType: true,
+          byteSize: true,
+          createdAt: true,
         },
       },
     },
@@ -134,6 +157,7 @@ export async function createCustomerAction(input: unknown) {
     select: { id: true },
   });
 
+  revalidatePath("/admin/leads");
   revalidatePath("/admin/clientes");
   return { ok: true as const, id: customer.id };
 }
@@ -163,12 +187,14 @@ export async function updateCustomerAction(id: string, input: unknown) {
   }
 
   const email = parsed.data.email?.trim() || null;
+  const notes = parsed.data.notes?.trim() || null;
 
   await prisma.customer.update({
     where: { id },
-    data: { name: parsed.data.name.trim(), phone, email },
+    data: { name: parsed.data.name.trim(), phone, email, notes },
   });
 
+  revalidatePath("/admin/leads");
   revalidatePath("/admin/clientes");
   revalidatePath(`/admin/clientes/${id}`);
   return { ok: true as const };
@@ -192,6 +218,49 @@ export async function deleteCustomerAction(id: string) {
   }
 
   await prisma.customer.delete({ where: { id } });
+  revalidatePath("/admin/leads");
   revalidatePath("/admin/clientes");
   return { ok: true as const };
+}
+
+export async function updateCustomerNotesAction(id: string, notes: string) {
+  try {
+    await requireAdminRole(CUSTOMER_WRITE_ROLES);
+  } catch (e) {
+    return handleAuthError(e);
+  }
+
+  await prisma.customer.update({
+    where: { id },
+    data: { notes: notes.trim() || null },
+  });
+  revalidatePath(`/admin/clientes/${id}`);
+  revalidatePath("/admin/clientes");
+  return { ok: true as const };
+}
+
+export async function createCustomerDocumentRecord(input: {
+  customerId: string;
+  fileName: string;
+  storageKey: string;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  documentType?: string;
+  uploadedByUserId?: string | null;
+}) {
+  await requireAdminRole(CUSTOMER_WRITE_ROLES);
+  const doc = await prisma.customerDocument.create({
+    data: {
+      customerId: input.customerId,
+      fileName: input.fileName,
+      storageKey: input.storageKey,
+      mimeType: input.mimeType ?? null,
+      byteSize: input.byteSize ?? null,
+      documentType: input.documentType ?? "CONTRACT",
+      uploadedByUserId: input.uploadedByUserId ?? null,
+    },
+    select: { id: true },
+  });
+  revalidatePath(`/admin/clientes/${input.customerId}`);
+  return { ok: true as const, id: doc.id };
 }

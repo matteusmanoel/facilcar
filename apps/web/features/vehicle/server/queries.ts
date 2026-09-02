@@ -1,5 +1,11 @@
-import type { Prisma, VehicleStatus } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  PRINT_STOCK_LIMIT,
+  applyPrintListDefaults,
+  buildAdminVehicleWhere,
+  type AdminVehicleFilterInput,
+} from "@/features/vehicle/lib/admin-vehicle-filters";
 
 /** Lista de veículo com marca + imagens (cards / relacionados). Exportado para páginas evitarem `any` com `Promise.all`. */
 export type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
@@ -63,6 +69,7 @@ const ADMIN_VEHICLE_SELECT = {
   slug: true,
   title: true,
   status: true,
+  stockType: true,
   priceCash: true,
   updatedAt: true,
   brand: { select: { name: true } },
@@ -71,25 +78,46 @@ const ADMIN_VEHICLE_SELECT = {
 
 export type AdminVehicleRow = Prisma.VehicleGetPayload<{ select: typeof ADMIN_VEHICLE_SELECT }>;
 
-export async function listAdminVehicles(opts: {
-  page: number;
-  pageSize: number;
-  status?: VehicleStatus;
-  search?: string;
-}) {
-  const where: Prisma.VehicleWhereInput = {};
-  if (opts.status) where.status = opts.status;
+const PRINT_VEHICLE_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  type: true,
+  model: true,
+  version: true,
+  yearManufacture: true,
+  yearModel: true,
+  mileage: true,
+  fuelType: true,
+  transmission: true,
+  engineDisplacementLiters: true,
+  color: true,
+  doors: true,
+  plateFinal: true,
+  plate: true,
+  priceCash: true,
+  pricePromotional: true,
+  priceTradeIn: true,
+  stockType: true,
+  commercialHistory: true,
+  aceitaTroca: true,
+  aceitaSemEntrada: true,
+  featured: true,
+  parcelaBase: true,
+  entradaMinima: true,
+  rendaMinimaSugerida: true,
+  prioridade: true,
+  city: true,
+  state: true,
+  brand: { select: { name: true } },
+} as const;
 
-  const q = opts.search?.trim();
-  if (q) {
-    where.OR = [
-      { title: { contains: q, mode: "insensitive" } },
-      { model: { contains: q, mode: "insensitive" } },
-      { slug: { contains: q, mode: "insensitive" } },
-      { brand: { name: { contains: q, mode: "insensitive" } } },
-    ];
-  }
+export type PrintStockVehicle = Prisma.VehicleGetPayload<{ select: typeof PRINT_VEHICLE_SELECT }>;
 
+export async function listAdminVehicles(
+  opts: AdminVehicleFilterInput & { page: number; pageSize: number },
+) {
+  const where = buildAdminVehicleWhere(opts);
   const skip = (Math.max(1, opts.page) - 1) * opts.pageSize;
 
   const [totalCount, vehicles] = await Promise.all([
@@ -104,4 +132,55 @@ export async function listAdminVehicles(opts: {
   ]);
 
   return { vehicles, totalCount };
+}
+
+export async function listAdminVehiclesForPrint(opts: AdminVehicleFilterInput) {
+  const where = buildAdminVehicleWhere(applyPrintListDefaults(opts));
+
+  const [totalCount, vehicles] = await Promise.all([
+    prisma.vehicle.count({ where }),
+    prisma.vehicle.findMany({
+      where,
+      orderBy: [{ brand: { name: "asc" } }, { model: "asc" }, { yearModel: "asc" }],
+      take: PRINT_STOCK_LIMIT,
+      select: PRINT_VEHICLE_SELECT,
+    }),
+  ]);
+
+  return { vehicles, totalCount, limit: PRINT_STOCK_LIMIT };
+}
+
+export async function getAdminVehicleNumericBounds() {
+  const currentYear = new Date().getFullYear();
+  const [price, year] = await Promise.all([
+    prisma.vehicle.aggregate({
+      where: { priceCash: { not: null } },
+      _min: { priceCash: true },
+      _max: { priceCash: true },
+    }),
+    prisma.vehicle.aggregate({
+      where: { yearModel: { not: null } },
+      _min: { yearModel: true },
+      _max: { yearModel: true },
+    }),
+  ]);
+  const priceMin = price._min.priceCash != null ? Math.floor(Number(price._min.priceCash)) : 0;
+  const priceMax = price._max.priceCash != null ? Math.ceil(Number(price._max.priceCash)) : 300000;
+  const yearMin = year._min.yearModel ?? 1990;
+  const yearMax = year._max.yearModel ?? currentYear;
+  return {
+    price: { min: priceMin, max: Math.max(priceMin, priceMax) },
+    year: { min: yearMin, max: Math.max(yearMin, yearMax) },
+  };
+}
+
+export async function getVehicleForCustomerSheet(id: string) {
+  return prisma.vehicle.findUnique({
+    where: { id },
+    include: {
+      brand: true,
+      images: { orderBy: { sortOrder: "asc" as const } },
+      features: { orderBy: { sortOrder: "asc" as const } },
+    },
+  });
 }

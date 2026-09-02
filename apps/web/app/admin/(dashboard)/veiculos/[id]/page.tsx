@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ExternalLink } from "lucide-react";
+import { ChevronLeft, ExternalLink, Printer } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { guardAdminSection } from "@/features/auth/server/rbac";
 import { canWriteVehicles } from "@/features/auth/rbac-config";
-import { getBrandsForFilter } from "@/features/catalog/server/queries";
+import { getBrandsForVehicleForm, getPartnersForVehicleForm } from "@/features/catalog/server/queries";
 import { VehicleForm } from "../VehicleForm";
 import { ArchiveVehicleButton } from "../ArchiveVehicleButton";
 
@@ -16,15 +16,17 @@ export default async function AdminVeiculoEditPage({
   const user = await guardAdminSection("veiculos");
   const readOnly = !canWriteVehicles(user.role);
   const { id } = await params;
-  const [vehicle, brands] = await Promise.all([
+  const [vehicle, brands, partners] = await Promise.all([
     prisma.vehicle.findUnique({
       where: { id },
       include: {
         images: { orderBy: { sortOrder: "asc" } },
         features: { orderBy: { sortOrder: "asc" } },
+        owners: { select: { partnerId: true } },
       },
     }),
-    getBrandsForFilter(),
+    getBrandsForVehicleForm(),
+    getPartnersForVehicleForm(),
   ]);
 
   if (!vehicle) notFound();
@@ -34,9 +36,18 @@ export default async function AdminVeiculoEditPage({
     priceCash: vehicle.priceCash != null ? Number(vehicle.priceCash) : null,
     priceTradeIn: vehicle.priceTradeIn != null ? Number(vehicle.priceTradeIn) : null,
     pricePromotional: vehicle.pricePromotional != null ? Number(vehicle.pricePromotional) : null,
+    priceFipe: vehicle.priceFipe != null ? Number(vehicle.priceFipe) : null,
+    priceRetailWithWarranty:
+      vehicle.priceRetailWithWarranty != null ? Number(vehicle.priceRetailWithWarranty) : null,
+    priceRetailAsIs: vehicle.priceRetailAsIs != null ? Number(vehicle.priceRetailAsIs) : null,
+    priceOwnerAsking: vehicle.priceOwnerAsking != null ? Number(vehicle.priceOwnerAsking) : null,
     parcelaBase: vehicle.parcelaBase != null ? Number(vehicle.parcelaBase) : null,
     entradaMinima: vehicle.entradaMinima != null ? Number(vehicle.entradaMinima) : null,
     rendaMinimaSugerida: vehicle.rendaMinimaSugerida != null ? Number(vehicle.rendaMinimaSugerida) : null,
+    engineDisplacementLiters:
+      vehicle.engineDisplacementLiters != null
+        ? Number(vehicle.engineDisplacementLiters)
+        : null,
   };
 
   return (
@@ -45,15 +56,15 @@ export default async function AdminVeiculoEditPage({
         <div>
           <Link
             href="/admin/veiculos"
-            className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            className="inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Voltar para veículos
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+          <h1 className="mt-2 admin-page-title">
             {readOnly ? "Veículo:" : "Editar:"} {vehicle.title}
           </h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="admin-page-subtitle">
             Atualizado em{" "}
             {new Date(vehicle.updatedAt).toLocaleDateString("pt-BR", {
               day: "2-digit",
@@ -71,6 +82,16 @@ export default async function AdminVeiculoEditPage({
               variant="edit"
             />
           )}
+          {vehicle.status === "PUBLISHED" ? (
+            <Link
+              href={`/admin/veiculos/${vehicle.id}/ficha`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Imprimir ficha A4
+            </Link>
+          ) : null}
           <Link
             href={`/estoque/${vehicle.slug}`}
             target="_blank"
@@ -82,7 +103,13 @@ export default async function AdminVeiculoEditPage({
         </div>
       </div>
 
-      <VehicleForm brands={brands} vehicle={serializedVehicle} readOnly={readOnly} />
+      <VehicleForm
+        brands={brands}
+        partners={partners}
+        vehicle={serializedVehicle}
+        readOnly={readOnly}
+        canManageBrands={!readOnly}
+      />
     </div>
   );
 }

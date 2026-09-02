@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { motion, useReducedMotion } from "motion/react";
 
 const BarChart = dynamic(() => import("./AdminChart").then((m) => m.BarChart), {
   ssr: false,
@@ -38,8 +39,17 @@ export function DashboardCharts({
   statusData,
   sourceData,
 }: DashboardChartsProps) {
+  const reduceMotion = useReducedMotion();
+  const fade = reduceMotion
+    ? undefined
+    : {
+        initial: { opacity: 0, y: 16 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
+      };
+
   return (
-    <>
+    <motion.div className="space-y-4" {...fade}>
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="admin-card lg:col-span-3">
           <h2 className="mb-4 text-sm font-semibold text-foreground">{periodTitle}</h2>
@@ -73,6 +83,6 @@ export function DashboardCharts({
           </div>
         )}
       </div>
-    </>
+    </motion.div>
   );
 }

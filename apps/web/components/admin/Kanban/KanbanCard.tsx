@@ -2,10 +2,9 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { GripVertical, ExternalLink } from "lucide-react";
+import type { MouseEvent } from "react";
 
 const WA_ICON = (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
@@ -21,27 +20,31 @@ export type KanbanLead = {
   status: string;
   createdAt: Date;
   vehicle: { title: string } | null;
+  temperature?: string | null;
+  assignedToUser?: { name: string } | null;
 };
 
 interface KanbanCardProps {
   lead: KanbanLead;
   isDragOverlay?: boolean;
-  selectable?: boolean;
+  showCheckbox?: boolean;
   selected?: boolean;
-  onToggleSelect?: (leadId: string) => void;
+  onToggleSelect?: (leadId: string, event: { shiftKey: boolean }) => void;
+  onOpen?: (lead: KanbanLead) => void;
 }
 
 export function KanbanCard({
   lead,
   isDragOverlay,
-  selectable,
+  showCheckbox,
   selected,
   onToggleSelect,
+  onOpen,
 }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
-    disabled: selectable,
+    disabled: isDragOverlay,
   });
 
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
@@ -55,56 +58,70 @@ export function KanbanCard({
     <div
       ref={setNodeRef}
       style={style}
+      {...listeners}
+      {...attributes}
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        if (isDragging) return;
+        if (showCheckbox) {
+          onToggleSelect?.(lead.id, e);
+          return;
+        }
+        onOpen?.(lead);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (showCheckbox) {
+            onToggleSelect?.(lead.id, e);
+            return;
+          }
+          onOpen?.(lead);
+        }
+      }}
       className={cn(
-        "group rounded-lg border border-facil-border bg-facil-card p-3 shadow-sm transition-shadow",
+        "group cursor-grab rounded-lg border border-facil-border bg-facil-card p-3 shadow-sm transition-shadow active:cursor-grabbing",
         isDragging && "opacity-40",
-        isDragOverlay && "rotate-1 opacity-100 shadow-xl",
+        isDragOverlay && "rotate-1 cursor-grabbing opacity-100 shadow-xl",
         selected && "ring-2 ring-facil-orange ring-offset-2 ring-offset-background",
       )}
     >
       <div className="flex items-start gap-2">
-        {selectable ? (
+        {showCheckbox ? (
           <input
             type="checkbox"
             checked={selected}
-            onChange={() => onToggleSelect?.(lead.id)}
+            onChange={() => undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect?.(lead.id, e);
+            }}
             className="mt-1 h-4 w-4 rounded border-facil-border accent-facil-orange"
-            onClick={(e) => e.stopPropagation()}
+            aria-label={`Selecionar ${lead.name}`}
           />
         ) : null}
-        <button
-          {...listeners}
-          {...attributes}
-          className="mt-0.5 cursor-grab touch-none text-facil-muted hover:text-foreground active:cursor-grabbing"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{lead.name}</p>
           <p className="mt-0.5 text-xs text-facil-muted">{lead.phone}</p>
-          {lead.vehicle && (
+          {lead.vehicle ? (
             <p className="mt-1 truncate text-xs text-facil-muted">{lead.vehicle.title}</p>
-          )}
+          ) : null}
           <div className="mt-2 flex items-center justify-between">
             <StatusBadge status={lead.type} type="type" />
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-              {waUrl && (
-                <a
-                  href={waUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600"
-                >
-                  {WA_ICON}
-                </a>
-              )}
-              <Link
-                href={`/admin/leads/${lead.id}`}
-                className="flex h-5 w-5 items-center justify-center rounded-full bg-facil-surface text-foreground hover:bg-facil-border"
+            {waUrl ? (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white opacity-0 transition-opacity hover:bg-green-600 group-hover:opacity-100"
+                aria-label="WhatsApp"
               >
-                <ExternalLink className="h-2.5 w-2.5" />
-              </Link>
-            </div>
+                {WA_ICON}
+              </a>
+            ) : null}
           </div>
         </div>
       </div>

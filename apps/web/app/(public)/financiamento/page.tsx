@@ -3,9 +3,9 @@ import { FinancingSimulationForm } from "@/features/lead/ui/FinancingSimulationF
 import { getSiteSettings } from "@/features/settings/server/queries";
 
 export const metadata = {
-  title: "Simule seu Financiamento 100% Online",
+  title: "Simule seu financiamento",
   description:
-    "Simule o financiamento do seu próximo carro em 2 minutos. Análise de crédito pelo WhatsApp com mais de 10 financeiras parceiras. Gratuito, sem compromisso.",
+    "Simule o financiamento do seu próximo seminovo na FácilCar em Cascavel/PR. Envie seus dados e continue o atendimento pelo WhatsApp, sem compromisso.",
 };
 
 export default async function FinanciamentoPage() {

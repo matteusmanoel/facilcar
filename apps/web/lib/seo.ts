@@ -1,6 +1,8 @@
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
 
+export const SITE_URL = siteUrl;
+
 type SiteSettingsForSeo = {
   siteName: string;
   defaultWhatsappNumber?: string;
@@ -25,6 +27,7 @@ type VehicleForSeo = {
   mileage?: number | null;
   color?: string | null;
   fuelType?: string | null;
+  engineDisplacementLiters?: number | { toString(): string } | null;
   brand?: { name: string } | null;
   images?: Array<{ url: string; alt?: string | null }>;
 };
@@ -122,7 +125,26 @@ export function buildCarJsonLd(vehicle: VehicleForSeo) {
     }),
     ...(vehicle.color && { color: vehicle.color }),
     ...(vehicle.fuelType && { fuelType: vehicle.fuelType }),
+    ...engineSpec(vehicle.engineDisplacementLiters),
     ...(offers && { offers }),
+  };
+}
+
+function engineSpec(
+  raw: VehicleForSeo["engineDisplacementLiters"],
+): { vehicleEngine?: object } {
+  if (raw == null || raw === "") return {};
+  const value = typeof raw === "number" ? raw : Number(raw.toString());
+  if (!Number.isFinite(value)) return {};
+  return {
+    vehicleEngine: {
+      "@type": "EngineSpecification",
+      engineDisplacement: {
+        "@type": "QuantitativeValue",
+        value,
+        unitCode: "LTR",
+      },
+    },
   };
 }
 

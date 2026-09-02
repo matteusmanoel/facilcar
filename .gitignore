@@ -32,10 +32,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Env — commit .env.example only
+# Env — commit example templates only
 .env
 .env.*
-.env.example
+!.env.example
+!.env.*.example
+!.env.evolution.example
 
 # Vercel
 .vercel
@@ -51,8 +53,37 @@ lib/generated/prisma/
 
 # IDE
 .idea/
+.cursor/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json.example
 *.swp
 *.swo
+
+# Local disaster-recovery dumps
+.backups/
+
+# Local personal/test documents — never commit
+/CNH-e.pdf
+docs/*.docx
+docs/*.json
+/estoque.json
+apps/sdr/docs/chats/
+apps/web/public/facilcar-julia-sdr-handoff-*.md
+# Source raster kept locally; the site serves the webp
+apps/web/public/frente-loja.png
+
+# Accidental empty root lockfile (workspace uses npm in apps/web)
+/pnpm-lock.yaml
+
+# WhatsApp session exports (passkey bridge) — never commit
+wa-session*.json
+*-wa-creds.json
+
+# Local Cursor/agent skill copies (third-party Redis/Iris) — not product runtime
+.agents/
+skills-lock.json
+
+# Supabase CLI link cache (may point at the paused legacy project)
+supabase/.temp/
+apps/web/supabase/.temp/

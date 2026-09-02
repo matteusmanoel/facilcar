@@ -1,0 +1,88 @@
+name: "Unseen semantic scenario — scooter elétrico"
+description: >
+  Validates that open-ended commercial language not present in any runtime
+  keyword list is correctly processed through the structured semantic pipeline.
+  "scooter", "elétrico", and "uso urbano" are not in _INTENT_PATTERNS or _MODEL.
+
+  Canonical schema decision (authoritative):
+  - Free-text vehicle interest → desired_vehicle_text
+  - Monetary → budget (numeric)
+  - Intended use → use_type
+  - Do not force category/propulsion decomposition when confidence is insufficient
+
+  Replay modes:
+    deterministic: inject fixture-defined TurnFacts (same schema as real LLM output)
+    live: use OPENAI_API_KEY (LIVE_LLM=1)
+
+turns:
+  - role: customer
+    text: "Olá"
+    content_type: TEXT
+
+  - role: customer
+    text: "Vocês têm algum scooter elétrico?"
+    content_type: TEXT
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: desired_vehicle_text
+          value: scooter elétrico
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.92
+
+  - role: customer
+    text: "É pra uso urbano mesmo, até uns 15 mil"
+    content_type: TEXT
+    understanding:
+      intent: purchase
+      language: pt-BR
+      facts_entries:
+        - key: use_type
+          value: urbano
+        - key: budget
+          value: "15 mil"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.9
+        - key: budget
+          value: 0.85
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+
+turn_assertions:
+  - turn: 2
+    intent: purchase
+    action_not: smalltalk
+    reason_not: greeting_or_chitchat
+    facts_include:
+      desired_vehicle_text: "scooter elétrico"
+    no_greeting_in_response: true
+    no_generic_restart: true
+
+  - turn: 3
+    intent: purchase
+    facts_include:
+      budget: 15000
+    prior_facts_preserved:
+      desired_vehicle_text: "scooter elétrico"
+    action_not: smalltalk
+    # Budget + preference alone must NOT invent high_purchase handoff.
+    reason_not: high_purchase_intent
+    no_greeting_in_response: true
+    no_generic_restart: true

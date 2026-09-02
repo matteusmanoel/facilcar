@@ -18,6 +18,18 @@
     "db:seed": "npm run db:seed --prefix apps/web",
     "db:setup": "npm run db:push && npm run db:seed",
     "db:reset": "docker-compose down -v && docker-compose up -d db && node scripts/wait-for-postgres.mjs && npm run db:setup",
-    "setup": "npm run db:up && node scripts/wait-for-postgres.mjs && npm run db:setup"
+    "setup": "npm run db:up && node scripts/wait-for-postgres.mjs && npm run db:setup",
+    "evolution:up": "docker-compose -f docker-compose.evolution.yml --env-file .env.evolution up -d",
+    "evolution:down": "docker-compose -f docker-compose.evolution.yml --env-file .env.evolution down",
+    "evolution:logs": "docker-compose -f docker-compose.evolution.yml --env-file .env.evolution logs -f",
+    "evolution:import-creds": "node scripts/evolution-import-wa-creds.mjs",
+    "catalog-import:worker": "npm run catalog-import:worker --prefix apps/web",
+    "catalog-import:inspect": "npm run catalog-import:inspect --prefix apps/web",
+    "catalog-import:retry": "npm run catalog-import:retry --prefix apps/web",
+    "test:unit": "npm run test:unit --prefix apps/web",
+    "sdr:up": "docker-compose -f docker-compose.sdr.yml --profile core up -d --build",
+    "sdr:down": "docker-compose -f docker-compose.sdr.yml --profile core down",
+    "sdr:logs": "docker-compose -f docker-compose.sdr.yml --profile core logs -f",
+    "sdr:test": "cd apps/sdr && python3 -m pytest -q"
   }
 }

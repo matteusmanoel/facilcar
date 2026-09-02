@@ -1,0 +1,110 @@
+name: "Unseen semantic scenario — refinanciamento de quitação"
+description: >
+  Second unseen commercial scenario in a different domain (refinancing/equity release).
+  Terms like "levantar dinheiro", "quitei", "dar o carro de entrada" are not in any
+  runtime keyword list. Validated only through structured TurnFacts injection.
+
+  The runtime must NOT contain these terms as heuristic keywords.
+  Semantic understanding is validated through the fixture-defined TurnFacts.
+
+turns:
+  - role: customer
+    text: "Boa tarde"
+    content_type: TEXT
+    # Greeting — no understanding block needed
+
+  - role: customer
+    text: "Eu queria levantar um dinheiro usando meu carro como garantia"
+    content_type: TEXT
+    understanding:
+      intent: refinancing
+      language: pt-BR
+      facts_entries:
+        - key: intent_detail
+          value: equity_release
+        - key: has_vehicle_collateral
+          value: "true"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.87
+
+  - role: customer
+    text: "Meu carro já está quitado, é um Onix 2021"
+    content_type: TEXT
+    understanding:
+      intent: refinancing
+      language: pt-BR
+      facts_entries:
+        - key: vehicle_model
+          value: Onix
+        - key: vehicle_year
+          value: "2021"
+        - key: vehicle_status
+          value: quitado
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.92
+        - key: vehicle_year
+          value: 0.95
+
+  - role: customer
+    text: "Precisaria de uns 30 mil. Dá pra fazer isso?"
+    content_type: TEXT
+    understanding:
+      intent: refinancing
+      language: pt-BR
+      facts_entries:
+        - key: amount_needed
+          value: "30000"
+        - key: valor_levantar
+          value: "30000"
+      signals:
+        explicit_handoff: null
+        explicit_offer: null
+        visit_intent: null
+        high_purchase_intent: null
+        sensitive_data_refusal: null
+      confidence_entries:
+        - key: intent
+          value: 0.93
+        - key: amount_needed
+          value: 0.9
+
+assertions:
+  no_reintro_after_first_turn: true
+  state_persists_across_turns: true
+  commercial_intent_recognized: true
+
+turn_assertions:
+  - turn: 2
+    intent: refinancing
+    action_not: smalltalk
+    reason_not: greeting_or_chitchat
+    no_greeting_in_response: true
+    no_generic_restart: true
+
+  - turn: 3
+    intent: refinancing
+    facts_include:
+      vehicle_model: Onix
+    no_generic_restart: true
+
+  - turn: 4
+    intent: refinancing
+    facts_include:
+      amount_needed: "30000"
+    prior_facts_preserved:
+      vehicle_model: Onix
+    no_generic_restart: true

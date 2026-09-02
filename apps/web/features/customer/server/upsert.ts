@@ -20,6 +20,11 @@ function namesMatch(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+export function isPlaceholderDisplayName(name: string | null | undefined): boolean {
+  const value = (name ?? "").trim();
+  return !value || value.toLowerCase().startsWith("whatsapp ");
+}
+
 /** Resolves customer by phone for lead creation, prompting on name conflicts. */
 export async function resolveCustomerForLead(
   name: string,
@@ -110,6 +115,35 @@ export async function upsertCustomerByPhone(
       name: name.trim(),
       ...(email?.trim() ? { email: email.trim() } : {}),
     },
+    select: { id: true },
+  });
+}
+
+/** Upgrade a WhatsApp placeholder name from Evolution `pushName` or a later document. */
+export async function upgradeCustomerDisplayNameByPhone(name: string, phone: string) {
+  const normalized = normalizePhone(phone);
+  const cleaned = name.trim();
+  if (!normalized || isPlaceholderDisplayName(cleaned)) return null;
+
+  const existing = await prisma.customer.findUnique({
+    where: { phone: normalized },
+    select: { id: true, name: true },
+  });
+
+  if (!existing) {
+    return prisma.customer.create({
+      data: { name: cleaned, phone: normalized },
+      select: { id: true },
+    });
+  }
+
+  if (!isPlaceholderDisplayName(existing.name)) {
+    return { id: existing.id };
+  }
+
+  return prisma.customer.update({
+    where: { id: existing.id },
+    data: { name: cleaned },
     select: { id: true },
   });
 }

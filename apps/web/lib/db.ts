@@ -3,7 +3,11 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { getPgPoolSslExtras, normalizeDatabaseUrl } from "@/lib/database-url";
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+
+function clientHasRequiredDelegates(client: PrismaClient): boolean {
+  return typeof (client as { partner?: { findMany?: unknown } }).partner?.findMany === "function";
+}
 
 function createPrismaClient() {
   const raw = process.env.DATABASE_URL;
@@ -35,8 +39,19 @@ function createPrismaClient() {
   });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getPrismaClient(): PrismaClient {
+  const cached = globalForPrisma.prisma;
+  if (cached && clientHasRequiredDelegates(cached)) {
+    return cached;
+  }
+  if (cached) {
+    void cached.$disconnect().catch(() => undefined);
+  }
+  const created = createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = created;
+  }
+  return created;
 }
+
+export const prisma = getPrismaClient();

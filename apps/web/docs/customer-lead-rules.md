@@ -19,6 +19,13 @@ Quando um lead manual é criado com telefone já cadastrado **e nome diferente**
 
 - Se o telefone já existir ao criar cliente, **abre o modal de edição** do registro existente (sem toast de erro genérico).
 
-## Leads públicos (site)
+## Edição da ficha do lead
+
+No detalhe do lead, contato e fichas já persistidas (`FinancingRequest` / `SellRequest`) entram em modo edição com Cancelar/Salvar.
+
+- Telefone continua sendo a chave do cliente: mudar o número religa o lead via a mesma resolução de conflito de nome. Números já gravados com DDI 55 não são truncados na máscara de edição.
+- O telefone do cliente antigo **não** é reescrito; o lead passa a apontar para o cliente do novo número.
+- CPF mascarado só é alterado depois de **Alterar CPF** (não grava a máscara `***`).
+
 
 - Formulários do site continuam fazendo upsert silencioso (atualizam nome/e-mail do cliente), pois não há operador para confirmar conflito.

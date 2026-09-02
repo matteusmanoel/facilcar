@@ -1,0 +1,10 @@
+flowchart LR
+    C[Cliente] --> WA[WhatsApp Oficial]
+    WA --> EV[Evolution API]
+    EV --> SDR[Júlia SDR]
+    SDR --> SUP[(Supabase)]
+    SDR --> OAI[OpenAI]
+    SDR --> ST[Supabase Storage]
+    SDR --> WEB[App Web / CRM]
+    V[Vendedor] --> WA
+    V --> WEB

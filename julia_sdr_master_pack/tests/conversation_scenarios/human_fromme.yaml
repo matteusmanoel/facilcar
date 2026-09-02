@@ -1,0 +1,8 @@
+name: Mensagem humana bloqueia IA
+events:
+  - type: provider_message
+    fromMe: true
+    text: "Olá, sou o vendedor e vou seguir com você."
+expect:
+  thread_status: HUMAN_ACTIVE
+  ai_reply: false

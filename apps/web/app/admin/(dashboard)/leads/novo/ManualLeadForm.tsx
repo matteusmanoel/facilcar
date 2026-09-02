@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
+import { formatPhoneBR } from "@/lib/input-masks";
 import { useState } from "react";
 
 type VehicleOption = { id: string; title: string };
@@ -137,7 +138,12 @@ export function ManualLeadForm({
           <div className="space-y-1">
             <AdminFieldLabel required>Telefone</AdminFieldLabel>
             <Input
-              {...register("phone")}
+              value={formatPhoneBR(watch("phone") ?? "")}
+              onChange={(e) =>
+                setValue("phone", formatPhoneBR(e.target.value), { shouldValidate: true, shouldDirty: true })
+              }
+              inputMode="numeric"
+              autoComplete="tel"
               placeholder="(11) 99999-9999"
               className={cn(errors.phone && "border-red-400")}
             />
