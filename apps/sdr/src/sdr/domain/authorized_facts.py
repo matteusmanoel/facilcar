@@ -7,8 +7,14 @@ from typing import Any
 
 from sdr.domain.debts import compute_debt_status, persistable_checks
 from sdr.domain.document_status import deferred_components
+from sdr.domain.qualifications import field_is_applicable
 from sdr.domain.types import ConversationCanonicalState
-from sdr.domain.vehicle_roles import format_vehicle_label, get_customer_vehicle, get_desired_vehicle
+from sdr.domain.vehicle_roles import (
+    canonicalize_vehicle_roles,
+    format_vehicle_label,
+    get_customer_vehicle,
+    get_desired_vehicle,
+)
 
 
 def _is_placeholder_name(name: str | None) -> bool:
@@ -43,6 +49,7 @@ class AuthorizedFacts:
     leave_at_store: Any = None
     profile_complete: bool = False
     handoff_ready: bool = False
+    documents_applicable: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -73,11 +80,12 @@ class AuthorizedFacts:
             "leave_at_store": self.leave_at_store,
             "profile_complete": self.profile_complete,
             "handoff_ready": self.handoff_ready,
+            "documents_applicable": self.documents_applicable,
         }
 
 
 def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts:
-    facts = state.facts or {}
+    facts = canonicalize_vehicle_roles(dict(state.facts or {}), state.intent)
     desired = {
         k: v
         for k, v in get_desired_vehicle(facts).items()
@@ -101,11 +109,7 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
     intent = state.intent.value
     doc_status = facts.get("document_status") if isinstance(facts.get("document_status"), dict) else {}
     deferred = list(state.deferred_fields or []) or deferred_components(doc_status)
-    docs_ok = intent == "purchase_financing" or (
-        intent == "trade"
-        and facts.get("payment_applies_to") == "difference"
-        and facts.get("payment_method") == "financing"
-    )
+    docs_ok = field_is_applicable(state, "documents")
     if intent == "purchase":
         customer = {}
         status = None
@@ -115,6 +119,9 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
         doc_status = {}
     if intent in {"sale", "consignment", "refinancing"}:
         desired = {}
+    applicable_missing = [
+        f for f in (state.missing_fields or []) if field_is_applicable(state, f)
+    ]
     return AuthorizedFacts(
         name=name,
         intent=intent,
@@ -134,13 +141,14 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
         document_status=dict(doc_status) if docs_ok else {},
         visit_preferred_time=visit,
         visit_pending_vendor_confirm=bool(visit),
-        missing_fields=list(state.missing_fields or []),
-        deferred_fields=list(state.deferred_fields or []),
+        missing_fields=applicable_missing,
+        deferred_fields=list(state.deferred_fields or []) if docs_ok else [],
         handoff_reason=state.lifecycle.handoff_reason,
         amount_needed=facts.get("amount_needed") if intent == "refinancing" else None,
         leave_at_store=facts.get("leave_at_store") if intent == "consignment" else None,
         profile_complete=bool(state.profile_complete),
         handoff_ready=bool(state.handoff_ready),
+        documents_applicable=docs_ok,
     )
 
 

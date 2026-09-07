@@ -600,9 +600,10 @@ async def process_turn(
             }
 
     facts = await understand(inbound.effective_text, state)
-    from sdr.domain.pending_question import overlay_pending_question
+    from sdr.domain.pending_question import overlay_consignment_acceptance, overlay_pending_question
 
     facts = overlay_pending_question(facts, state, inbound.effective_text)
+    facts = overlay_consignment_acceptance(facts, state, inbound.effective_text)
     from sdr.domain.location_request import has_store_location_request_evidence
 
     if has_store_location_request_evidence(inbound.effective_text):

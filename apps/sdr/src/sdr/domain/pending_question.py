@@ -237,7 +237,17 @@ def overlay_pending_question(
     # Financing language records payment mode only when this utterance says so
     # and the field is not already canonical. Re-emitting known facts every turn
     # made the Composer ack "financiado" on unrelated inbound (documents, etc.).
-    if _FINANCING.search(text) and not state.facts.get("payment_method"):
+    # Financing language records deal payment mode only when this utterance
+    # is not answering the used-car financing roteiro (quitado / parcela atual).
+    if (
+        _FINANCING.search(text)
+        and not state.facts.get("payment_method")
+        and pending not in {
+            "trade_has_financing",
+            "trade_installment_value",
+            "trade_installments_remaining",
+        }
+    ):
         extra.setdefault("payment_method", "financing")
         if facts.intent in (BusinessIntent.UNKNOWN, BusinessIntent.PURCHASE, BusinessIntent.SMALLTALK):
             facts.intent = BusinessIntent.PURCHASE_FINANCING
@@ -326,4 +336,24 @@ def overlay_pending_question(
         facts.facts,
         facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent,
     )
+    return facts
+
+
+def overlay_consignment_acceptance(
+    facts: TurnFacts,
+    state: ConversationCanonicalState,
+    inbound_text: str,
+) -> TurnFacts:
+    """Opening 'deixar em consignação' is commercial acceptance of leave_at_store."""
+    intent = facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent
+    if intent != BusinessIntent.CONSIGNMENT:
+        return facts
+    if facts.facts.get("leave_at_store") is not None:
+        return facts
+    if state.facts.get("leave_at_store") is not None:
+        return facts
+    text = _norm(inbound_text)
+    if re.search(r"deixar.{0,80}(na\s+loja|em\s+consign)", text, re.I):
+        extra, _rejected = normalize_facts({"leave_at_store": True}, source_text=inbound_text)
+        facts.facts = {**facts.facts, **extra}
     return facts

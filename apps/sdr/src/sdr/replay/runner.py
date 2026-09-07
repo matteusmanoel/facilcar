@@ -69,6 +69,9 @@ class ScenarioRunResult:
     summary_validation: dict[str, Any] | None = None
     summary_llm_rejected: bool = False
     summary_used_fallback: bool = False
+    summary_llm_attempted: bool = False
+    summary_empty_claims_rejected: bool = False
+    dialogue_misaligned: int = 0
     invariants_executed: list[str] = field(default_factory=list)
 
 
@@ -183,6 +186,9 @@ async def run_scenario_detailed(
     summary_validation: dict[str, Any] | None = None
     summary_llm_rejected = False
     summary_used_fallback = False
+    summary_llm_attempted = False
+    summary_empty_claims_rejected = False
+    dialogue_misaligned = 0
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
 
@@ -275,6 +281,43 @@ async def run_scenario_detailed(
         inbound_text = turn_def.get("inbound", "")
         listing_id = turn_def.get("listing_id")
         listing_url = turn_def.get("listing_url")
+        alignment: dict[str, Any] = {
+            "expected_question_field": None,
+            "detected_question_field": None,
+            "next_customer_response_type": turn_def.get("responds_to_field")
+            or turn_def.get("response_mode"),
+            "dialogue_alignment": True,
+        }
+        if idx > 0 and traces:
+            from sdr.domain.dialogue_alignment import evaluate_dialogue_alignment
+
+            prev = traces[-1]
+            prev_adherence = prev.get("question_adherence") or {}
+            alignment = evaluate_dialogue_alignment(
+                expected_question_field=prev_adherence.get("expected_question_field")
+                or prev.get("ask_field"),
+                detected_question_field=prev_adherence.get("detected_question_field"),
+                inbound=inbound_text,
+                turn_def=turn_def,
+            )
+            prev["next_customer_response_type"] = alignment.get("next_customer_response_type")
+            prev["dialogue_alignment"] = alignment.get("dialogue_alignment")
+            if not alignment.get("dialogue_alignment"):
+                dialogue_misaligned += 1
+                errors.append(
+                    f"[{name}] turn {idx}: dialogue_alignment — "
+                    f"asked {alignment.get('detected_question_field') or alignment.get('expected_question_field')!r} "
+                    f"but inbound {inbound_text!r} "
+                    f"(type={alignment.get('next_customer_response_type')!r})"
+                )
+                traces.append({
+                    "scenario_id": name,
+                    "turn_id": idx,
+                    "customer_message": inbound_text,
+                    "dialogue_alignment": alignment,
+                    "invariant_results": ["dialogue_misaligned"],
+                })
+                break
         state_before = {
             "intent": state.intent.value if hasattr(state.intent, "value") else str(state.intent),
             "facts": dict(state.facts),
@@ -385,6 +428,7 @@ async def run_scenario_detailed(
             "listing_reference_resolved": inv_tr.get("listing_reference_resolved"),
             "matched_inventory_id": inv_tr.get("matched_inventory_id"),
             "question_adherence": adherence,
+            "dialogue_alignment": alignment,
         })
         trace_row = {
             "scenario_id": name,
@@ -421,6 +465,7 @@ async def run_scenario_detailed(
             },
             "ask_field": plan.ask_field,
             "question_adherence": adherence,
+            "dialogue_alignment": alignment,
             "tool_calls": plan.tool_calls,
             "tool_results": result.tool_results,
             "inventory_query": inv_tr.get("search_params"),
@@ -473,6 +518,10 @@ async def run_scenario_detailed(
                 summary_validation = composed.validation
                 summary_llm_rejected = composed.llm_rejected
                 summary_used_fallback = composed.used_fallback
+                summary_llm_attempted = bool(getattr(composed, "llm_attempted", False))
+                summary_empty_claims_rejected = bool(
+                    getattr(composed, "empty_claims_rejected", False)
+                )
             except Exception as exc:
                 vendor_summary = f"(summary failed: {exc})"
                 summary_validation = {"pass": False, "violations": [str(exc)]}
@@ -538,6 +587,9 @@ async def run_scenario_detailed(
         summary_validation=summary_validation,
         summary_llm_rejected=summary_llm_rejected,
         summary_used_fallback=summary_used_fallback,
+        summary_llm_attempted=summary_llm_attempted,
+        summary_empty_claims_rejected=summary_empty_claims_rejected,
+        dialogue_misaligned=dialogue_misaligned,
         invariants_executed=list(INVARIANT_CATALOG),
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
@@ -668,6 +720,9 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
         "questions_rejected": sum(r.questions_rejected for r in results),
         "summaries_rejected": sum(1 for r in results if r.summary_llm_rejected),
         "summaries_deterministic_fallback": sum(1 for r in results if r.summary_used_fallback),
+        "llm_summaries_attempted": sum(1 for r in results if r.summary_llm_attempted),
+        "llm_empty_claims_rejected": sum(1 for r in results if r.summary_empty_claims_rejected),
+        "dialogue_misaligned": sum(r.dialogue_misaligned for r in results),
         "persist_verified": sum(
             1 for r in results if (r.crm_report or {}).get("matches_payload")
         ),

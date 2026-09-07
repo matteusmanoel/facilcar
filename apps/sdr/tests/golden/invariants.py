@@ -69,6 +69,7 @@ INVARIANT_CATALOG: list[str] = [
     "GLOBAL: duplicate_vehicle_label",
     "GLOBAL: ask_field_question_mismatch",
     "GLOBAL: difference_financing_skips_installment",
+    "GLOBAL: dialogue_alignment",
     "SCENARIO: cnh_deferred_not_granular",
     "SCENARIO: refinancing_false_complete",
     "SCENARIO: paid_off_described_as_financed",
@@ -80,6 +81,9 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: deferred_docs_ready_in_summary",
     "SCENARIO: cnh_deferred_marked_collected",
     "SCENARIO: sale_summary_invented_trade",
+    "SCENARIO: sale_visit_marked",
+    "SCENARIO: refinancing_false_no_pendency",
+    "SCENARIO: summary_empty_claims",
     "SCENARIO: argo_without_identifiable_offer",
     "SCENARIO: ka_not_preserved",
     "SCENARIO: fines_cleared_all_debts",
@@ -557,6 +561,17 @@ def check_scenario(
             fail("SCENARIO: sale_summary_invented_trade", result.vendor_summary or "")
         if re.search(r"avalia[çc][aã]o da loja|\bavaliado em\b|\bvale\s+r\$", summary):
             fail("SCENARIO: expectation_as_appraisal", result.vendor_summary or "")
+        if re.search(r"est[aá]\s+marcada|visita marcada|agendada", summary):
+            fail("SCENARIO: sale_visit_marked", result.vendor_summary or "")
+        if re.search(r"documentos?", summary):
+            fail("SCENARIO: sale_inapplicable_documents", result.vendor_summary or "")
+
+    if name == "refinanciamento":
+        summary = (result.vendor_summary or "").lower()
+        if re.search(r"sem pend[eê]ncias", summary):
+            fail("SCENARIO: refinancing_false_no_pendency", result.vendor_summary or "")
+        if re.search(r"\bvisita\b", summary):
+            fail("SCENARIO: refinancing_invented_visit", result.vendor_summary or "")
 
     if name == "fox_peugeot_troca":
         blob = (result.vendor_summary or "") + " " + " ".join(
@@ -612,6 +627,12 @@ def check_scenario(
     sv = getattr(result, "summary_validation", None)
     if sv and sv.get("pass") is False:
         fail("SCENARIO: summary_validation", str(sv.get("violations")))
+    summary_text = result.vendor_summary or ""
+    if summary_text and sv:
+        from sdr.domain.summary_propositions import text_has_factual_assertions
+
+        if text_has_factual_assertions(summary_text) and not (sv.get("claims") or []):
+            fail("SCENARIO: summary_empty_claims", summary_text[:200])
 
     if name == "gol_nao_encontrado":
         # The Gol lookup itself must stay empty; later alternatives may find other cars.

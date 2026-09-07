@@ -8,6 +8,7 @@
   "turns": [
     {
       "inbound": "Quero refinanciar meu carro",
+      "response_mode": "intent_change",
       "understand_return": {
         "intent": "REFINANCING",
         "facts": {}
@@ -21,6 +22,7 @@
     },
     {
       "inbound": "Tenho um Jeep Compass 2022",
+      "responds_to_field": "trade_model",
       "understand_return": {
         "intent": "REFINANCING",
         "facts": {
@@ -40,6 +42,7 @@
     },
     {
       "inbound": "Preciso de uns 30 mil",
+      "responds_to_field": "amount_needed",
       "understand_return": {
         "intent": "REFINANCING",
         "facts": {
@@ -57,6 +60,7 @@
     },
     {
       "inbound": "Sou Igor Teixeira",
+      "responds_to_field": "name",
       "understand_return": {
         "intent": "REFINANCING",
         "facts": {

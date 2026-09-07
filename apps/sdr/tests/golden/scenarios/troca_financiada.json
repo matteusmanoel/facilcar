@@ -8,6 +8,7 @@
   "turns": [
     {
       "inbound": "Quero trocar meu Peugeot 2008 por um HB20",
+      "response_mode": "intent_change",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -27,6 +28,7 @@
     },
     {
       "inbound": "2019, branco, 85000 km",
+      "responds_to_field": "trade_year",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -48,6 +50,7 @@
     },
     {
       "inbound": "Sim, ainda está financiado",
+      "responds_to_field": "trade_has_financing",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -65,6 +68,7 @@
     },
     {
       "inbound": "850 por mês",
+      "responds_to_field": "trade_installment_value",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -82,6 +86,7 @@
     },
     {
       "inbound": "Mais 24 parcelas",
+      "responds_to_field": "trade_installments_remaining",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -99,6 +104,7 @@
     },
     {
       "inbound": "Não tenho multas",
+      "responds_to_field": "trade_has_debts",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -117,6 +123,7 @@
     },
     {
       "inbound": "IPVA e licenciamento estão em dia",
+      "responds_to_field": "trade_has_debts",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -131,6 +138,7 @@
     },
     {
       "inbound": "Espero uns 40 mil no meu",
+      "responds_to_field": "trade_price_expectation",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -145,6 +153,7 @@
     },
     {
       "inbound": "A diferença eu financio também",
+      "responds_to_field": "payment_method",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -162,6 +171,7 @@
     },
     {
       "inbound": "Até 1800 de parcela",
+      "responds_to_field": "desired_installment",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -182,6 +192,7 @@
     },
     {
       "inbound": "Posso enviar os documentos depois",
+      "responds_to_field": "documents",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -199,6 +210,7 @@
     },
     {
       "inbound": "Sou Paulo Lima",
+      "responds_to_field": "name",
       "understand_return": {
         "intent": "TRADE",
         "facts": {
@@ -214,6 +226,7 @@
     },
     {
       "inbound": "Pode ser o primeiro horário",
+      "responds_to_field": "visit",
       "understand_return": {
         "intent": "TRADE",
         "facts": {},

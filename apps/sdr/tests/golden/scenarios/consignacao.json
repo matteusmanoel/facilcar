@@ -1,6 +1,6 @@
 {
   "name": "consignacao",
-  "description": "Consignação Civic packed attrs; não repetir cor/ano; handoff.",
+  "description": "Consignação Civic packed attrs; aceite na abertura; handoff.",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "HANDOFF_VENDOR",
   "expected_final_intent": "consignment",
@@ -8,9 +8,12 @@
   "turns": [
     {
       "inbound": "Quero deixar meu carro em consignação na FacilCar",
+      "response_mode": "intent_change",
       "understand_return": {
         "intent": "CONSIGNMENT",
-        "facts": {}
+        "facts": {
+          "leave_at_store": true
+        }
       },
       "expected_action": "ASK_INFO",
       "forbidden_in_outbound": [
@@ -21,6 +24,7 @@
     },
     {
       "inbound": "É um Civic 2021 preto 30000 km, quitado",
+      "responds_to_field": "trade_model",
       "understand_return": {
         "intent": "CONSIGNMENT",
         "facts": {
@@ -47,6 +51,7 @@
     },
     {
       "inbound": "Sem débitos, espero 75 mil",
+      "responds_to_field": "trade_has_debts",
       "understand_return": {
         "intent": "CONSIGNMENT",
         "facts": {
@@ -64,21 +69,8 @@
       ]
     },
     {
-      "inbound": "Sim, aceito deixar na loja",
-      "understand_return": {
-        "intent": "CONSIGNMENT",
-        "facts": {
-          "leave_at_store": true
-        }
-      },
-      "forbidden_in_outbound": [
-        "qual veículo você busca",
-        "carro que você quer trocar",
-        "seria compra ou troca"
-      ]
-    },
-    {
       "inbound": "Me chamo Débora Martins",
+      "responds_to_field": "name",
       "understand_return": {
         "intent": "CONSIGNMENT",
         "facts": {
@@ -96,6 +88,7 @@
     },
     {
       "inbound": "Pode ser às 14h",
+      "responds_to_field": "visit",
       "understand_return": {
         "intent": "CONSIGNMENT",
         "facts": {},

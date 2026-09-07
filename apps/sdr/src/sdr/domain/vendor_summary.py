@@ -12,6 +12,13 @@ from datetime import date
 from typing import Any
 
 from sdr.domain.authorized_facts import build_authorized_facts
+from sdr.domain.summary_labels import (
+    document_phrase,
+    format_km,
+    format_money,
+    join_pt,
+    parcelas_label,
+)
 from sdr.domain.summary_propositions import (
     build_propositions,
     validate_text_against_propositions,
@@ -78,6 +85,8 @@ class VendorSummaryResult:
     used_llm: bool = False
     used_fallback: bool = False
     llm_rejected: bool = False
+    llm_attempted: bool = False
+    empty_claims_rejected: bool = False
     propositions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -102,19 +111,25 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
             propositions=propositions,
         )
     llm_text = None
+    llm_attempted = False
     if _vendor_summary_llm_allowed():
+        llm_attempted = True
         try:
             llm_text = _build_vendor_summary_llm(payload)
         except Exception:
             llm_text = None
     if llm_text:
         validation = validate_summary_against_authorized(llm_text, payload)
+        empty_claims = "factual_summary_without_extracted_claims" in (
+            validation.get("violations") or []
+        )
         if validation.get("pass"):
             return VendorSummaryResult(
                 text=llm_text,
                 authorized=payload,
                 validation=validation,
                 used_llm=True,
+                llm_attempted=True,
                 propositions=propositions,
             )
         fallback_val = validate_summary_against_authorized(deterministic, payload)
@@ -126,10 +141,13 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
                 "llm_rejected": True,
                 "llm_violations": validation.get("violations") or [],
                 "llm_text": llm_text,
+                "llm_claims": validation.get("claims") or [],
             },
             used_llm=False,
             used_fallback=True,
             llm_rejected=True,
+            llm_attempted=True,
+            empty_claims_rejected=empty_claims,
             propositions=propositions,
         )
     validation = validate_summary_against_authorized(deterministic, payload)
@@ -138,6 +156,7 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
         authorized=payload,
         validation=validation,
         used_fallback=True,
+        llm_attempted=llm_attempted,
         propositions=propositions,
     )
 
@@ -164,199 +183,192 @@ def _empty_vendor_request_summary(state: ConversationCanonicalState) -> str:
     )
 
 
-def _fmt_money(value: object) -> str | None:
-    """Format a numeric money value as 'R$ 40.000'."""
-    try:
-        v = int(float(str(value).replace(",", ".").replace(".", ""))) if isinstance(value, str) else int(value)  # type: ignore[arg-type]
-        # Re-parse properly
-        v = int(float(str(value)))
-        return f"R$ {v:,}".replace(",", ".")
-    except (TypeError, ValueError):
-        return None
+def _own_vehicle_phrase(customer: dict[str, Any]) -> str:
+    from sdr.domain.vehicle_roles import format_vehicle_label
+
+    label = format_vehicle_label(customer) or ""
+    color = str(customer.get("color") or "").strip()
+    if color and color.lower() not in label.lower():
+        label = f"{label} {color}".strip()
+    km = format_km(customer.get("mileage"))
+    if km:
+        label = f"{label}, com {km}" if label else f"com {km}"
+    return label
 
 
 def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> str:
-    """Deterministic narrative summary — no LLM required."""
-    facts = state.facts
-    name = (state.customer.name or "").strip()
-    if is_placeholder_display_name(name):
-        name = facts.get("name", "")  # type: ignore[assignment]
-
-    age = _compute_age(facts.get("birth_date"))  # type: ignore[arg-type]
-    location_parts = list(filter(None, [
-        str(facts.get("birth_city") or "").strip() or None,
-        str(facts.get("birth_state") or "").strip() or None,
-    ]))
-
-    # Opening sentence
-    intro = f"Cliente {name}" if name else "Cliente"
-    if age:
-        intro += f" tem {age} anos"
-    if location_parts:
-        intro += (", " if age else " é") + " natural de " + "/".join(location_parts)
-    intro += "."
-
-    # Minimal state: if intent is UNKNOWN and no relevant facts, report honestly.
-    from sdr.domain.types import BusinessIntent
-    from sdr.domain.vehicle_roles import format_vehicle_label, get_customer_vehicle, get_desired_vehicle
+    """Production Portuguese narrative from authorized facts only."""
+    from sdr.domain.vehicle_roles import format_vehicle_label
 
     if _is_empty_vendor_request(state):
         return _empty_vendor_request_summary(state)
 
-    if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK) and not facts:
-        return (
-            f"{intro} solicitou atendimento direto de um vendedor. "
-            "Ainda não informou nome, veículo de interesse ou tipo de negociação."
-        )
-
-    # Interest
-    desired = format_vehicle_label(get_desired_vehicle(facts)) or (
-        facts.get("desired_vehicle_text")
-        or facts.get("desired_model")
-        or facts.get("vehicle_interest")
+    auth = build_authorized_facts(state)
+    facts = state.facts
+    name = (auth.name or "").strip()
+    who = name if name else "O cliente"
+    intent = state.intent.value
+    customer = dict(auth.customer_vehicle or {})
+    desired = dict(auth.desired_vehicle or {})
+    own = _own_vehicle_phrase(customer)
+    wanted = format_vehicle_label(desired) or (
+        facts.get("desired_vehicle_text") or facts.get("desired_model") or facts.get("vehicle_interest")
     )
-    cv = get_customer_vehicle(facts)
-    intent_label = {
-        "purchase": "comprando",
-        "purchase_financing": "comprando via financiamento",
-        "trade": "comprando com troca",
-        "sale": "vendendo",
-        "consignment": "consignando",
-        "refinancing": "refinanciando",
-    }.get(state.intent.value, "buscando atendimento")
 
-    interest_sentence = ""
-    if state.intent.value in ("sale", "consignment", "refinancing"):
-        own_label = format_vehicle_label(cv) or (
-            cv.get("model") or facts.get("trade_model") or facts.get("sell_model")
+    sentences: list[str] = []
+
+    if intent == "sale":
+        lead = f"{who} deseja vender seu {own}" if own else f"{who} deseja vender o veículo"
+        bits: list[str] = []
+        if auth.financing_status == "paid_off":
+            bits.append("quitado")
+        elif auth.financing_status == "financed":
+            bits.append("financiado")
+        if auth.debt_status == "clear":
+            bits.append("sem débitos informados")
+        elif auth.debt_status == "has_debts":
+            bits.append("com débitos pendentes")
+        if bits:
+            lead = f"{lead}, {join_pt(bits)}"
+        sentences.append(lead + ".")
+        expect = format_money(auth.price_expectation)
+        if expect:
+            sentences.append(f"Ele espera aproximadamente {expect} pelo veículo.")
+    elif intent == "consignment":
+        lead = f"{who} deseja deixar em consignação seu {own}" if own else f"{who} deseja consignar o veículo"
+        if auth.financing_status == "paid_off":
+            lead += ", quitado"
+        sentences.append(lead + ".")
+        expect = format_money(auth.price_expectation)
+        if expect:
+            sentences.append(f"A expectativa de valor informada é de aproximadamente {expect}.")
+        if auth.leave_at_store is True:
+            sentences.append("O cliente aceitou deixar o veículo na loja.")
+    elif intent == "refinancing":
+        lead = (
+            f"{who} busca refinanciamento de seu {own}"
+            if own
+            else f"{who} busca refinanciamento"
         )
-        if own_label:
-            interest_sentence = f"Está {intent_label} um {own_label}."
+        needed = format_money(auth.amount_needed)
+        if needed:
+            lead += f" e informou necessidade aproximada de {needed}"
+        sentences.append(lead + ".")
+        if auth.handoff_ready:
+            extra = " e o atendimento foi encaminhado ao vendedor"
         else:
-            interest_sentence = f"Intenção: {intent_label}. Veículo do cliente não informado."
-    elif desired:
-        interest_sentence = f"Está {intent_label} um {desired}."
-    elif state.intent.value not in ("unknown", "smalltalk"):
-        interest_sentence = f"Intenção: {intent_label}. Veículo de interesse não informado."
+            extra = ""
+        sentences.append("O perfil ainda precisa ser complementado" + extra + ".")
+    elif intent == "trade":
+        lead = f"{who} pretende trocar"
+        if own:
+            lead += f" seu {own}"
+        if wanted:
+            lead += f" por um {wanted}"
+        sentences.append(lead + ".")
+        fin_bits: list[str] = []
+        if auth.financing_status == "financed":
+            fin_bits.append(_financing_clause(customer))
+        elif auth.financing_status == "paid_off":
+            fin_bits.append("O veículo está quitado")
+        if auth.debt_status == "clear":
+            extra = "e sem débitos informados" if fin_bits else "O veículo está sem débitos informados"
+            if fin_bits:
+                fin_bits[-1] = fin_bits[-1].rstrip(".") + ", sem débitos informados"
+            else:
+                fin_bits.append(extra)
+        elif auth.debt_status == "has_debts":
+            fin_bits.append("Há débitos pendentes")
+        if fin_bits:
+            text = fin_bits[0]
+            if not text.endswith("."):
+                text += "."
+            sentences.append(text[0].upper() + text[1:] if text else text)
+        expect = format_money(auth.price_expectation)
+        pay = str(auth.payment_method or "").lower()
+        applies = auth.payment_applies_to
+        pay_clause = ""
+        if applies == "difference" and pay == "financing":
+            pay_clause = "pretende financiar a diferença"
+            inst = format_money(auth.desired_installment)
+            if inst:
+                pay_clause += f", com parcela desejada de {inst}"
+        elif applies == "difference" and pay == "cash":
+            pay_clause = "pretende pagar a diferença à vista"
+        if expect and pay_clause:
+            sentences.append(
+                f"Ele espera receber aproximadamente {expect} pelo usado e {pay_clause}."
+            )
+        elif expect:
+            sentences.append(f"Ele espera receber aproximadamente {expect} pelo usado.")
+        elif pay_clause:
+            sentences.append(f"Ele {pay_clause}.")
+    elif intent in {"purchase", "purchase_financing"}:
+        verb = "pretende comprar via financiamento" if intent == "purchase_financing" else "pretende comprar"
+        lead = f"{who} {verb}"
+        if wanted:
+            lead += f" um {wanted}"
+        if intent == "purchase" and str(auth.payment_method or "").lower() == "cash":
+            lead += " à vista"
+        sentences.append(lead + ".")
+        if intent == "purchase_financing":
+            pay_parts: list[str] = []
+            down = format_money(auth.down_payment)
+            if down:
+                pay_parts.append(f"entrada de {down}")
+            inst = format_money(auth.desired_installment)
+            if inst:
+                pay_parts.append(f"parcela desejada de {inst}")
+            if pay_parts:
+                sentences.append("Informou " + join_pt(pay_parts) + ".")
     else:
-        interest_sentence = "Solicitou falar com um vendedor. Não informou interesse específico."
+        intro = f"Cliente {name}" if name else "Cliente"
+        sentences.append(f"{intro} está buscando atendimento.")
+        if wanted:
+            sentences.append(f"Demonstrou interesse em um {wanted}.")
 
-    # Payment
-    payment_parts: list[str] = []
-    down = facts.get("down_payment")
-    installment = facts.get("desired_installment")
-    if down:
-        money = _fmt_money(down)
-        if money:
-            payment_parts.append(f"entrada de {money}")
-    if installment:
-        money = _fmt_money(installment)
-        if money:
-            payment_parts.append(f"parcela até {money}/mês")
-    payment_sentence = ""
-    if payment_parts:
-        payment_sentence = "Financiamento: " + ", ".join(payment_parts) + "."
-    applies = facts.get("payment_applies_to")
-    pay = str(facts.get("payment_method") or "").lower()
-    if applies == "difference" and pay == "cash":
-        payment_sentence = "Pretende pagar a diferença à vista."
-    elif applies == "difference" and pay == "financing":
-        payment_sentence = "Pretende financiar a diferença."
+    if auth.documents_applicable:
+        deferred = list(auth.documents_deferred or [])
+        received = [
+            k for k, v in (auth.document_status or {}).items() if v == "received"
+        ]
+        missing_docs = [
+            f
+            for f in (auth.missing_fields or [])
+            if f in {"cnh", "proof_of_residence", "proof_of_income", "documents"}
+        ]
+        if received and not deferred:
+            phrases = [document_phrase(k) for k in received]
+            cap = join_pt(phrases)
+            sentences.append(cap[0].upper() + cap[1:] + " já " + ("foi recebida" if len(phrases) == 1 and received[0] == "cnh" else "foram recebidos") + ".")
+        if deferred:
+            phrases = [document_phrase(k) for k in deferred]
+            cap = join_pt(phrases)
+            sentences.append(
+                cap[0].upper() + cap[1:] + " ficaram para envio posterior."
+            )
+        elif missing_docs and not received:
+            sentences.append("Os documentos da simulação ainda precisam ser fornecidos.")
 
-    # Own vehicle — only for intents that have a customer vehicle.
-    own_parts: list[str] = []
-    own_label = format_vehicle_label(cv)
-    trade_model = cv.get("model") or facts.get("trade_model") or facts.get("sell_model")
-    trade_color = cv.get("color") or facts.get("trade_color")
-    mileage = cv.get("mileage") if cv.get("mileage") is not None else (facts.get("mileage") or facts.get("km"))
-    if own_label:
-        desc = own_label
-        if trade_color and str(trade_color).lower() not in desc.lower():
-            desc += f" ({trade_color})"
-        if mileage:
-            try:
-                desc += f", {int(float(str(mileage).replace('.', '').replace(',', '.'))):,} km".replace(",", ".")
-            except Exception:
-                pass
-        own_parts.append(desc)
-
-    fin_status = cv.get("financing_status")
-    trade_has_fin = facts.get("trade_has_financing")
-    if fin_status == "financed" or trade_has_fin is True:
-        inst_val = cv.get("installment_value") or facts.get("trade_installment_value")
-        inst_rem = cv.get("installments_remaining") or facts.get("trade_installments_remaining")
-        fin_desc = "com financiamento em aberto"
-        if inst_val and inst_rem:
-            v = _fmt_money(inst_val)
-            fin_desc += f" de {v}/mês por mais {inst_rem} parcela(s)" if v else f" por {inst_rem} parcela(s)"
-        own_parts.append(fin_desc)
-    elif fin_status == "paid_off" or trade_has_fin is False:
-        own_parts.append("quitado")
-
-    trade_debts = facts.get("trade_has_debts")
-    cv_status = cv.get("debt_status")
-    if cv_status == "has_debts" or trade_debts is True:
-        debt_type = cv.get("debt_types") or facts.get("trade_debt_type")
-        if debt_type and str(debt_type).lower() not in {"sem_multas", "sem multa"}:
-            own_parts.append(f"débitos pendentes ({debt_type})")
-        else:
-            own_parts.append("débitos pendentes")
-    elif cv_status == "clear":
-        own_parts.append("sem débitos")
-    elif cv_status == "partial":
-        own_parts.append("informou ausência de multas; demais débitos ainda não confirmados")
-
-    trade_expectation = facts.get("trade_price_expectation")
-    if trade_expectation:
-        money = _fmt_money(trade_expectation)
-        if money:
-            own_parts.append(f"expectativa de {money}")
-
-    own_sentence = ""
-    if own_parts and state.intent.value in ("trade", "sale", "consignment", "refinancing"):
-        if state.intent.value in ("sale", "consignment", "refinancing"):
-            rest = own_parts[1:] if trade_model else own_parts
-            if rest:
-                own_sentence = "; ".join(rest) + "."
-        else:
-            own_sentence = f"Veículo de entrada: {'; '.join(own_parts)}."
-
-    # Visit — only when a preference was actually discussed.
-    visit_sentence = ""
-    if state.visit_preferred_time:
-        visit_sentence = (
-            f"Preferência de visita registrada para {state.visit_preferred_time}, "
+    if auth.visit_preferred_time:
+        sentences.append(
+            f"A preferência de visita foi registrada para {auth.visit_preferred_time}, "
             "pendente de confirmação do vendedor."
         )
-    elif state.signals.visit_intent is True:
-        visit_sentence = "Cliente demonstrou interesse em visitar a loja."
 
-    pending_sentence = ""
-    if state.intent.value == "purchase":
-        pending = []
-        deferred_show = []
-    else:
-        pending = list(state.missing_fields or [])
-        deferred_show = list(state.deferred_fields or [])
-        if state.intent.value not in {"purchase_financing", "trade"}:
-            pending = [p for p in pending if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
-            deferred_show = [p for p in deferred_show if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
-        if state.intent.value == "trade" and facts.get("payment_applies_to") != "difference":
-            pending = [p for p in pending if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents", "desired_installment"}]
-            deferred_show = [p for p in deferred_show if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
-    if pending:
-        pending_sentence = "Ainda pendente: " + ", ".join(pending) + "."
-    if deferred_show:
-        pending_sentence = (pending_sentence + " " if pending_sentence else "") + (
-            "Adiado: " + ", ".join(deferred_show) + "."
-        )
+    return " ".join(s for s in sentences if s)
 
-    sentences = [
-        s
-        for s in [intro, interest_sentence, payment_sentence, own_sentence, visit_sentence, pending_sentence]
-        if s
-    ]
-    return " ".join(sentences)
+
+def _financing_clause(customer: dict[str, Any]) -> str:
+    rem = parcelas_label(customer.get("installments_remaining"))
+    inst = format_money(customer.get("installment_value"))
+    if rem and inst:
+        return f"O veículo está financiado, com {rem} restantes de {inst}"
+    if rem:
+        return f"O veículo está financiado, com {rem} restantes"
+    if inst:
+        return f"O veículo está financiado, com parcelas de {inst}"
+    return "O veículo está financiado"
 
 
 def _vendor_summary_llm_allowed() -> bool:
@@ -386,19 +398,24 @@ def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
         "Você escreve resumos de atendimento para vendedores de uma concessionária.\n"
         "Gere um parágrafo de 2-4 frases (máx. 120 palavras).\n"
         "Use SOMENTE os fatos autorizados abaixo. Não invente intenção, visita, documento ou débito.\n"
-        "Se intent=sale, não mencione troca.\n"
-        "Se documents_deferred não estiver vazio, diga que os documentos foram adiados — nunca que estão prontos.\n"
+        "Se intent=sale, não mencione troca nem documentos.\n"
+        "Se documents_applicable=false, não mencione documentos nem ausência de documentos.\n"
+        "Se documents_deferred não estiver vazio, diga que ficaram para envio posterior — nunca que estão prontos.\n"
+        "Use CNH, comprovante de residência e comprovante de renda — nunca nomes internos de campo.\n"
         "Se debt_status não for clear, não diga sem dívidas/sem débitos.\n"
         "Se visit_pending_vendor_confirm, diga preferência registrada pendente de confirmação do vendedor — "
-        "nunca que a visita foi agendada.\n"
+        "nunca que a visita está marcada, agendada, confirmada ou garantida.\n"
         "Se payment_applies_to=difference e method=cash, diga exatamente: pretende pagar a diferença à vista.\n"
-        "Se payment_applies_to=difference e method=financing, diga exatamente: pretende financiar a diferença.\n"
-        "NUNCA escreva 'pagar ou financiar' nem 'em dinheiro' para a diferença.\n"
+        "Se payment_applies_to=difference e method=financing, diga exatamente: pretende financiar a diferença "
+        "e inclua a parcela desejada se desired_installment existir.\n"
+        "NUNCA escreva 'pagar ou financiar' nem 'em dinheiro' para a diferença. NUNCA escreva parcela(s).\n"
         "Expectativa de valor do cliente NÃO é avaliação da loja — nunca diga avaliado/vale/avaliação da loja.\n"
         "Se financing_status=paid_off, NUNCA diga que o veículo está financiado.\n"
         "Se financing_status=financed, NUNCA diga que está quitado.\n"
         "Se intent=purchase, não mencione dívidas, documentos nem veículo próprio.\n"
-        "Se não houver visit_preferred_time, não mencione ausência de visita.\n"
+        "Se intent=refinancing, não mencione visita nem 'sem pendências' de documentos.\n"
+        "Se o perfil não estiver completo, diga que ainda precisa ser complementado.\n"
+        "Se não houver visit_preferred_time, não mencione visita nem ausência de visita.\n"
         "Se não houver nome, escreva 'O cliente'."
     )
     user_prompt = (
@@ -493,6 +510,7 @@ def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -
         "pass": not violations,
         "violations": violations,
         "claims": polar.get("claims") or [],
+        "claim_links": polar.get("claim_links") or [],
         "propositions": polar.get("propositions") or [],
         "invariants_executed": executed,
     }
