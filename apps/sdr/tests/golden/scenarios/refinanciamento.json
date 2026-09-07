@@ -1,0 +1,27 @@
+{
+  "name": "refinanciamento",
+  "description": "Cliente quer refinanciar veículo para levantar valor em dinheiro.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero refinanciar meu carro",
+      "understand_return": {"intent": "REFINANCING", "facts": {}},
+      "expected_action": "ASK_INFO",
+      "expected_ask_field_in": ["trade_model", "vehicle_model"]
+    },
+    {
+      "inbound": "Tenho um Jeep Compass 2022",
+      "understand_return": {"intent": "REFINANCING", "facts": {"trade_model": "Jeep Compass", "trade_year": "2022"}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_model": "jeep compass", "trade_year": "2022"},
+      "expected_ask_field_in": ["amount_needed", "raise_amount"]
+    },
+    {
+      "inbound": "Preciso de uns 30 mil",
+      "understand_return": {"intent": "REFINANCING", "facts": {"amount_needed": 30000}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"amount_needed": 30000},
+      "expected_ask_field_in": ["name"]
+    }
+  ]
+}

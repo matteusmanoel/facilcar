@@ -74,9 +74,9 @@ async def test_first_turn_may_introduce() -> None:
     assert result.response_directive.should_introduce is True
     assert result.response_directive.inbound_text == "Olá"
     assert "júlia" in bubbles or "julia" in bubbles or "oi" in bubbles
-    assert "compra" in bubbles
-    assert "troca" in bubbles
-    assert "financiamento" in bubbles or "refinanciamento" in bubbles
+    assert "compra" in bubbles or "comprar" in bubbles
+    assert "troca" in bubbles or "trocar" in bubbles
+    assert "refinanc" in bubbles  # "refinanciar" covers both refinanciamento and refinanciar
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_first_commercial_turn_introduces_with_photos(monkeypatch) -> None
     joined = " ".join(result.outbound_texts).lower()
     assert "júlia" in joined or "julia" in joined
     assert "excelente opção" in joined
-    assert "compra ou troca" in joined
+    assert "nome" in joined or "troca" in joined  # after showing inventory, asks deal_type or name
     assert result.outbound_media
     assert result.outbound_media[-1].url.endswith("cover.jpg")
     assert "*" in result.outbound_media[-1].caption

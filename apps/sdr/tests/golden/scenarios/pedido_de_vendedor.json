@@ -1,0 +1,17 @@
+{
+  "name": "pedido_de_vendedor",
+  "description": "Cliente explicitamente pede para falar com um vendedor.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {"explicit_handoff": true}
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": ["Qual modelo"]
+    }
+  ]
+}

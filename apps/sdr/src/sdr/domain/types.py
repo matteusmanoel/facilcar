@@ -46,6 +46,7 @@ class InventoryOutcome(str, Enum):
 
     SUCCESS_FOUND = "SUCCESS_FOUND"
     SUCCESS_EMPTY = "SUCCESS_EMPTY"
+    SUCCESS_SOLD = "SUCCESS_SOLD"       # vehicle exists in catalog but is sold / unpublished
     FAILED_RETRYABLE = "FAILED_RETRYABLE"
     FAILED_TERMINAL = "FAILED_TERMINAL"
     NOT_EXECUTED = "NOT_EXECUTED"

@@ -125,6 +125,18 @@ def claims_for_inventory_outcome(
                 "permanent_unavailability",
             ],
         )
+    if outcome == InventoryOutcome.SUCCESS_SOLD:
+        return (
+            [
+                "vehicle_sold_or_unpublished",
+                "offer_alternatives",
+            ],
+            [
+                "vehicle_still_available",
+                "store_does_not_work_with_category",
+                "permanent_unavailability",
+            ],
+        )
     if outcome == InventoryOutcome.FAILED_RETRYABLE:
         return (
             [
@@ -177,7 +189,7 @@ def extract_inventory_outcome(tool_results: list[dict[str, Any]]) -> InventoryOu
 
 
 def is_semantic_inventory_success(outcome: InventoryOutcome) -> bool:
-    return outcome in (InventoryOutcome.SUCCESS_FOUND, InventoryOutcome.SUCCESS_EMPTY)
+    return outcome in (InventoryOutcome.SUCCESS_FOUND, InventoryOutcome.SUCCESS_EMPTY, InventoryOutcome.SUCCESS_SOLD)
 
 
 def contains_absence_claim(text: str) -> bool:
@@ -204,6 +216,16 @@ def inventory_fallback_bubbles(outcome: InventoryOutcome, *, language: str = "pt
         return [
             "Não encontrei uma opção com esse perfil no estoque atual.",
             "Quer que eu veja alternativas parecidas, se tiver?",
+        ]
+    if outcome == InventoryOutcome.SUCCESS_SOLD:
+        if es:
+            return [
+                "Ese vehículo ya fue vendido.",
+                "¿Hay algún otro modelo que te interese?",
+            ]
+        return [
+            "Esse veículo já foi vendido.",
+            "Quais outros modelos você está procurando?",
         ]
     if outcome == InventoryOutcome.FAILED_RETRYABLE:
         if es:

@@ -69,6 +69,16 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "vehicle_status",
         # Commercial mode: purchase vs trade (never inferred from mere "quero comprar").
         "deal_type",
+        # Own vehicle — trade-in / sale / consignment / refinancing extended fields
+        "trade_color",             # colour of vehicle being traded / sold
+        "trade_has_financing",     # bool: active financing on the trade-in vehicle
+        "trade_installment_value", # current monthly installment value (R$)
+        "trade_installments_remaining",  # number of installments still due
+        "trade_has_debts",         # bool: unpaid fines / licensing fees
+        "trade_debt_type",         # free-text description of debts
+        "trade_price_expectation", # client's expected value for own vehicle (R$)
+        "trade_in_owner_is_client", # bool: document in client's name (vs third party)
+        "trade_renavam",           # RENAVAM registration number of trade-in vehicle
     }
 )
 
@@ -110,6 +120,29 @@ FACT_KEY_ALIASES: dict[str, str] = {
     "payment_type": "payment_method",
     "financing": "payment_method",
     "pagamento": "payment_method",
+    # Trade-in / own-vehicle extended aliases
+    "renavam": "trade_renavam",
+    "cor_veiculo": "trade_color",
+    "cor_carro": "trade_color",
+    "vehicle_color": "trade_color",
+    "financiado": "trade_has_financing",
+    "tem_financiamento": "trade_has_financing",
+    "has_financing": "trade_has_financing",
+    "parcela_atual": "trade_installment_value",
+    "valor_parcela_atual": "trade_installment_value",
+    "installment_value": "trade_installment_value",
+    "parcelas_restantes": "trade_installments_remaining",
+    "remaining_installments": "trade_installments_remaining",
+    "debitos": "trade_has_debts",
+    "tem_debitos": "trade_has_debts",
+    "has_debts": "trade_has_debts",
+    "tipo_debito": "trade_debt_type",
+    "debt_type": "trade_debt_type",
+    "valor_esperado": "trade_price_expectation",
+    "expectativa_valor": "trade_price_expectation",
+    "price_expectation": "trade_price_expectation",
+    "owner_is_client": "trade_in_owner_is_client",
+    "documento_no_nome": "trade_in_owner_is_client",
 }
 
 # Fields that must be numeric after normalization.
@@ -123,6 +156,8 @@ MONEY_KEYS: frozenset[str] = frozenset(
         "amount_needed",
         "vehicle_value",
         "monthly_income",
+        "trade_installment_value",
+        "trade_price_expectation",
     }
 )
 
@@ -333,6 +368,21 @@ def normalize_facts(
                 value = bool(value)
             if not value:
                 continue
+        elif canonical in {"trade_has_financing", "trade_has_debts", "trade_in_owner_is_client"}:
+            # Boolean fields — accept string "true"/"false"/"sim"/"não"/"yes"/"no".
+            if isinstance(value, bool):
+                pass  # already bool
+            elif isinstance(value, str):
+                low = value.strip().lower()
+                if low in {"true", "sim", "yes", "1", "s", "y"}:
+                    value = True
+                elif low in {"false", "não", "nao", "no", "0", "n"}:
+                    value = False
+                else:
+                    rejected.append(f"{raw_key}:invalid_bool")
+                    continue
+            else:
+                value = bool(value)
         elif canonical in MONEY_KEYS:
             money = normalize_money_value(value)
             if money is None:
@@ -340,6 +390,26 @@ def normalize_facts(
                 rejected.append(f"{raw_key}:malformed_money")
                 continue
             value = money
+        elif canonical == "trade_installments_remaining":
+            # Integer count — accept numeric or short text like "24 parcelas"
+            if isinstance(value, int):
+                pass
+            elif isinstance(value, float):
+                value = int(value)
+            elif isinstance(value, str):
+                import re as _re
+                m = _re.search(r"\b(\d+)\b", value)
+                if m:
+                    value = int(m.group(1))
+                else:
+                    rejected.append(f"{raw_key}:invalid_count")
+                    continue
+            else:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    rejected.append(f"{raw_key}:invalid_count")
+                    continue
         elif canonical == "deal_type":
             mapped = _normalize_deal_type(value)
             if mapped is None:

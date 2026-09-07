@@ -65,6 +65,7 @@ turns:
       pending_resolution: null
       alternative_scope: null
       facts_entries: []
+      photo_request: true
       signals:
         explicit_handoff: null
         explicit_offer: null

@@ -1,0 +1,47 @@
+{
+  "name": "troca_financiada",
+  "description": "Troca com financiamento em aberto: deve coletar parcela e qtd. restante.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Tenho um Peugeot 2008 para trocar por um Fox",
+      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Fox", "deal_type": "trade", "trade_model": "Peugeot 2008"}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"desired_model": "fox", "deal_type": "trade", "trade_model": "peugeot 2008"},
+      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"]
+    },
+    {
+      "inbound": "2019, branco, 85000 km",
+      "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000},
+      "expected_ask_field_in": ["trade_has_financing"]
+    },
+    {
+      "inbound": "Sim, ainda está financiado",
+      "understand_return": {"intent": "TRADE", "facts": {"trade_has_financing": "true"}},
+      "expected_action": "ASK_INFO",
+      "expected_ask_field_in": ["trade_installment_value"]
+    },
+    {
+      "inbound": "850 por mês",
+      "understand_return": {"intent": "TRADE", "facts": {"trade_installment_value": 850}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_installment_value": 850},
+      "expected_ask_field_in": ["trade_installments_remaining"]
+    },
+    {
+      "inbound": "Mais 24 parcelas",
+      "understand_return": {"intent": "TRADE", "facts": {"trade_installments_remaining": 24}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_installments_remaining": 24},
+      "expected_ask_field_in": ["trade_has_debts"]
+    },
+    {
+      "inbound": "Não tenho multas",
+      "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "false"}},
+      "expected_action": "ASK_INFO",
+      "expected_ask_field_in": ["trade_price_expectation"]
+    }
+  ]
+}

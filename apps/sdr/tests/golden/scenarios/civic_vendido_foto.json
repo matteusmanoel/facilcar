@@ -1,0 +1,16 @@
+{
+  "name": "civic_vendido_foto",
+  "description": "Cliente manda foto do Civic que está 'Vendido' no catálogo. Agente deve informar que foi vendido e oferecer alternativas.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Esse Civic Prata da foto ainda está disponível?",
+      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Honda Civic", "desired_vehicle_text": "Civic Prata", "vehicle_hint_model": "Civic Prata"}},
+      "expected_action": "SHOW_OFFERS",
+      "forbidden_in_outbound": [
+        "não trabalhamos",
+        "não localizei seu veículo"
+      ]
+    }
+  ]
+}

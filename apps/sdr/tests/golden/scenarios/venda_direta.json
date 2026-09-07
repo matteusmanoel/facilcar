@@ -1,0 +1,21 @@
+{
+  "name": "venda_direta",
+  "description": "Cliente quer vender o veículo diretamente para a loja.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Gostaria de vender meu Corolla",
+      "understand_return": {"intent": "SALE", "facts": {"trade_model": "Corolla"}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_model": "corolla"},
+      "expected_ask_field_in": ["trade_year", "mileage"]
+    },
+    {
+      "inbound": "2020, prata, 50000 km",
+      "understand_return": {"intent": "SALE", "facts": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000},
+      "expected_ask_field_in": ["trade_has_financing"]
+    }
+  ]
+}

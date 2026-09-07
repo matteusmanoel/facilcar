@@ -183,11 +183,13 @@ async def test_success_empty_sets_pending_affordance(monkeypatch) -> None:
         pool=AsyncMock(),
     )
     assert result.tool_results[0]["outcome"] == "SUCCESS_EMPTY"
-    assert result.state.pending_interaction == PendingInteraction.OFFER_ALTERNATIVES
+    # New contract: SUCCESS_EMPTY no longer sets OFFER_ALTERNATIVES pending state.
+    assert result.state.pending_interaction == PendingInteraction.NONE
     assert result.response_directive is not None
-    assert result.response_directive.conversational_affordance == PendingInteraction.OFFER_ALTERNATIVES
+    # Composer asks directly for other models — no yes/no gate.
     joined = " ".join(result.outbound_texts).lower()
-    assert "alternativ" in joined
+    assert "estoque" in joined
+    assert "outros modelos" in joined or "qual outro" in joined or "quais outros" in joined
 
 
 @pytest.mark.asyncio

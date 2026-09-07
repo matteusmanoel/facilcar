@@ -28,7 +28,8 @@ def test_vendor_summary_is_human_brief_not_debug_dump() -> None:
     assert "Facts:" not in summary
     assert "Actionability" not in summary
     assert "corolla" in summary.lower()
-    assert "Compra" in summary
+    # New narrative format — intent expressed as verb form
+    assert "comprando" in summary.lower() or "compra" in summary.lower() or "interesse" in summary.lower()
 
 
 def test_vendor_summary_financing_not_cash() -> None:
@@ -44,6 +45,7 @@ def test_vendor_summary_financing_not_cash() -> None:
         },
     )
     summary = build_vendor_summary(state)
-    assert "Cliente: Ana Souza" in summary
-    assert "Compra financiada" in summary
+    # New narrative format: "Cliente Ana Souza." (no colon, period-terminated)
+    assert "Ana Souza" in summary
+    assert "financiamento" in summary.lower() or "financiada" in summary.lower()
     assert "à vista" not in summary.lower()

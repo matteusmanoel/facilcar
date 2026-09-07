@@ -76,6 +76,21 @@ _REFUSAL = re.compile(
     r"prefiro\s+n[aã]o\s+mandar",
     re.I,
 )
+# PROTOCOL_DETERMINISTIC: unambiguous first-person name introduction phrases.
+_NAME_INTRO = re.compile(
+    r"(?:sou\s+o\s+|sou\s+a\s+|sou\s+|me\s+chamo\s+|meu\s+nome\s+[eé]\s+|minha\s+name\s+[eé]\s+)"
+    r"([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)+)",
+    re.I,
+)
+# PROTOCOL_DETERMINISTIC: financing and debt status for own vehicle
+_QUITADO = re.compile(r"\b(quitad[ao]|sem\s+financiamento|n[aã]o\s+(?:tem|tenho|h[aá])\s+financiamento)\b", re.I)
+_SEM_DEBITOS = re.compile(r"\bsem\s+(d[eé]bitos?|multas?|licenciamento)\b", re.I)
+# SAFE_FAST_PATH: explicit color mentions for trade-in / sale vehicle
+_TRADE_COLOR = re.compile(
+    r"\bcor\s+(prat[ao]|branc[oa]|pret[oa]|vermelh[oa]|azul|cinn[za]|bege|champagne|marrom|dourad[oa]|verde)\b|"
+    r"\b(prat[ao]|branc[oa]|pret[oa])\s+(?:met[aá]lic[ao]|solid[oa])?\b",
+    re.I,
+)
 _ES_HINTS = re.compile(
     r"\b(hola|quiero|gracias|necesito|coche|auto|financiaci[oó]n)\b",
     re.I,
@@ -292,6 +307,24 @@ def _heuristic_extract(text: str, state_summary: str | None = None) -> TurnFacts
         signals.high_purchase_intent = True
     if _REFUSAL.search(normalized):
         signals.sensitive_data_refusal = True
+
+    # PROTOCOL_DETERMINISTIC: explicit name introduction phrases
+    name_match = _NAME_INTRO.search(text)  # use original text (proper case)
+    if name_match:
+        facts["name"] = name_match.group(1).strip()
+
+    # PROTOCOL_DETERMINISTIC: financing and debt status for own vehicle
+    if _QUITADO.search(normalized):
+        facts["trade_has_financing"] = False
+    if _SEM_DEBITOS.search(normalized):
+        facts["trade_has_debts"] = False
+
+    # SAFE_FAST_PATH: explicit color mention for trade-in / sale vehicle
+    color_match = _TRADE_COLOR.search(normalized)
+    if color_match:
+        color = (color_match.group(1) or color_match.group(2) or "").strip().lower()
+        if color:
+            facts["trade_color"] = color
 
     language = "es" if _ES_HINTS.search(normalized) else ("pt-BR" if normalized.strip() else None)
 

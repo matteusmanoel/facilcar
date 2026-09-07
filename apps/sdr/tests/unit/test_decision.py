@@ -88,7 +88,7 @@ def test_inventory_not_repeated_when_search_key_matches() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"
+    assert plan.ask_field == "deal_type"  # deal_type asked before name in PURCHASE roteiro
 
 
 def test_inventory_re_searched_when_preference_changes() -> None:
@@ -126,7 +126,7 @@ def test_inventory_search_key_ignores_qualification_status_without_budget() -> N
 
 
 def test_ask_info_after_inventory_already_searched() -> None:
-    """After inventory, progress to qualification (deal type), never budget."""
+    """After inventory, progress to qualification (deal_type then name), never budget."""
     facts = {"desired_model": "Civic"}
     state = _state(
         intent=BusinessIntent.PURCHASE,
@@ -135,7 +135,7 @@ def test_ask_info_after_inventory_already_searched() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"
+    assert plan.ask_field == "deal_type"  # deal_type comes before name in PURCHASE
 
 
 def test_photo_request_sends_photos_of_last_shown_vehicle() -> None:
@@ -200,6 +200,7 @@ def test_document_received_invites_visit_when_roteiro_complete() -> None:
         "deal_type": "purchase",
         "down_payment": 20000,
         "desired_installment": 2000,
+        "name": "Mateus",
     }
     state = _state(
         intent=BusinessIntent.PURCHASE_FINANCING,
@@ -295,11 +296,12 @@ def test_explicit_vendor_handoff() -> None:
 
 
 def test_actionable_purchase_handoff() -> None:
-    """Vehicle + deal_type triggers visit invitation, then handoff."""
+    """Vehicle + name triggers visit invitation, then handoff."""
     facts = {
         "desired_model": "Hilux",
         "deal_type": "purchase",
         "payment_method": "cash",
+        "name": "Mateus",
     }
     from sdr.domain.decision import inventory_search_key
 

@@ -27,7 +27,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "desired_model": "Qual modelo ou tipo de carro você está buscando?",
     "model": "Qual modelo ou tipo de carro você está buscando?",
     "deal_type": "Seria compra ou troca?",
-    "down_payment": "Você teria algum valor de entrada, ou prefere financiar o total?",
+    "down_payment": "Como você pensa nessa negociação? Tem ideia de entrada ou prefere analisar a parcela?",
     "desired_installment": "Até quanto de parcela você tem em mente?",
     "income": "Pode me informar sua renda mensal aproximada?",
     "documents": "Pra montar a simulação, pode me enviar a CNH e um comprovante de renda (holerite)?",
@@ -37,6 +37,14 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "trade_in": "Qual marca, modelo e ano do carro da troca?",
     "trade_model": "Qual marca e modelo do carro da troca?",
     "trade_year": "Qual o ano do carro da troca?",
+    "trade_color": "Qual a cor do veículo?",
+    "trade_has_financing": "O veículo tem financiamento em aberto?",
+    "trade_installment_value": "Qual o valor atual da parcela?",
+    "trade_installments_remaining": "Quantas parcelas ainda restam?",
+    "trade_has_debts": "Tem algum débito pendente no veículo (multas ou licenciamento)?",
+    "trade_price_expectation": "Qual o valor que você tem em mente para o seu veículo?",
+    "trade_in_owner_is_client": "O documento do veículo está no seu nome?",
+    "trade_renavam": "Pode me passar o RENAVAM do veículo?",
     "plate": "Se tiver a placa do veículo, pode me passar?",
     "location": "Você está de qual cidade?",
     "city": "Você é de em qual cidade?",
@@ -47,7 +55,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "amount_needed": "Quanto você precisa levantar com o refinanciamento?",
     "leave_at_store": "Topa deixar o carro na loja pra consignação?",
     "year": "Qual o ano do veículo?",
-    "intent": "Você está buscando comprar, vender, trocar ou refinanciar?",
+    "intent": "Você está buscando comprar, vender, trocar, consignar ou refinanciar?",
     "payment_method": "Seria à vista ou financiado?",
     "alternatives_ok": "Não encontrei exatamente o que você pediu no estoque atual. Posso te mostrar alternativas parecidas?",
 }
@@ -55,7 +63,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
 _FIELD_QUESTIONS_ES: dict[str, str] = {
     "name": "¿Me dices tu nombre, por favor?",
     "deal_type": "¿Sería compra o permuta?",
-    "down_payment": "¿Tienes un valor de entrada, o prefieres financiar el valor completo?",
+    "down_payment": "¿Cómo piensas esta negociación? ¿Tienes idea de cuánto dar de entrada, o prefieres analizar la cuota?",
     "desired_installment": "¿Hasta cuánto de cuota tienes en mente?",
     "income": "¿Cuál es tu ingreso mensual aproximado? (solo para armar la pre-ficha)",
     "documents": "Para armar la pre-ficha, ¿puedes enviarme la licencia y un comprobante de ingresos?",
@@ -63,10 +71,21 @@ _FIELD_QUESTIONS_ES: dict[str, str] = {
     "vehicle_interest": "¿Qué modelo o tipo de auto estás buscando?",
     "brand": "¿Tienes alguna marca de preferencia?",
     "trade_in": "¿Me cuentas marca, modelo y año del auto del canje?",
+    "trade_model": "¿Cuál es la marca y modelo del auto del canje?",
+    "trade_year": "¿De qué año es el auto del canje?",
+    "trade_color": "¿Cuál es el color del vehículo?",
+    "trade_has_financing": "¿El vehículo tiene financiamiento vigente?",
+    "trade_installment_value": "¿Cuánto es el valor de la cuota actual?",
+    "trade_installments_remaining": "¿Cuántas cuotas quedan todavía?",
+    "trade_has_debts": "¿Tiene alguna deuda pendiente en el vehículo (multas o patente)?",
+    "trade_price_expectation": "¿Cuál es el valor que tienes en mente para tu vehículo?",
+    "trade_in_owner_is_client": "¿El documento del vehículo está a tu nombre?",
+    "trade_renavam": "¿Puedes pasarme el número de registro del vehículo?",
     "plate": "Si tienes la placa del vehículo, ¿me la pasas?",
     "location": "¿En qué ciudad estás?",
     "visit": "¿Qué día y horario te queda mejor para pasar por la tienda?",
     "payment_method": "¿Sería de contado o financiado?",
+    "intent": "¿Estás pensando en comprar, vender, permutar, consignar o refinanciar?",
     "alternatives_ok": "No encontré exactamente lo que pediste en el stock actual. ¿Quieres que te muestre alternativas parecidas?",
 }
 
@@ -156,14 +175,15 @@ def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
             "Se fizer sentido, passa aqui esta semana. Esperamos você!"
         ]
     if style == "hot_ask_slot":
-        if es:
+        from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+        slots = suggest_visit_slots(lang=lang if lang else "pt")
+        slot_text = format_slot_suggestion(slots, lang=lang if lang else "pt")
+        if lang == "es":
             return [
-                "¿Qué día y horario te queda mejor para pasar por la tienda? "
-                "Así avanzamos la propuesta juntos."
+                f"{slot_text} Así avanzamos la propuesta juntos."
             ]
         return [
-            "Qual dia e horário fica melhor pra você passar na loja? "
-            "Assim a gente avança essa proposta juntos."
+            f"{slot_text} Assim a gente avança essa proposta juntos."
         ]
     if style == "hot_schedule":
         if es:
@@ -513,7 +533,7 @@ def _template_compose(
                 brief = "Oi, sou a Júlia da FacilCar!"
             return [brief, follow] if follow else [brief]
         if should_introduce:
-            return introduction_smalltalk_bubbles(lang)
+            return introduction_smalltalk_bubbles(lang, customer_name=state.get("customer_name"))
         return continuation_smalltalk_bubbles(lang)
 
     # COMMERCIAL_UNKNOWN: intent was UNKNOWN (not a greeting, not classified).
@@ -556,29 +576,51 @@ def _template_compose(
                 "Posso encaminhar seu interesse para a equipe continuar com você.",
             ]
         if outcome == "SUCCESS_EMPTY":
-            affordance = str(
-                (tool_context or {}).get("conversational_affordance")
-                or state.get("conversational_affordance")
-                or "NONE"
+            # Extract the model the customer was looking for to use in the response.
+            model = (
+                (state.get("facts") or {}).get("desired_model")
+                or (state.get("facts") or {}).get("desired_vehicle_text")
+                or None
             )
-            may_offer_alts = affordance == "OFFER_ALTERNATIVES"
             if lang == "es":
-                bubbles = ["No encontré una opción con ese perfil en el stock actual."]
-                if may_offer_alts:
-                    if isinstance(alternatives, list) and alternatives:
-                        bubbles.append("¿Quieres que te muestre alternativas parecidas?")
-                    else:
-                        bubbles.append(
-                            "¿Quieres que te muestre alternativas parecidas, si hubiera?"
-                        )
-                return bubbles[:3]
-            bubbles = ["Não encontrei uma opção com esse perfil no estoque atual."]
-            if may_offer_alts:
-                if isinstance(alternatives, list) and alternatives:
-                    bubbles.append("Quer que eu te mostre alternativas parecidas?")
-                else:
-                    bubbles.append("Quer que eu veja alternativas parecidas, se tiver?")
-            return bubbles[:3]
+                if model:
+                    return [
+                        f"Hoy no tenemos {model} en stock.",
+                        f"Además del {model}, ¿qué otros modelos te interesan?",
+                    ]
+                return [
+                    "No encontré una opción con ese perfil en el stock actual.",
+                    "¿Hay algún otro modelo que te interese?",
+                ]
+            if model:
+                return [
+                    f"Hoje não temos {model} em estoque.",
+                    f"Além do {model}, quais outros modelos você procura?",
+                ]
+            return [
+                "Não encontrei esse perfil no estoque atual.",
+                "Quais outros modelos você está procurando?",
+            ]
+
+        if outcome == "SUCCESS_SOLD":
+            sold_vehicle = (tool_context or {}).get("sold_vehicle") or {}
+            if not sold_vehicle and isinstance(offers, list) and offers:
+                sold_vehicle = offers[0] if isinstance(offers[0], dict) else {}
+            model_sold = (
+                (sold_vehicle.get("title") if isinstance(sold_vehicle, dict) else None)
+                or (state.get("facts") or {}).get("desired_model")
+                or (state.get("facts") or {}).get("desired_vehicle_text")
+                or "esse veículo"
+            )
+            if lang == "es":
+                return [
+                    f"El {model_sold} ya fue vendido.",
+                    f"Además del {model_sold}, ¿qué otros modelos te interesan?",
+                ]
+            return [
+                f"Esse {model_sold} já foi vendido.",
+                f"Além do {model_sold}, quais outros modelos você procura?",
+            ]
 
         if isinstance(offers, list) and offers:
             media_planned = bool((tool_context or {}).get("outbound_media_planned"))
@@ -776,8 +818,10 @@ async def compose_response(
     elif inv_outcome == "SUCCESS_EMPTY":
         inventory_rule = (
             "\nRegra de estoque: consulta OK sem match no estoque publicado atual. "
-            "Pode dizer que não encontrou opção com esse perfil no estoque atual. "
-            "NÃO diga que a loja não trabalha com essa categoria ou que nunca terá."
+            "Diga honestamente que não temos esse modelo em estoque no momento. "
+            "Em seguida, pergunte quais outros modelos o cliente procura. "
+            "NÃO diga que a loja não trabalha com essa categoria ou que nunca terá. "
+            "NÃO pergunte 'Quer ver alternativas?' — passe direto para a próxima pergunta."
         )
     elif inv_outcome == "SUCCESS_FOUND":
         media_planned = bool((tool_context or {}).get("outbound_media_planned"))

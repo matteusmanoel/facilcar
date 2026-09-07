@@ -1,0 +1,19 @@
+{
+  "name": "agendamento_sabado",
+  "description": "Estado já actionable com inventário já buscado. REGISTER_VISIT_INTEREST com slots de horário (incluindo sábado).",
+  "initial_state": {
+    "intent": "purchase",
+    "facts": {"desired_model": "fiat cronos", "name": "Pedro Alves"},
+    "last_inventory_search_key": "4511dbf2",
+    "assistant_turn_count": 4,
+    "visit_invited": false
+  },
+  "turns": [
+    {
+      "inbound": "Perfeito",
+      "understand_return": {"intent": "PURCHASE", "facts": {}},
+      "expected_action": "REGISTER_VISIT_INTEREST",
+      "required_in_outbound_any": ["dia", "horário", "semana", "manhã", "tarde", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "passar"]
+    }
+  ]
+}

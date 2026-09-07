@@ -1,0 +1,33 @@
+{
+  "name": "compra_financiada_com_entrada",
+  "description": "Compra financiada com entrada de 10k. Roteiro: modelo → entrada → parcela → docs → nome → handoff.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero financiar um Civic",
+      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_model": "Civic", "payment_method": "financing"}},
+      "expected_action": "SHOW_OFFERS",
+      "expected_facts_after": {"desired_model": "civic"}
+    },
+    {
+      "inbound": "Posso dar uma entrada de 10 mil",
+      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"down_payment": 10000}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"down_payment": 10000},
+      "expected_ask_field_in": ["desired_installment"]
+    },
+    {
+      "inbound": "Até 1200 de parcela",
+      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_installment": 1200}},
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {"desired_installment": 1200},
+      "expected_ask_field_in": ["documents"]
+    },
+    {
+      "inbound": "Meu nome é Carlos Souza",
+      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"name": "Carlos Souza"}},
+      "expected_facts_after": {"name": "Carlos Souza"},
+      "forbidden_in_outbound": ["Qual o seu nome"]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "gol_nao_encontrado",
+  "description": "Cliente pede Gol que não está no estoque. Agente não deve dizer que não trabalha com a marca. Deve perguntar alternativas.",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Tem Gol disponível?",
+      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Gol", "desired_vehicle_text": "Gol"}},
+      "expected_action": "SHOW_OFFERS",
+      "forbidden_in_outbound": [
+        "não trabalhamos com",
+        "não temos esse tipo",
+        "A FacilCar não trabalha"
+      ]
+    }
+  ]
+}

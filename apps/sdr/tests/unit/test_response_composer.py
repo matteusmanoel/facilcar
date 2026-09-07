@@ -292,8 +292,8 @@ async def test_hot_visit_invite_asks_day_and_time() -> None:
         {},
     )
     joined = " ".join(bubbles).lower()
-    assert "horário" in joined or "horario" in joined or "dia" in joined
-    assert "loja" in joined
+    # New scheduling returns concrete slots (e.g. "segunda-feira, 7/09, de manhã")
+    assert any(w in joined for w in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "manhã", "tarde", "que tal"])
     assert "sem compromisso" not in joined
     assert "encaminhar" not in joined
 

@@ -196,6 +196,33 @@ def overlay_pending_question(
             facts.pending_resolution = PendingResolution.ACCEPT
         elif _SHORT_NO.search(text) and len(text.split()) <= 12:
             facts.pending_resolution = PendingResolution.REJECT
+    elif pending == "trade_has_financing":
+        if _SHORT_YES.search(text):
+            extra["trade_has_financing"] = True
+        elif _SHORT_NO.search(text):
+            extra["trade_has_financing"] = False
+    elif pending == "trade_has_debts":
+        if _SHORT_YES.search(text):
+            extra["trade_has_debts"] = True
+        elif _SHORT_NO.search(text):
+            extra["trade_has_debts"] = False
+    elif pending == "trade_in_owner_is_client":
+        if _SHORT_YES.search(text):
+            extra["trade_in_owner_is_client"] = True
+        elif _SHORT_NO.search(text):
+            extra["trade_in_owner_is_client"] = False
+    elif pending == "trade_installment_value":
+        money = normalize_money_value(text)
+        if money is not None:
+            extra["trade_installment_value"] = money
+    elif pending == "trade_installments_remaining":
+        m = re.search(r"\b(\d+)\b", text)
+        if m:
+            extra["trade_installments_remaining"] = int(m.group(1))
+    elif pending == "trade_price_expectation":
+        money = normalize_money_value(text)
+        if money is not None:
+            extra["trade_price_expectation"] = money
 
     # Financing language records payment mode only when this utterance says so
     # and the field is not already canonical. Re-emitting known facts every turn

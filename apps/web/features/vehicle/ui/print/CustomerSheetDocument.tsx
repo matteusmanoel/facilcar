@@ -15,20 +15,23 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
         @media print {
           .print-sheet { max-width: none; min-height: auto; padding: 0; }
         }
+        .print-sheet .print-photo {
+          display: block;
+          width: 100%;
+          height: auto;
+        }
       `}</style>
       <PrintDocumentHeader site={site} title="Ficha do veículo" />
 
-      <div className="mt-4 grid grid-cols-[1.15fr_0.85fr] gap-4">
-        <div className="flex h-[210px] items-center justify-center overflow-hidden rounded-lg bg-zinc-100">
+      <div className="mt-4 grid grid-cols-[1.15fr_0.85fr] items-start gap-4">
+        <div className="min-w-0 overflow-hidden rounded-lg bg-zinc-100">
           {sheet.coverUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={sheet.coverUrl}
-              alt={sheet.title}
-              className="max-h-full max-w-full object-contain"
-            />
+            <img src={sheet.coverUrl} alt={sheet.title} className="print-photo" />
           ) : (
-            <p className="text-sm text-zinc-400">Sem foto</p>
+            <div className="flex aspect-[4/3] items-center justify-center text-sm text-zinc-400">
+              Sem foto
+            </div>
           )}
         </div>
         <div className="flex min-w-0 flex-col">
@@ -72,14 +75,11 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
       </div>
 
       {sheet.thumbUrls.length > 0 ? (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-4 items-start gap-2">
           {sheet.thumbUrls.map((url) => (
-            <div
-              key={url}
-              className="flex h-24 items-center justify-center overflow-hidden rounded-md bg-zinc-100"
-            >
+            <div key={url} className="min-w-0 overflow-hidden rounded-md bg-zinc-100">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="" className="max-h-full max-w-full object-contain" />
+              <img src={url} alt="" className="print-photo" />
             </div>
           ))}
         </div>

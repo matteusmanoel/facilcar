@@ -750,7 +750,10 @@ async def process_turn(
             except Exception:
                 logger.exception("compose_inventory_response failed; using fallback bubbles")
                 outbound.extend(inventory_fallback_bubbles(inv_outcome, language=directive.language))
-            _apply_pending_after_offers(merged, directive)
+            # Only preserve OFFER_ALTERNATIVES for installment_tight — SUCCESS_EMPTY
+            # no longer gates with yes/no; the Composer asks directly for next preference.
+            if plan.reason_code == "installment_tight":
+                _apply_pending_after_offers(merged, directive)
         elif plan.action == Action.SEND_PHOTOS:
             from sdr.understanding.response_composer import compose_photos_response
             from sdr.understanding.validator import validate_inventory_policy

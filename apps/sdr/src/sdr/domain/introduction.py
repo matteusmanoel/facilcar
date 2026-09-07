@@ -27,11 +27,15 @@ _REOPEN_PHRASES = (
     "sou a julia",
     "soy júlia",
     "soy julia",
+    "aqui é a júlia da facilcar",
+    "aqui é a julia da facilcar",
     "como posso ajudar você hoje",
     "como posso te ajudar hoje",
     "em que posso te ajudar hoje",
     "en qué te puedo ayudar hoy",
     "como puedo ayudarte hoy",
+    "estamos felizes pelo seu contato",
+    "estamos felices de que nos hayas contactado",
 )
 
 
@@ -54,7 +58,7 @@ def response_objective_for(*, action: Action | str, should_introduce: bool) -> s
         if action_val == Action.SMALLTALK.value:
             return (
                 "Primeiro contato: apresente-se brevemente como Júlia da FacilCar "
-                "e pergunte se o cliente busca compra, troca, financiamento ou refinanciamento."
+                "e pergunte se o cliente busca comprar, trocar, vender, consignar ou refinanciar."
             )
         return (
             "Primeira mensagem da Júlia nesta conversa: pode se apresentar "
@@ -73,16 +77,47 @@ def response_objective_for(*, action: Action | str, should_introduce: bool) -> s
     )
 
 
-def introduction_smalltalk_bubbles(language: str) -> list[str]:
+def display_first_name(full_name: str | None) -> str | None:
+    """Extract and capitalise first name from full name string."""
+    if not full_name:
+        return None
+    first = full_name.strip().split()[0]
+    return first.capitalize() if first else None
+
+
+def introduction_smalltalk_bubbles(language: str, customer_name: str | None = None) -> list[str]:
+    first_name = display_first_name(customer_name)
     if (language or "").lower().startswith("es"):
-        return [
-            "¡Hola! Soy Júlia de FacilCar.",
-            "¿Buscas compra, permuta, financiamiento o refinanciamiento?",
-        ]
-    return [
-        "Olá! Sou a Júlia da FacilCar.",
-        "Me conta: você busca compra, troca, financiamento ou refinanciamento?",
-    ]
+        greeting = (
+            f"Oi {first_name}, aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
+            if first_name
+            else "¡Hola! Soy Júlia de FacilCar. ¡Estamos felices de que nos hayas contactado!"
+        )
+        menu = (
+            "Cuéntame, ¿estás pensando en:\n"
+            "- Comprar\n"
+            "- Permutar\n"
+            "- Vender\n"
+            "- Consignar\n"
+            "- Refinanciar\n\n"
+            "un vehículo?"
+        )
+        return [greeting, menu]
+    greeting = (
+        f"Oi {first_name}! Aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
+        if first_name
+        else "Oi! Aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
+    )
+    menu = (
+        "Me conta, você está pensando em:\n"
+        "- Comprar\n"
+        "- Trocar\n"
+        "- Vender\n"
+        "- Consignar\n"
+        "- Refinanciar\n\n"
+        "um veículo?"
+    )
+    return [greeting, menu]
 
 
 def continuation_smalltalk_bubbles(language: str) -> list[str]:

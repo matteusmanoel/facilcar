@@ -110,6 +110,7 @@ async def test_process_turn_handoff_uses_narrative_not_ficha() -> None:
         "deal_type": "purchase",
         "payment_method": "financing",
         "down_payment": 10000,
+        "desired_installment": 1500,
     }
     from sdr.domain.decision import inventory_search_key
 

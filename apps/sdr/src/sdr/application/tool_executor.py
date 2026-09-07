@@ -22,6 +22,36 @@ from sdr.domain.types import ActionPlan, ConversationCanonicalState, InventoryOu
 logger = logging.getLogger(__name__)
 
 
+async def _check_sold_vehicle(pool: asyncpg.Pool, model_hint: str) -> dict[str, Any] | None:
+    """Secondary query: find a non-published vehicle matching the hint (max 1).
+
+    Returns a minimal dict if found, or None.  Used exclusively to distinguish
+    SUCCESS_SOLD from SUCCESS_EMPTY so the Composer can say "esse veículo já foi
+    vendido" instead of "não encontramos".
+    """
+    try:
+        words = [w.strip() for w in model_hint.split() if len(w.strip()) > 1][:4]
+        if not words:
+            return None
+        # Simple ILIKE match on title / model — good enough for recognition only.
+        conditions = " AND ".join(f"(title ILIKE $${i+1} OR model ILIKE $${i+1})" for i in range(len(words)))
+        # Replace $$ placeholders with $N
+        for i in range(len(words)):
+            conditions = conditions.replace(f"$${i+1}", f"${i+1}", 1)
+        sql = (
+            f"SELECT id, title, model, brand, year, color, status "
+            f"FROM \"Vehicle\" "
+            f"WHERE status IN ('SOLD', 'RESERVED', 'INACTIVE') AND ({conditions}) "
+            f"LIMIT 1"
+        )
+        row = await pool.fetchrow(sql, *[f"%{w}%" for w in words])
+        if row:
+            return dict(row)
+    except Exception:
+        logger.debug("_check_sold_vehicle secondary query failed (non-critical)")
+    return None
+
+
 async def _run_inventory_search(
     state: ConversationCanonicalState,
     pool: asyncpg.Pool,
@@ -72,6 +102,23 @@ async def _run_inventory_search(
 
     vehicle_dicts = [v.to_dict() for v in vehicles]
     if not vehicle_dicts:
+        # Secondary query: check if there's a sold/unpublished vehicle matching
+        # a vehicle_hint (e.g. from a customer photo) to give an honest response.
+        vehicle_hint = (
+            state.facts.get("vehicle_hint_model")
+            or state.facts.get("desired_model")
+            or state.facts.get("desired_vehicle_text")
+        )
+        if vehicle_hint:
+            sold_vehicle = await _check_sold_vehicle(pool, str(vehicle_hint))
+            if sold_vehicle:
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[sold_vehicle],
+                    alternatives=[],
+                    search_params=search_params,
+                )
         return inventory_result(
             outcome=InventoryOutcome.SUCCESS_EMPTY,
             count=0,

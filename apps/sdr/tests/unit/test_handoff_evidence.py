@@ -98,7 +98,7 @@ def test_visit_intent_handoff() -> None:
 
 
 def test_triage_actionable_after_inventory_key_set() -> None:
-    facts = {"desired_model": "Civic", "deal_type": "purchase", "payment_method": "cash"}
+    facts = {"desired_model": "Civic", "deal_type": "purchase", "payment_method": "cash", "name": "Mateus"}
     state = _state(
         intent=BusinessIntent.PURCHASE,
         facts=facts,

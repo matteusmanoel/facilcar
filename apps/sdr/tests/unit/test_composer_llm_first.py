@@ -59,6 +59,8 @@ def _purchase_financing_facts() -> dict:
         "deal_type": "purchase",
         "payment_method": "financing",
         "down_payment": 0,
+        "desired_installment": 1500,
+        "name": "Mateus",
     }
 
 
