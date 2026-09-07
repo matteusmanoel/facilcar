@@ -64,6 +64,10 @@ class ScenarioRunResult:
     understanding_model: str | None = None
     composer_model: str | None = None
     technical_status: str = "TECHNICAL_FAIL"
+    summary_validation: dict[str, Any] | None = None
+    summary_llm_rejected: bool = False
+    summary_used_fallback: bool = False
+    invariants_executed: list[str] = field(default_factory=list)
 
 
 
@@ -160,7 +164,7 @@ async def run_scenario_detailed(
     from sdr.domain.types import Action
     from sdr.infrastructure.isolated_crm import IsolatedCrmStore
     from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION
-    from tests.golden.invariants import check_scenario, check_turn
+    from tests.golden.invariants import INVARIANT_CATALOG, check_scenario, check_turn
 
     name = scenario.get("name", "unknown")
     turns = scenario.get("turns", [])
@@ -172,6 +176,9 @@ async def run_scenario_detailed(
     fallback_count = 0
     crm_store = IsolatedCrmStore()
     crm_report: dict[str, Any] | None = None
+    summary_validation: dict[str, Any] | None = None
+    summary_llm_rejected = False
+    summary_used_fallback = False
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
 
@@ -333,6 +340,23 @@ async def run_scenario_detailed(
         if not (result.outbound_texts or []) and action_val != "NO_REPLY":
             errors.append(f"[{name}] turn {idx}: empty Composer outbound")
 
+        from sdr.domain.vehicle_presentation import vehicle_card_record
+
+        vehicle_cards = []
+        if action_val.upper() == "SHOW_OFFERS" and (inv_tr.get("outcome") == "SUCCESS_FOUND"):
+            for veh in inv_tr.get("vehicles") or []:
+                vehicle_cards.append(vehicle_card_record(veh))
+        media_items = []
+        for item in getattr(result, "outbound_media", None) or []:
+            media_items.append(
+                item.to_dict() if hasattr(item, "to_dict") else {
+                    "caption": getattr(item, "caption", None),
+                    "url": getattr(item, "url", None),
+                    "vehicle_id": getattr(item, "vehicle_id", None),
+                    "mediatype": getattr(item, "mediatype", None),
+                }
+            )
+
         transcript.append({
             "idx": idx,
             "inbound": inbound_text,
@@ -346,6 +370,8 @@ async def run_scenario_detailed(
                 else None
             ),
             "outbound": list(result.outbound_texts or []),
+            "vehicle_cards": vehicle_cards,
+            "outbound_media": media_items,
             "inventory_outcome": inv_tr.get("outcome"),
             "inventory_query_model": (inv_tr.get("search_params") or {}).get("original_model"),
             "listing_reference_received": inv_tr.get("listing_reference_received"),
@@ -391,6 +417,8 @@ async def run_scenario_detailed(
             "inventory_query": inv_tr.get("search_params"),
             "inventory_match": result.state.last_inventory_match,
             "composer_result": list(result.outbound_texts or []),
+            "vehicle_cards": vehicle_cards,
+            "outbound_media": media_items,
             "composer_model": composer_model if llm_real else "template/stub",
             "retry": 0,
             "fallback": fallback_used,
@@ -426,19 +454,33 @@ async def run_scenario_detailed(
         trace_row["invariant_results"] = inv_msgs or ["pass"]
 
         if plan.action == Action.HANDOFF_VENDOR or plan.handoff:
-            from sdr.domain.vendor_summary import build_vendor_summary
+            from sdr.domain.vendor_summary import compose_vendor_summary
 
+            composed = None
             try:
-                vendor_summary = build_vendor_summary(result.state)
+                composed = compose_vendor_summary(result.state)
+                vendor_summary = composed.text
+                summary_validation = composed.validation
+                summary_llm_rejected = composed.llm_rejected
+                summary_used_fallback = composed.used_fallback
             except Exception as exc:
                 vendor_summary = f"(summary failed: {exc})"
-            stored = crm_store.persist_handoff(result.state)
+                summary_validation = {"pass": False, "violations": [str(exc)]}
+                summary_llm_rejected = False
+                summary_used_fallback = True
+            stored = crm_store.persist_handoff(result.state, composed=composed)
             crm_report = crm_store.verify(result.state.thread_id)
             trace_row["crm_payload"] = stored
             trace_row["crm_persist"] = crm_report
+            trace_row["summary_validation"] = summary_validation
+            if summary_validation and not summary_validation.get("pass"):
+                errors.append(
+                    f"[{name}] turn {idx}: summary_validation — {summary_validation.get('violations')}"
+                )
             if show_trace:
                 print(f"  CRM juliaSummary: {vendor_summary}")
                 print(f"  CRM persist verified: {crm_report.get('matches_payload')}")
+                print(f"  summary_validation: {summary_validation}")
 
         state = result.state
 
@@ -478,6 +520,10 @@ async def run_scenario_detailed(
         seed_version=SEED_VERSION,
         understanding_model=understanding_model,
         composer_model=composer_model,
+        summary_validation=summary_validation,
+        summary_llm_rejected=summary_llm_rejected,
+        summary_used_fallback=summary_used_fallback,
+        invariants_executed=list(INVARIANT_CATALOG),
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
         errors.append(str(v))
@@ -500,7 +546,25 @@ def format_conversation(result: ScenarioRunResult) -> str:
         lines.append(f"**Cliente:** {turn['inbound']}")
         for bubble in turn.get("outbound") or []:
             lines.append(f"**Júlia:** {bubble}")
-        if not turn.get("outbound"):
+        for card in turn.get("vehicle_cards") or []:
+            title = card.get("title") or " ".join(
+                str(card.get(k) or "") for k in ("brand", "model", "version")
+            ).strip()
+            lines.append(
+                f"**Card:** {title} · id={card.get('inventory_id')} · "
+                f"{card.get('year')} · {card.get('price')} · {card.get('mileage')} km · "
+                f"{card.get('color')} · {card.get('transmission')} · fotos={card.get('media_count')}"
+            )
+            for url in card.get("media_urls") or []:
+                lines.append(f"**Mídia:** image {url}")
+        for media in turn.get("outbound_media") or []:
+            cap = (media.get("caption") or "").strip()
+            url = media.get("url") or ""
+            if url and url not in " ".join(lines[-8:]):
+                lines.append(f"**Mídia:** {media.get('mediatype') or 'image'} {url}")
+            if cap:
+                lines.append(f"**Caption:** {cap}")
+        if not turn.get("outbound") and not turn.get("vehicle_cards"):
             lines.append("**Júlia:** _(sem resposta)_")
         meta = []
         if turn.get("action"):
@@ -566,12 +630,23 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
     report = {
         "technical_status_by_scenario": {r.name: r.technical_status for r in results},
         "terminals": {r.name: r.obtained_terminal for r in results},
+        "failures": {r.name: r.errors for r in results if not r.ok},
+        "invariants_executed_by_scenario": {
+            r.name: list(r.invariants_executed)
+            for r in results
+        },
         "fallbacks": sum(r.fallback_count for r in results),
         "retries": sum(r.retry_count for r in results),
+        "summaries_rejected": sum(1 for r in results if r.summary_llm_rejected),
+        "summaries_deterministic_fallback": sum(1 for r in results if r.summary_used_fallback),
+        "persist_verified": sum(
+            1 for r in results if (r.crm_report or {}).get("matches_payload")
+        ),
         "clock": results[0].clock_iso if results else None,
         "seed_version": results[0].seed_version if results else None,
         "understanding_model": results[0].understanding_model if results else None,
         "composer_model": results[0].composer_model if results else None,
+        "human_review": {r.name: "PENDING_HUMAN_REVIEW" for r in results},
     }
     (_TRANSCRIPTS_DIR / "round_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),

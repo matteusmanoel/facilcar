@@ -21,7 +21,7 @@
       ],
       "expected_facts_after": {
         "desired_model": "hb20",
-        "trade_model": "ford ka"
+        "customer_vehicle.model": "Ka"
       },
       "forbidden_in_outbound": [
         "seria compra ou troca",

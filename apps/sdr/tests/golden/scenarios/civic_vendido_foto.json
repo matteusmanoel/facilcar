@@ -40,6 +40,10 @@
           "payment_method": "cash"
         }
       },
+      "expected_facts_after": {
+        "desired_vehicle.model": "Corolla",
+        "payment_method": "cash"
+      },
       "expected_action": "SHOW_OFFERS",
       "expected_outcome_in": [
         "SUCCESS_FOUND"

@@ -44,6 +44,41 @@ class InvariantViolation(AssertionError):
         super().__init__(msg)
 
 
+INVARIANT_CATALOG: list[str] = [
+    "GLOBAL: category_ban_as_stock",
+    "GLOBAL: first_contact_reopen",
+    "GLOBAL: forbidden_promise",
+    "GLOBAL: SALE_no_desired_vehicle_question",
+    "GLOBAL: CONSIGNMENT_no_trade_language",
+    "GLOBAL: REFINANCING_no_trade_language",
+    "GLOBAL: NO_DEAL_TYPE_WHEN_INTENT_KNOWN",
+    "GLOBAL: repeat_answered_field",
+    "GLOBAL: card_generic_title",
+    "GLOBAL: raw_enum_to_customer",
+    "GLOBAL: photos_promised_without_media",
+    "GLOBAL: false_completeness",
+    "GLOBAL: profile_complete_with_missing",
+    "GLOBAL: profile_complete_with_deferred",
+    "GLOBAL: collected_and_deferred",
+    "GLOBAL: documents_collected_while_deferred",
+    "GLOBAL: incompatible_desired_brand_model",
+    "GLOBAL: debt_types_sem_multas",
+    "GLOBAL: debt_clear_with_unknown",
+    "GLOBAL: ambiguous_trade_question",
+    "GLOBAL: success_found_without_offer",
+    "SCENARIO: honda_corolla",
+    "SCENARIO: civic_color_leaked_to_corolla",
+    "SCENARIO: documents_marked_collected",
+    "SCENARIO: deferred_docs_ready_in_summary",
+    "SCENARIO: cnh_deferred_marked_collected",
+    "SCENARIO: sale_summary_invented_trade",
+    "SCENARIO: argo_without_identifiable_offer",
+    "SCENARIO: ka_not_preserved",
+    "SCENARIO: fines_cleared_all_debts",
+    "SCENARIO: summary_validation",
+]
+
+
 def check_turn(
     *,
     scenario_name: str,
@@ -157,6 +192,14 @@ def check_turn(
     if re.search(r"\bautomatic\b", outbound_joined) and "automático" not in outbound_joined:
         fail("GLOBAL: raw_enum_to_customer", f"Raw enum in outbound: {outbound_joined[:160]}")
 
+    if re.search(r"envi(ar|o)\s+(umas\s+)?fotos|te enviar umas fotos", outbound_joined):
+        media = list(getattr(result, "outbound_media", None) or [])
+        if not media:
+            fail(
+                "GLOBAL: photos_promised_without_media",
+                "Composer promised photos but no outbound media was produced",
+            )
+
     collected = getattr(state, "collected_fields", None) or []
     if not collected and re.search(r"j[áa]\s+reuni", outbound_joined):
         fail(
@@ -243,6 +286,72 @@ def check_turn(
                 "invariant_two_concrete_slots",
                 f"Slots must include exact hours, got: {outbound_joined[:180]}",
             )
+
+    # Completeness contract
+    if state is not None:
+        missing = list(getattr(state, "missing_fields", None) or [])
+        deferred = list(getattr(state, "deferred_fields", None) or [])
+        collected = list(getattr(state, "collected_fields", None) or [])
+        if getattr(state, "profile_complete", False) and missing:
+            fail("GLOBAL: profile_complete_with_missing", str(missing))
+        if getattr(state, "profile_complete", False) and deferred:
+            fail("GLOBAL: profile_complete_with_deferred", str(deferred))
+        overlap = set(collected) & set(deferred)
+        if overlap:
+            fail("GLOBAL: collected_and_deferred", str(overlap))
+        if "documents" in collected and (
+            "documents" in deferred or "cnh" in deferred or state.facts.get("documents_deferred")
+        ):
+            fail("GLOBAL: documents_collected_while_deferred", f"collected={collected} deferred={deferred}")
+
+        facts = state.facts or {}
+        desired = facts.get("desired_vehicle") if isinstance(facts.get("desired_vehicle"), dict) else {}
+        from sdr.domain.vehicle_catalog import brands_compatible
+
+        if desired.get("brand") and desired.get("model"):
+            if not brands_compatible(str(desired.get("brand")), str(desired.get("model"))):
+                fail(
+                    "GLOBAL: incompatible_desired_brand_model",
+                    f"{desired.get('brand')} {desired.get('model')}",
+                )
+        cv = facts.get("customer_vehicle") if isinstance(facts.get("customer_vehicle"), dict) else {}
+        if str(cv.get("debt_types") or "").lower() in {"sem_multas", "sem multa"}:
+            fail("GLOBAL: debt_types_sem_multas", str(cv.get("debt_types")))
+        checks = cv.get("debt_checks") if isinstance(cv.get("debt_checks"), dict) else {}
+        if cv.get("debt_status") == "clear" and any(
+            checks.get(k) == "unknown" for k in ("fines", "ipva", "licensing") if k in checks
+        ):
+            fail("GLOBAL: debt_clear_with_unknown", str(checks))
+
+        ask = plan.ask_field
+        if (
+            getattr(state.intent, "value", "") == "trade"
+            and desired.get("model")
+            and cv.get("model")
+            and ask in {"trade_year", "trade_color", "mileage", "trade_has_financing", "trade_has_debts"}
+        ):
+            customer_token = str(cv.get("model")).lower()
+            if re.search(r"qual a cor do ve[ií]culo\?|qual o ano do ve[ií]culo\?", outbound_joined):
+                if customer_token.split()[-1] not in outbound_joined and str(cv.get("brand") or "").lower() not in outbound_joined:
+                    fail(
+                        "GLOBAL: ambiguous_trade_question",
+                        f"ask={ask} outbound={outbound_joined[:160]}",
+                    )
+
+    if (plan.action.value if hasattr(plan.action, "value") else str(plan.action)).upper() == "SHOW_OFFERS":
+        inv_outcome = None
+        vehicles = []
+        for tr in result.tool_results or []:
+            if tr.get("tool") == "inventory_search":
+                inv_outcome = tr.get("outcome")
+                vehicles = tr.get("vehicles") or []
+                break
+        if inv_outcome == "SUCCESS_FOUND":
+            media = list(getattr(result, "outbound_media", None) or [])
+            if not vehicles and not media:
+                fail("GLOBAL: success_found_without_offer", "no vehicles and no media")
+            if re.search(r"te enviar umas fotos", outbound_joined) and not media:
+                fail("GLOBAL: promised_photos_without_media", outbound_joined[:160])
 
     return violations
 
@@ -354,6 +463,62 @@ def check_scenario(
         if not sold_hits:
             match = getattr(state, "last_inventory_match", None) or {}
             fail("SCENARIO: sold_identity", f"no sold listing hit; last={match!r}")
+        desired = facts.get("desired_vehicle") if isinstance(facts.get("desired_vehicle"), dict) else {}
+        if str(desired.get("model") or "").lower() == "corolla" and str(desired.get("brand") or "").lower() == "honda":
+            fail("SCENARIO: honda_corolla", str(desired))
+        if str(desired.get("model") or "").lower() == "corolla" and str(desired.get("color") or "").lower() == "prata":
+            fail("SCENARIO: civic_color_leaked_to_corolla", str(desired))
+        summary = (result.vendor_summary or "").lower()
+        if "honda" in summary and "corolla" in summary:
+            fail("SCENARIO: summary_honda_corolla", result.vendor_summary or "")
+
+    if name == "compra_financiada_com_entrada":
+        deferred = list(getattr(state, "deferred_fields", None) or []) if state else []
+        collected = list(getattr(state, "collected_fields", None) or []) if state else []
+        if "documents" in collected:
+            fail("SCENARIO: documents_marked_collected", str(collected))
+        summary = (result.vendor_summary or "").lower()
+        if re.search(r"documentos?.{0,40}prontos", summary):
+            fail("SCENARIO: deferred_docs_ready_in_summary", result.vendor_summary or "")
+
+    if name == "compra_financiada_sem_entrada":
+        collected = list(getattr(state, "collected_fields", None) or []) if state else []
+        if "documents" in collected:
+            fail("SCENARIO: cnh_deferred_marked_collected", str(collected))
+
+    if name == "venda_direta":
+        summary = (result.vendor_summary or "").lower()
+        if re.search(r"\btroca\b|\btrocar\b", summary):
+            fail("SCENARIO: sale_summary_invented_trade", result.vendor_summary or "")
+
+    if name == "fox_peugeot_troca":
+        found_turns = [t for t in (result.turns or []) if t.get("inventory_outcome") == "SUCCESS_FOUND"]
+        if found_turns:
+            cards = found_turns[-1].get("vehicle_cards") or []
+            titles = " ".join(str(c) for c in cards).lower()
+            if "argo" not in titles and "argo" not in " ".join(found_turns[-1].get("outbound") or []).lower():
+                fail("SCENARIO: argo_without_identifiable_offer", str(cards)[:200])
+
+    if name == "troca_quitada":
+        cv = facts.get("customer_vehicle") if isinstance(facts.get("customer_vehicle"), dict) else {}
+        model = str(cv.get("model") or facts.get("trade_model") or "").lower()
+        if "ka" not in model:
+            fail("SCENARIO: ka_not_preserved", str(cv))
+
+    if name == "troca_financiada":
+        cv = facts.get("customer_vehicle") if isinstance(facts.get("customer_vehicle"), dict) else {}
+        if cv.get("debt_status") == "clear" and "multas" in " ".join(
+            str(t.get("inbound") or "") for t in (result.turns or [])
+        ) and "ipva" not in str(cv.get("debt_checks") or {}).lower() and cv.get("debt_checks", {}).get("ipva") != "clear":
+            # If conversation included IPVA confirmation, ipva must be clear; if only fines, must not be globally clear.
+            only_fines = any("não tenho multas" in str(t.get("inbound") or "").lower() for t in (result.turns or []))
+            ipva_said = any("ipva" in str(t.get("inbound") or "").lower() for t in (result.turns or []))
+            if only_fines and not ipva_said and cv.get("debt_status") == "clear":
+                fail("SCENARIO: fines_cleared_all_debts", str(cv))
+
+    sv = getattr(result, "summary_validation", None)
+    if sv and sv.get("pass") is False:
+        fail("SCENARIO: summary_validation", str(sv.get("violations")))
 
     if name == "gol_nao_encontrado":
         # The Gol lookup itself must stay empty; later alternatives may find other cars.

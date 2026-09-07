@@ -315,3 +315,30 @@ async def test_installment_tight_asks_indirect_not_term() -> None:
     assert "meses" not in joined
     assert "prazo" not in joined
 
+
+@pytest.mark.asyncio
+async def test_trade_color_names_customer_vehicle() -> None:
+    bubbles = await compose_response(
+        {
+            "language": "pt-BR",
+            "intent": "trade",
+            "facts": {
+                "desired_model": "Argo",
+                "desired_vehicle": {"model": "Argo", "brand": "Fiat"},
+                "customer_vehicle": {"brand": "Peugeot", "model": "2008"},
+                "trade_model": "Peugeot 2008",
+            },
+        },
+        {
+            "action": "ask_info",
+            "handoff": False,
+            "tool_calls": [],
+            "next_question": "trade_color",
+            "ask_field": "trade_color",
+        },
+        {},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "peugeot" in joined or "2008" in joined
+    assert "qual a cor do veículo?" not in joined
+

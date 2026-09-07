@@ -56,7 +56,8 @@
         }
       },
       "expected_facts_after": {
-        "trade_model": "peugeot 2008",
+        "customer_vehicle.model": "2008",
+        "customer_vehicle.brand": "Peugeot",
         "trade_year": "2019"
       },
       "forbidden_in_outbound": [

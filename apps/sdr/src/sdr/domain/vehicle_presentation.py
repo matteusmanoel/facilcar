@@ -286,3 +286,24 @@ def shown_vehicle_ids(vehicles: Sequence[Any]) -> list[str]:
         if vid:
             ids.append(vid)
     return ids
+
+
+def vehicle_card_record(vehicle: Any) -> dict[str, Any]:
+    data = _as_mapping(vehicle)
+    images = _image_rows(data)
+    year = _field(data, "yearModel", "year_model", "year")
+    return {
+        "kind": "vehicle_card",
+        "inventory_id": str(data.get("id") or "") or None,
+        "brand": _field(data, "brand", "marca"),
+        "model": _field(data, "model", "modelo"),
+        "version": _field(data, "version", "versao", "versão"),
+        "year": year,
+        "price": format_price_brl(_field(data, "priceCash", "price_cash", "price")),
+        "mileage": _field(data, "mileage"),
+        "color": _field(data, "color"),
+        "transmission": _transmission_label(_field(data, "transmission", "cambio"), es=False),
+        "media_count": len(images),
+        "media_urls": [str(r.get("url")) for r in images if r.get("url")],
+        "title": _vehicle_title(data),
+    }

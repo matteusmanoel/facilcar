@@ -145,6 +145,8 @@ def build_inventory_search_request(
     limit: int = 3,
 ) -> InventorySearchRequest:
     """Build search request from canonical facts + authorized scope."""
+    from sdr.domain.vehicle_catalog import lookup_brand_for_model
+
     model = facts.get("desired_model")
     if not isinstance(model, str) or not model.strip():
         desired = facts.get("desired_vehicle")
@@ -160,6 +162,8 @@ def build_inventory_search_request(
         desired = facts.get("desired_vehicle")
         if isinstance(desired, dict) and isinstance(desired.get("brand"), str):
             brand = desired.get("brand")
+    if not isinstance(brand, str) or not str(brand).strip():
+        brand = lookup_brand_for_model(model) if model else None
     if not isinstance(brand, str) or not str(brand).strip():
         brand = None
     else:

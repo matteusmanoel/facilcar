@@ -11,7 +11,14 @@ SEED_VERSION = "2026-09-07-v2"
 
 
 def load_seed() -> list[dict[str, Any]]:
-    return json.loads(_SEED_FILE.read_text())
+    vehicles = json.loads(_SEED_FILE.read_text())
+    try:
+        from sdr.domain.vehicle_catalog import register_catalog_vehicles
+
+        register_catalog_vehicles(vehicles)
+    except Exception:
+        pass
+    return vehicles
 
 
 def _normalize(text: str) -> str:

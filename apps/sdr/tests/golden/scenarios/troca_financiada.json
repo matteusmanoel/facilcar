@@ -102,7 +102,8 @@
       "understand_return": {
         "intent": "TRADE",
         "facts": {
-          "trade_debt_type": "sem_multas"
+          "debt_status": "partial",
+          "debt_checks": {"fines": "clear"}
         }
       },
       "expected_ask_field_in": [

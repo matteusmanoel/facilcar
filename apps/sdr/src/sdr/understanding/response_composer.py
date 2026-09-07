@@ -30,7 +30,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "down_payment": "Como você pensa nessa negociação? Tem ideia de entrada ou prefere analisar a parcela?",
     "desired_installment": "Até quanto de parcela você tem em mente?",
     "income": "Pode me informar sua renda mensal aproximada?",
-    "documents": "Pra montar a simulação, pode me enviar a CNH e um comprovante de renda (holerite)?",
+    "documents": "Pra montar a simulação, pode me enviar a CNH, um comprovante de residência e um comprovante de renda (holerite)?",
     "vehicle": "Qual modelo ou tipo de carro você está buscando?",
     "vehicle_interest": "Qual modelo ou tipo de carro você está buscando?",
     "brand": "Tem preferência por marca?",
@@ -156,6 +156,34 @@ def _required_question(
                 "Quer que eu veja opções mais próximas dessa parcela, ou seguimos com esse veículo?"
             )
         if key in questions:
+            from sdr.domain.vehicle_roles import format_vehicle_label, get_customer_vehicle
+
+            facts = state.get("facts") if isinstance(state.get("facts"), Mapping) else {}
+            cv = get_customer_vehicle(facts or {})
+            label = format_vehicle_label(cv) or (cv.get("model") if cv else None)
+            intent_val = str(getattr(state.get("intent"), "value", state.get("intent") or ""))
+            if key == "trade_has_debts" and (
+                cv.get("debt_status") == "partial"
+                or (isinstance(cv.get("debt_checks"), dict) and cv["debt_checks"].get("fines") == "clear")
+            ):
+                return "Além das multas, o IPVA e o licenciamento estão em dia?"
+            if label and key in {
+                "trade_year",
+                "trade_color",
+                "mileage",
+                "trade_has_financing",
+                "trade_has_debts",
+                "trade_price_expectation",
+            } and (intent_val == "trade" or (cv.get("model") and (facts or {}).get("desired_model"))):
+                framed = {
+                    "trade_year": f"Para avaliar seu {label} na troca, qual o ano dele?",
+                    "trade_color": f"Para avaliar seu {label} na troca, qual a cor dele?",
+                    "mileage": f"Para avaliar seu {label} na troca, quantos km ele tem?",
+                    "trade_has_financing": f"O seu {label} tem financiamento em aberto?",
+                    "trade_has_debts": f"O seu {label} tem algum débito pendente, como multas ou licenciamento?",
+                    "trade_price_expectation": f"Qual o valor que você tem em mente para o seu {label}?",
+                }
+                return framed.get(key, questions[key])
             return questions[key]
         if key not in {"budget", "budget_max"}:
             return key
@@ -364,35 +392,10 @@ def _follow_up_bubble(
     lang: str,
 ) -> str:
     """Single next commercial question. Never solicit budget."""
+    question = _required_question(state, action_plan, lang)
+    if question:
+        return question
     questions = _FIELD_QUESTIONS_ES if lang == "es" else _FIELD_QUESTIONS_PT
-    next_q = action_plan.get("next_question") or action_plan.get("ask_field")
-    if isinstance(next_q, str) and next_q.strip():
-        key = next_q.strip()
-        if key in {"budget", "budget_max"}:
-            key = "deal_type"
-        if key == "visit":
-            from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
-
-            offered = state.get("offered_visit_slots") or []
-            if not offered:
-                inbound_low = str(state.get("inbound_text") or "").lower()
-                prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
-                offered = suggest_visit_slots(
-                    lang=lang if lang else "pt",
-                    prefer_saturday=prefer_sat,
-                )
-            return format_slot_suggestion(list(offered), lang=lang if lang else "pt")
-        if key in questions:
-            return questions[key]
-        if key not in {"budget", "budget_max"}:
-            return key
-    missing = action_plan.get("missing_fields") or state.get("missing_fields") or []
-    if isinstance(missing, list):
-        for field in missing:
-            if field in {"budget", "budget_max"}:
-                return questions["deal_type"]
-            if isinstance(field, str) and field in questions:
-                return questions[field]
     return questions.get("deal_type") or "Seria compra ou troca?"
 
 
@@ -455,9 +458,15 @@ def _first_contact_opener(state: Mapping[str, Any], lang: str) -> str:
             )
         return "¡Hola! ¿Cómo va? Soy Júlia de FacilCar."
     if model:
+        media_planned = bool(state.get("outbound_media_planned") or state.get("media_planned"))
+        if media_planned:
+            return (
+                f"Olá! Como vai? Eu sou a Júlia aqui da FacilCar. "
+                f"O {model} é uma excelente opção. Deixa eu te enviar umas fotos"
+            )
         return (
             f"Olá! Como vai? Eu sou a Júlia aqui da FacilCar. "
-            f"O {model} é uma excelente opção. Deixa eu te enviar umas fotos"
+            f"O {model} é uma excelente opção."
         )
     return "Olá! Como vai? Eu sou a Júlia aqui da FacilCar."
 
@@ -615,7 +624,9 @@ def _template_compose(
             media_planned = bool((tool_context or {}).get("outbound_media_planned"))
             follow = _follow_up_bubble(state, action_plan, lang)
             if media_planned:
-                return _with_first_contact(state, follow, lang)
+                media_state = dict(state)
+                media_state["outbound_media_planned"] = True
+                return _with_first_contact(media_state, follow, lang)
             from sdr.domain.vehicle_presentation import format_vehicle_caption
 
             captions: list[str] = []
@@ -700,11 +711,14 @@ def compose_inventory_response(
         "facts": getattr(directive, "facts_context", None) or {},
         "conversational_affordance": affordance_val,
         "alternative_scope": scope_val,
+        "intent": getattr(getattr(directive, "intent", None), "value", getattr(directive, "intent", None)),
+        "outbound_media_planned": bool((tool_context or {}).get("outbound_media_planned")),
     }
     plan = {
         "action": "show_offers",
         "handoff": False,
         "next_question": getattr(directive, "next_question", None),
+        "ask_field": getattr(directive, "next_question", None),
     }
     ctx = dict(tool_context or {})
     ctx["inventory_outcome"] = state["inventory_outcome"]
@@ -874,14 +888,28 @@ async def compose_response(
         )
     if next_q_text:
         intent_val = str(state.get("intent") or "")
+        ask = str(action_plan.get("next_question") or action_plan.get("ask_field") or "")
         # Provide intent-specific framing so the LLM doesn't default to "da troca" language
-        if "trade_model" in str(action_plan.get("next_question") or action_plan.get("ask_field") or ""):
+        if "trade_model" in ask:
             if intent_val in ("sale", "consignment", "refinancing"):
                 tone_rule += f"\nPergunta obrigatória deste turno: pergunte sobre o veículo do cliente (NÃO use 'da troca' — este é um atendimento de {intent_val})."
             elif intent_val == "trade":
-                tone_rule += f"\nPergunta obrigatória deste turno: pergunte sobre o veículo que o cliente tem para incluir na troca."
+                tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
             else:
                 tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
+        elif intent_val == "trade" and ask in {
+            "trade_year",
+            "trade_color",
+            "mileage",
+            "trade_has_financing",
+            "trade_has_debts",
+            "trade_price_expectation",
+        }:
+            tone_rule += (
+                f"\nPergunta obrigatória deste turno: {next_q_text} "
+                "Identifique o veículo do cliente (o da troca), não o desejado. "
+                "NÃO pergunte genericamente 'Qual a cor do veículo?' / 'Qual o ano do veículo?'."
+            )
         else:
             tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
     forbidden = state.get("claims_forbidden") or []

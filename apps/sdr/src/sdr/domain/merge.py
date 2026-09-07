@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import re
 
 from sdr.domain.budget_status import BUDGET_RESOLVED, BudgetStatus
 from sdr.domain.engine_displacement import as_engine_list, engine_list_for_json
@@ -25,6 +26,7 @@ from sdr.domain.types import (
 from sdr.domain.vehicle_roles import (
     CUSTOMER_VEHICLE_KEY,
     DESIRED_VEHICLE_KEY,
+    apply_desired_vehicle_substitution,
     canonicalize_vehicle_roles,
     merge_vehicle_dicts,
 )
@@ -101,6 +103,7 @@ def _merge_facts(
     incoming: dict[str, Any],
     explicit_corrections: list[str],
     pending: list[str],
+    inbound_text: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     merged = deepcopy(prev_facts)
     pending_out = list(pending)
@@ -115,6 +118,12 @@ def _merge_facts(
 
         if key in (DESIRED_VEHICLE_KEY, CUSTOMER_VEHICLE_KEY) and isinstance(raw_value, dict):
             prev_vehicle = merged.get(key) if isinstance(merged.get(key), dict) else {}
+            if key == DESIRED_VEHICLE_KEY:
+                from sdr.domain.vehicle_roles import desired_identity_changed, substitute_desired_vehicle
+
+                if desired_identity_changed(prev_vehicle, raw_value.get("model")):
+                    merged[key] = substitute_desired_vehicle(prev_vehicle, raw_value, inbound_text)
+                    continue
             merged[key] = merge_vehicle_dicts(prev_vehicle, raw_value)
             continue
 
@@ -219,6 +228,47 @@ def _apply_pending_and_scope(
         return
 
 
+_DOCUMENT_COMPONENTS = ("cnh", "proof_of_residence", "proof_of_income")
+_DOCS_LATER = re.compile(
+    r"n[aã]o\s+tenho\s+(agora|no\s+momento)|depois\s+eu\s+(envio|mando)|"
+    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)",
+    re.I,
+)
+_CNH_LATER = re.compile(r"cnh", re.I)
+
+
+def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: str) -> None:
+    deferred = list(state.deferred_fields or [])
+
+    def _add(*names: str) -> None:
+        nonlocal deferred
+        for name in names:
+            if name not in deferred:
+                deferred.append(name)
+
+    if state.facts.get("documents_deferred") is True:
+        if _CNH_LATER.search(inbound_text or "") and not re.search(
+            r"documento", inbound_text or "", re.I
+        ):
+            _add("cnh")
+        else:
+            _add(*_DOCUMENT_COMPONENTS)
+    elif _DOCS_LATER.search(inbound_text or ""):
+        state.facts["documents_deferred"] = True
+        if _CNH_LATER.search(inbound_text or "") and not re.search(
+            r"documentos?", inbound_text or "", re.I
+        ):
+            _add("cnh")
+        else:
+            _add(*_DOCUMENT_COMPONENTS)
+    state.deferred_fields = deferred
+    # Never keep the same field collected and deferred.
+    collected = [c for c in (state.collected_fields or []) if c not in deferred]
+    if "documents" in deferred or any(c in deferred for c in _DOCUMENT_COMPONENTS):
+        collected = [c for c in collected if c != "documents"]
+    state.collected_fields = collected
+
+
 def _bump_lifecycle(state: ConversationCanonicalState) -> None:
     """Advance bot lifecycle without touching irreversible human states."""
     status = state.lifecycle.status
@@ -254,6 +304,7 @@ def _bump_lifecycle(state: ConversationCanonicalState) -> None:
 def deterministic_merge(
     prev: ConversationCanonicalState,
     facts: TurnFacts,
+    inbound_text: str = "",
 ) -> ConversationCanonicalState:
     """Merge turn facts into prior state.
 
@@ -340,11 +391,18 @@ def deterministic_merge(
         facts.facts,
         facts.explicit_corrections,
         state.pending_confirmation,
+        inbound_text=inbound_text,
     )
     state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    state.facts = apply_desired_vehicle_substitution(
+        state.facts,
+        prev.facts,
+        facts.facts,
+        inbound_text,
+    )
+    state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    _apply_document_deferral(state, inbound_text)
     if state.facts.get("documents_deferred") is True:
-        if "documents" not in state.deferred_fields:
-            state.deferred_fields = list(state.deferred_fields) + ["documents"]
         state.documents_asked = True
     if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:
         state.intent = BusinessIntent.PURCHASE_FINANCING

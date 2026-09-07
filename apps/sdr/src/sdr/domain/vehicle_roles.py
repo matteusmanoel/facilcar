@@ -17,7 +17,9 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from sdr.domain.debts import compute_debt_status, merge_checks
 from sdr.domain.types import BusinessIntent
+from sdr.domain.vehicle_catalog import enrich_vehicle, model_identity
 
 DESIRED_VEHICLE_KEY = "desired_vehicle"
 CUSTOMER_VEHICLE_KEY = "customer_vehicle"
@@ -35,6 +37,7 @@ CUSTOMER_ATTRS = (
     "installment_value",
     "installments_remaining",
     "debt_status",
+    "debt_checks",
     "debt_types",
     "price_expectation",
 )
@@ -234,11 +237,22 @@ def canonicalize_vehicle_roles(
             _put(customer, "financing_status", "paid_off")
         _put(customer, "installment_value", out.get("trade_installment_value"))
         _put(customer, "installments_remaining", out.get("trade_installments_remaining"))
-        if out.get("trade_has_debts") is True:
+        if isinstance(out.get("debt_checks"), dict):
+            customer["debt_checks"] = merge_checks(customer.get("debt_checks"), out.get("debt_checks"))
+        if out.get("debt_status"):
+            customer["debt_status"] = out.get("debt_status")
+        elif out.get("trade_has_debts") is True:
             _put(customer, "debt_status", "has_debts")
-        elif out.get("trade_has_debts") is False:
+        elif out.get("trade_has_debts") is False and customer.get("debt_status") not in {
+            "partial",
+            "has_debts",
+        }:
             _put(customer, "debt_status", "clear")
-        _put(customer, "debt_types", out.get("trade_debt_type"))
+        if customer.get("debt_checks"):
+            customer["debt_status"] = compute_debt_status(customer.get("debt_checks"))
+        debt_types = out.get("trade_debt_type")
+        if debt_types and str(debt_types).strip().lower() not in {"sem_multas", "sem multa", "sem-multas"}:
+            _put(customer, "debt_types", debt_types)
         _put(customer, "price_expectation", out.get("trade_price_expectation") or out.get("asking_price"))
         if out.get("trade_in_owner_is_client") is True:
             _put(customer, "ownership", "client")
@@ -271,10 +285,16 @@ def canonicalize_vehicle_roles(
         absorb_customer()
 
     if desired:
+        desired = enrich_vehicle(desired)
         out[DESIRED_VEHICLE_KEY] = desired
         if desired.get("model") and not out.get("desired_model"):
             out["desired_model"] = desired["model"]
+        if desired.get("brand") and not out.get("brand"):
+            out["brand"] = desired["brand"]
     if customer:
+        customer = enrich_vehicle(customer)
+        if customer.get("debt_checks"):
+            customer["debt_status"] = compute_debt_status(customer.get("debt_checks"))
         out[CUSTOMER_VEHICLE_KEY] = customer
         if customer.get("model") and not out.get("trade_model"):
             out["trade_model"] = customer["model"]
@@ -291,10 +311,133 @@ def canonicalize_vehicle_roles(
 def merge_vehicle_dicts(prev: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(prev or {})
     for key, value in (incoming or {}).items():
+        if key == "debt_checks" and isinstance(value, dict):
+            merged[key] = merge_checks(merged.get("debt_checks") if isinstance(merged.get("debt_checks"), dict) else None, value)
+            continue
+        if key == "_provenance" and isinstance(value, dict):
+            prev_p = merged.get("_provenance") if isinstance(merged.get("_provenance"), dict) else {}
+            merged[key] = {**prev_p, **value}
+            continue
         if not _filled(value):
             continue
         merged[key] = value
     return merged
+
+
+def substitute_desired_vehicle(
+    previous: dict[str, Any] | None,
+    incoming: dict[str, Any] | None,
+    inbound_text: str = "",
+) -> dict[str, Any]:
+    """Replace desired-vehicle identity; drop listing-bound attributes."""
+    prev = _as_dict(previous)
+    inc = _as_dict(incoming)
+    new_model = inc.get("model") or inc.get("text")
+    if not new_model:
+        return merge_vehicle_dicts(prev, inc)
+
+    out: dict[str, Any] = {"model": new_model}
+    provenance: dict[str, str] = {"model": "customer"}
+
+    packed = parse_packed_vehicle_attrs(inbound_text)
+    model_mentioned = model_identity(new_model) and model_identity(new_model) in model_identity(
+        inbound_text
+    )
+    if packed.get("color") and (model_mentioned or not prev):
+        out["color"] = packed["color"]
+        provenance["color"] = "customer"
+    elif inc.get("color") and packed.get("color"):
+        out["color"] = packed["color"]
+        provenance["color"] = "customer"
+
+    if packed.get("year") and model_mentioned:
+        out["year"] = packed["year"]
+        provenance["year"] = "customer"
+
+    if inc.get("brand"):
+        out["brand"] = inc["brand"]
+        provenance["brand"] = "customer"
+
+    out["_provenance"] = provenance
+    return enrich_vehicle(out)
+
+
+def desired_identity_changed(previous: dict[str, Any] | None, incoming_model: Any) -> bool:
+    prev_id = model_identity((previous or {}).get("model") or (previous or {}).get("text"))
+    new_id = model_identity(incoming_model)
+    if not new_id or not prev_id:
+        return False
+    if new_id == prev_id:
+        return False
+    # "Honda Civic" → "Civic" is the same identity.
+    if prev_id in new_id or new_id in prev_id:
+        return False
+    return True
+
+
+def apply_desired_vehicle_substitution(
+    facts: dict[str, Any],
+    previous_facts: dict[str, Any] | None,
+    incoming_facts: dict[str, Any] | None,
+    inbound_text: str = "",
+) -> dict[str, Any]:
+    """If the desired model changed this turn, replace the nested object."""
+    prev = previous_facts or {}
+    incoming = incoming_facts or {}
+    prev_dv = _as_dict(prev.get(DESIRED_VEHICLE_KEY))
+    if not prev_dv.get("model"):
+        prev_dv = get_desired_vehicle(prev)
+
+    incoming_model = None
+    inc_dv = incoming.get(DESIRED_VEHICLE_KEY)
+    if isinstance(inc_dv, dict) and inc_dv.get("model"):
+        incoming_model = inc_dv.get("model")
+    if not incoming_model:
+        incoming_model = incoming.get("desired_model")
+    if not incoming_model:
+        current = _as_dict(facts.get(DESIRED_VEHICLE_KEY))
+        incoming_model = current.get("model") or facts.get("desired_model")
+
+    if not desired_identity_changed(prev_dv, incoming_model):
+        current = enrich_vehicle(_as_dict(facts.get(DESIRED_VEHICLE_KEY)) or get_desired_vehicle(facts))
+        if current:
+            facts[DESIRED_VEHICLE_KEY] = current
+            if current.get("model"):
+                facts["desired_model"] = current["model"]
+            if current.get("brand"):
+                facts["brand"] = current["brand"]
+        return facts
+
+    inc_payload = inc_dv if isinstance(inc_dv, dict) else {"model": incoming_model}
+    if incoming.get("desired_model") and not inc_payload.get("model"):
+        inc_payload = {**inc_payload, "model": incoming["desired_model"]}
+    replaced = substitute_desired_vehicle(prev_dv, inc_payload, inbound_text)
+    facts[DESIRED_VEHICLE_KEY] = replaced
+    if replaced.get("model"):
+        facts["desired_model"] = replaced["model"]
+    if replaced.get("brand"):
+        facts["brand"] = replaced["brand"]
+    else:
+        from sdr.domain.vehicle_catalog import brands_compatible
+
+        if facts.get("brand") and not brands_compatible(
+            str(facts.get("brand")), str(replaced.get("model"))
+        ):
+            facts.pop("brand", None)
+    # Flat listing-bound attrs must not re-infect the new nested object.
+    if not replaced.get("color"):
+        facts.pop("color", None)
+        facts.pop("desired_color", None)
+    else:
+        facts["color"] = replaced["color"]
+    if not replaced.get("year"):
+        facts.pop("year", None)
+        facts.pop("desired_year", None)
+    else:
+        facts["year"] = replaced["year"]
+    for listing_key in ("listing_id", "inventory_id", "ad_id", "vehicle_id"):
+        facts.pop(listing_key, None)
+    return facts
 
 
 def format_vehicle_label(vehicle: dict[str, Any] | None) -> str | None:

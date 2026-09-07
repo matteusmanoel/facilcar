@@ -10,11 +10,16 @@ import re
 import unicodedata
 from typing import Any
 
+from sdr.domain.debts import compute_debt_status, merge_checks, parse_debt_utterance
 from sdr.domain.facts_schema import normalize_facts, normalize_money_value
 from sdr.domain.pending_interaction import PendingResolution
 from sdr.domain.scheduling import resolve_slot_choice
 from sdr.domain.types import BusinessIntent, ConversationCanonicalState, TurnFacts
-from sdr.domain.vehicle_roles import canonicalize_vehicle_roles, parse_packed_vehicle_attrs
+from sdr.domain.vehicle_roles import (
+    canonicalize_vehicle_roles,
+    get_customer_vehicle,
+    parse_packed_vehicle_attrs,
+)
 
 _CASH = re.compile(
     r"\b(?:[aà]\s*vista|avista|dinheiro|pix|cart[aã]o)\b",
@@ -192,17 +197,17 @@ def overlay_pending_question(
         elif _SHORT_NO.search(text):
             extra["trade_has_financing"] = False
     elif pending == "trade_has_debts":
-        if _FINES_ONLY.search(text) and not _CLEAR_DEBTS.search(text):
-            extra["trade_debt_type"] = "sem_multas"
-        elif _CLEAR_DEBTS.search(text):
-            extra["trade_has_debts"] = False
-        elif _SHORT_YES.search(text):
-            extra["trade_has_debts"] = True
-        elif _SHORT_NO.search(text):
-            extra["trade_has_debts"] = False
+        fragment = parse_debt_utterance(text)
+        if not fragment:
+            if _SHORT_YES.search(text):
+                extra["trade_has_debts"] = True
+            elif _SHORT_NO.search(text) and not _FINES_ONLY.search(text):
+                extra["trade_has_debts"] = False
     elif pending == "documents":
         if _DOCS_LATER.search(text) or _SHORT_NO.search(text):
             extra["documents_deferred"] = True
+            if re.search(r"\bcnh\b", text, re.I) and not re.search(r"documentos?", text, re.I):
+                extra["deferred_document"] = "cnh"
     elif pending == "trade_in_owner_is_client":
         if _SHORT_YES.search(text):
             extra["trade_in_owner_is_client"] = True
@@ -217,9 +222,11 @@ def overlay_pending_question(
         if m:
             extra["trade_installments_remaining"] = int(m.group(1))
     elif pending == "trade_price_expectation":
-        money = normalize_money_value(text)
-        if money is not None:
-            extra["trade_price_expectation"] = money
+        debt_fragment = parse_debt_utterance(text)
+        if not (debt_fragment.get("debt_checks") or debt_fragment.get("all_clear")):
+            money = normalize_money_value(text)
+            if money is not None:
+                extra["trade_price_expectation"] = money
 
     # Financing language records payment mode only when this utterance says so
     # and the field is not already canonical. Re-emitting known facts every turn
@@ -268,9 +275,42 @@ def overlay_pending_question(
     ):
         extra.setdefault("payment_method", "cash")
 
+    if re.search(r"diferen", text, re.I) and (_CASH.search(text) or _FINANCING.search(text)):
+        extra["payment_applies_to"] = "difference"
+        if _CASH.search(text):
+            extra["payment_method"] = "cash"
+        elif _FINANCING.search(text):
+            extra["payment_method"] = "financing"
+
+    debt_fragment = parse_debt_utterance(text)
+    prev_checks = get_customer_vehicle(state.facts).get("debt_checks")
+    if debt_fragment.get("all_clear"):
+        extra["trade_has_debts"] = False
+        extra["debt_status"] = "clear"
+        extra["debt_checks"] = debt_fragment.get("debt_checks")
+    elif debt_fragment.get("has_debts"):
+        extra["trade_has_debts"] = True
+        extra["debt_status"] = "has_debts"
+        extra["debt_checks"] = merge_checks(prev_checks, debt_fragment.get("debt_checks"))
+        if debt_fragment.get("debt_types"):
+            extra["trade_debt_type"] = debt_fragment["debt_types"]
+    elif debt_fragment.get("debt_checks"):
+        facts.facts.pop("trade_has_debts", None)
+        extra.pop("trade_has_debts", None)
+        extra["debt_checks"] = merge_checks(prev_checks, debt_fragment["debt_checks"])
+        status = compute_debt_status(extra["debt_checks"])
+        extra["debt_status"] = status
+        if status == "clear":
+            extra["trade_has_debts"] = False
+        elif status == "has_debts":
+            extra["trade_has_debts"] = True
+
     if extra:
         canonical_extra, _rejected = normalize_facts(extra, source_text=inbound_text)
         facts.facts = {**facts.facts, **canonical_extra}
+    prev_cv = get_customer_vehicle(state.facts)
+    if prev_cv and not facts.facts.get("customer_vehicle"):
+        facts.facts["customer_vehicle"] = dict(prev_cv)
     facts.facts = canonicalize_vehicle_roles(
         facts.facts,
         facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent,

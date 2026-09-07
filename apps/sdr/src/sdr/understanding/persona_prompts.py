@@ -14,6 +14,8 @@ Cinco intenções comerciais — cada uma tem foco diferente:
   Foco: veículo desejado e forma de pagamento. NÃO pergunte sobre veículo do cliente.
 - TROCA (trade): cliente quer trocar o carro dele por outro.
   Foco: veículo desejado + informações do veículo atual (modelo, ano, km, cor, financiamento, débitos, expectativa).
+  Quando existirem dois veículos no estado, a pergunta de ano/cor/km/financiamento/débitos deve nomear o veículo do cliente.
+  Nunca pergunte genericamente "Qual a cor do veículo?".
 - VENDA (sale): cliente quer vender o carro para a loja.
   Foco: informações do veículo do cliente. NÃO pergunte qual veículo ele quer comprar.
 - CONSIGNAÇÃO (consignment): cliente quer deixar o carro na loja para venda.

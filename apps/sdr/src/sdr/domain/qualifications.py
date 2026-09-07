@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sdr.domain.debts import debts_are_resolved
 from sdr.domain.types import (
     Actionability,
     BusinessIntent,
@@ -80,14 +81,36 @@ def _trade_financing_detail(facts: dict[str, Any]) -> bool:
     return False
 
 
-def _documents_satisfied(state: ConversationCanonicalState) -> bool:
-    if state.documents_asked:
+def _documents_collected(state: ConversationCanonicalState) -> bool:
+    if state.document_received:
         return True
-    if "documents" in (state.deferred_fields or []):
+    if state.facts.get("documents_received") is True:
+        return True
+    return False
+
+
+def _documents_step_handled(state: ConversationCanonicalState) -> bool:
+    """True when the documents step was asked, deferred, or actually received."""
+    if _documents_collected(state):
+        return True
+    deferred = set(state.deferred_fields or [])
+    if deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
         return True
     if state.facts.get("documents_deferred") is True:
         return True
-    return False
+    return bool(state.documents_asked)
+
+
+def _debts_answered(facts: dict[str, Any]) -> bool:
+    cv = get_customer_vehicle(facts)
+    status = cv.get("debt_status")
+    checks = cv.get("debt_checks") if isinstance(cv.get("debt_checks"), dict) else None
+    if debts_are_resolved(checks, status if isinstance(status, str) else None):
+        return True
+    if status in {"partial", "unknown"}:
+        return False
+    has_flag = facts.get("trade_has_debts")
+    return has_flag is True or has_flag is False
 
 
 def is_seller_actionable(state: ConversationCanonicalState) -> bool:
@@ -109,7 +132,7 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
             _desired_vehicle(facts)
             and _has_name(state)
             and _has(facts, "desired_installment")
-            and _documents_satisfied(state)
+            and _documents_step_handled(state)
         )
 
     if intent == BusinessIntent.TRADE:
@@ -121,10 +144,7 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
             or _has(facts, "trade_has_financing")
         )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = (
-            get_customer_vehicle(facts).get("debt_status") is not None
-            or _has(facts, "trade_has_debts")
-        )
+        debts_answered = _debts_answered(facts)
         price_exp = customer_has(facts, "price_expectation") or _has(facts, "trade_price_expectation")
         name = _has_name(state)
         return bool(
@@ -141,10 +161,7 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
             or _has(facts, "trade_has_financing")
         )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = (
-            get_customer_vehicle(facts).get("debt_status") is not None
-            or _has(facts, "trade_has_debts")
-        )
+        debts_answered = _debts_answered(facts)
         price_exp = (
             customer_has(facts, "price_expectation")
             or _has(facts, "trade_price_expectation", "asking_price", "desired_price")
@@ -164,10 +181,7 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
             or _has(facts, "trade_has_financing")
         )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = (
-            get_customer_vehicle(facts).get("debt_status") is not None
-            or _has(facts, "trade_has_debts")
-        )
+        debts_answered = _debts_answered(facts)
         price_exp = (
             customer_has(facts, "price_expectation")
             or _has(facts, "trade_price_expectation", "asking_price", "desired_price")
@@ -230,10 +244,15 @@ def is_handoff_ready(state: ConversationCanonicalState) -> bool:
 
 
 def collected_fields(state: ConversationCanonicalState) -> list[str]:
-    """Applicable fields that already have a value."""
+    """Applicable fields that already have a value and were not deferred."""
     found: list[str] = []
+    deferred = set(state.deferred_fields or [])
     for field in ASK_FIELD_PRIORITY.get(state.intent, []):
         if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+            continue
+        if field in deferred:
+            continue
+        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
             continue
         if _field_is_filled(state, field):
             found.append(field)
@@ -248,6 +267,8 @@ def missing_fields(state: ConversationCanonicalState) -> list[str]:
         if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
             continue
         if field in deferred:
+            continue
+        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
             continue
         if field == "intent":
             continue
@@ -269,14 +290,35 @@ def refresh_actionability(state: ConversationCanonicalState) -> ConversationCano
     INSUFFICIENT: still collecting the minimum for this intent.
     """
     state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
-    if state.facts.get("documents_deferred") is True and "documents" not in state.deferred_fields:
-        state.deferred_fields = list(state.deferred_fields) + ["documents"]
+    if state.facts.get("documents_deferred") is True and "documents" not in (
+        state.deferred_fields or []
+    ) and not (set(state.deferred_fields or []) & {"cnh", "proof_of_residence", "proof_of_income"}):
+        state.deferred_fields = list(state.deferred_fields) + ["cnh", "proof_of_residence", "proof_of_income"]
         state.documents_asked = True
 
-    state.profile_complete = is_seller_actionable(state)
-    state.handoff_ready = is_handoff_ready(state)
     state.missing_fields = missing_fields(state)
     state.collected_fields = collected_fields(state)
+    state.handoff_ready = is_handoff_ready(state)
+    state.profile_complete = (
+        is_seller_actionable(state)
+        and not state.missing_fields
+        and not state.deferred_fields
+        and _debts_answered(state.facts)
+        if state.intent in (
+            BusinessIntent.TRADE,
+            BusinessIntent.SALE,
+            BusinessIntent.CONSIGNMENT,
+        )
+        else (
+            is_seller_actionable(state)
+            and not state.missing_fields
+            and not state.deferred_fields
+        )
+    )
+    # Partial debts must never count as a complete profile.
+    cv = get_customer_vehicle(state.facts)
+    if cv.get("debt_status") == "partial":
+        state.profile_complete = False
 
     signals = state.signals
     if any(
@@ -357,7 +399,6 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
         "trade_price_expectation",
         "payment_method",
         "name",
-        "trade_renavam",
     ],
     BusinessIntent.SALE: [
         "trade_model",
@@ -370,7 +411,6 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
         "trade_has_debts",
         "trade_price_expectation",
         "name",
-        "trade_renavam",
     ],
     BusinessIntent.CONSIGNMENT: [
         "trade_model",
@@ -384,7 +424,6 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
         "trade_price_expectation",
         "leave_at_store",
         "name",
-        "trade_renavam",
     ],
     BusinessIntent.REFINANCING: [
         "trade_model",
@@ -420,7 +459,7 @@ def _field_is_filled(state: ConversationCanonicalState, field: str) -> bool:
             facts, "trade_installments_remaining"
         )
     if field == "trade_has_debts":
-        return cv.get("debt_status") is not None or _has(facts, "trade_has_debts")
+        return _debts_answered(facts)
     if field == "trade_price_expectation":
         return cv.get("price_expectation") is not None or _has(
             facts, "trade_price_expectation", "asking_price"
@@ -430,7 +469,7 @@ def _field_is_filled(state: ConversationCanonicalState, field: str) -> bool:
     if field == "name":
         return _has_name(state)
     if field == "documents":
-        return _documents_satisfied(state)
+        return _documents_collected(state)
     if field == "desired_installment":
         return state.installment_asked or _has(facts, "desired_installment", "parcela")
     if field == "payment_method":
@@ -457,6 +496,10 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
                 return "intent"
             continue
         if field in inapplicable or field in deferred:
+            continue
+        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
+            continue
+        if field == "documents" and _documents_step_handled(state):
             continue
         if field == "budget":
             continue

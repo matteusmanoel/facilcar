@@ -10,16 +10,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sdr.domain.qualifications import is_handoff_ready, is_seller_actionable
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_roles import get_customer_vehicle, get_desired_vehicle
-from sdr.domain.vendor_summary import build_vendor_summary
+from sdr.domain.vendor_summary import compose_vendor_summary
 from sdr.infrastructure.lead_repository import INTENT_TO_LEAD_TYPE
 
 
-def build_crm_payload(state: ConversationCanonicalState) -> dict[str, Any]:
+def build_crm_payload(state: ConversationCanonicalState, composed: Any = None) -> dict[str, Any]:
     """Structured payload equivalent to what mark_qualified_for_handoff persists."""
-    summary = build_vendor_summary(state)
+    if composed is None:
+        composed = compose_vendor_summary(state)
+    summary = composed.text
     desired = get_desired_vehicle(state.facts)
     customer = get_customer_vehicle(state.facts)
     return {
@@ -43,8 +44,9 @@ def build_crm_payload(state: ConversationCanonicalState) -> dict[str, Any]:
         "deferred_fields": list(state.deferred_fields or []),
         "handoff_reason": state.lifecycle.handoff_reason,
         "visit_preferred_time": state.visit_preferred_time,
-        "profile_complete": is_seller_actionable(state),
-        "handoff_ready": is_handoff_ready(state),
+        "profile_complete": bool(state.profile_complete),
+        "handoff_ready": bool(state.handoff_ready),
+        "summary_validation": composed.validation,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -54,8 +56,8 @@ class IsolatedCrmStore:
         self._records: dict[str, dict[str, Any]] = {}
         self._payloads_sent: dict[str, dict[str, Any]] = {}
 
-    def persist_handoff(self, state: ConversationCanonicalState) -> dict[str, Any]:
-        payload = build_crm_payload(state)
+    def persist_handoff(self, state: ConversationCanonicalState, composed: Any = None) -> dict[str, Any]:
+        payload = build_crm_payload(state, composed=composed)
         self._payloads_sent[state.thread_id] = copy.deepcopy(payload)
         stored = copy.deepcopy(payload)
         self._records[state.thread_id] = stored

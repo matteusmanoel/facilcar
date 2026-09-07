@@ -60,6 +60,10 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "name",
         # Own vehicle (sale / trade / refinance / consignment)
         "customer_vehicle",  # nested role object (canonical)
+        "debt_status",
+        "debt_checks",
+        "payment_applies_to",
+        "documents_received",
         "documents_deferred",
         "vehicle_model",
         "vehicle_year",
@@ -344,11 +348,15 @@ def normalize_facts(
 
         value: Any = raw_value
 
-        if canonical in {"desired_vehicle", "customer_vehicle"} and isinstance(value, dict):
+        if canonical in {"desired_vehicle", "customer_vehicle", "debt_checks"} and isinstance(value, dict):
             if canonical not in out:
                 out[canonical] = {
                     k: v for k, v in value.items() if v is not None and v != ""
                 }
+            elif isinstance(out.get(canonical), dict):
+                out[canonical] = {**out[canonical], **{
+                    k: v for k, v in value.items() if v is not None and v != ""
+                }}
             continue
 
         if canonical == "documents_deferred":

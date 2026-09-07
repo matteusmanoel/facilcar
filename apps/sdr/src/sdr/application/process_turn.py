@@ -649,7 +649,7 @@ async def process_turn(
             facts.facts = {**facts.facts, **identity_patch}
 
     prev_pending = state.pending_question
-    merged = deterministic_merge(state, facts)
+    merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
     if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
         merged.document_received = True
 
