@@ -1,25 +1,20 @@
 {
   "name": "compra_avista",
-  "description": "Compra à vista. Roteiro: interesse → modelo → deal_type=purchase → nome → handoff.",
+  "description": "Compra à vista. Roteiro: interesse → veículo encontrado no seed → nome → visita → handoff.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero comprar um Onix",
-      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Onix"}},
+      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Onix Plus"}},
       "expected_action": "SHOW_OFFERS",
-      "expected_facts_after": {"desired_model": "onix"}
-    },
-    {
-      "inbound": "Compra mesmo, à vista",
-      "understand_return": {"intent": "PURCHASE", "facts": {"deal_type": "purchase", "payment_method": "cash"}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"deal_type": "purchase"},
-      "expected_ask_field_in": ["name"]
+      "expected_facts_after": {"desired_model": "onix plus"},
+      "forbidden_in_outbound": ["reservado", "garanto", "aprovado", "seria compra ou troca"]
     },
     {
       "inbound": "Me chamo Lucas Rocha",
       "understand_return": {"intent": "PURCHASE", "facts": {"name": "Lucas Rocha"}},
-      "expected_facts_after": {"name": "Lucas Rocha"}
+      "expected_facts_after": {"name": "Lucas Rocha"},
+      "forbidden_in_outbound": ["reservado", "garanto", "seria compra ou troca"]
     }
   ]
 }

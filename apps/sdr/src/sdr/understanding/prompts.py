@@ -22,7 +22,20 @@ Intent canônico:
   "vocês têm X?", "tem disponível?", "quero ver opções", "quero saber sobre X".
   NÃO exige intenção de fechar agora.
 - purchase_financing: compra com foco em financiamento.
-- trade / sale / consignment / refinancing: conforme o caso.
+- trade: cliente quer TROCAR o carro dele por outro veículo da loja
+  ("quero trocar", "tenho um X para dar na troca", "quero um Y e tenho um Z").
+  Sempre há dois veículos envolvidos: o que o cliente tem E o que ele quer.
+- sale: cliente quer VENDER o carro dele PARA A LOJA, sem necessariamente
+  comprar outro ("quero vender meu X", "tenho interesse em vender",
+  "gostaria de vender meu carro", "vocês compram carros?", "quanto pagam pelo meu X?").
+  Só há um veículo: o do cliente. NÃO extraia desired_model para sale.
+- consignment: cliente quer deixar o carro na loja para que a loja venda por ele
+  ("quero consignar", "posso deixar meu carro para vocês venderem?").
+- refinancing: cliente quer levantar dinheiro usando o próprio carro como garantia
+  ("quero refinanciar", "usar meu carro como garantia para empréstimo").
+- IMPORTANTE: "quero vender" ≠ "quero trocar". Use sale quando o cliente não
+  mencionar veículo que quer adquirir. Use trade apenas quando houver intenção
+  clara de adquirir outro veículo ao mesmo tempo.
 - smalltalk: saudação pura ou bate-papo sem conteúdo comercial.
 - unknown: só quando realmente não for possível classificar.
 

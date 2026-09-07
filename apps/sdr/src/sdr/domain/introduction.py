@@ -21,6 +21,14 @@ _GREETING_OPENER = re.compile(
     re.IGNORECASE,
 )
 
+# First-contact identity prefix that may follow (or replace) a greeting particle.
+_INTRO_PREFIX = re.compile(
+    r"^\s*(?:(?:oi+|ol[áa]|oie|hola)\b[!?.¡¿\s,]*)?"
+    r"(?:aqui é a |sou a |soy )j[uú]lia(?: da facilcar| de facilcar)?"
+    r"[^.!?\n]{0,80}[.!…]?\s*",
+    re.IGNORECASE,
+)
+
 # First-contact reopen phrases — protocol, not product-term heuristics.
 _REOPEN_PHRASES = (
     "sou a júlia",
@@ -143,4 +151,7 @@ def is_first_contact_reopen(bubbles: Sequence[str]) -> bool:
 
 
 def strip_greeting_opener(text: str) -> str:
+    stripped = _INTRO_PREFIX.sub("", text, count=1).strip()
+    if stripped != text.strip():
+        return stripped
     return _GREETING_OPENER.sub("", text, count=1).strip()

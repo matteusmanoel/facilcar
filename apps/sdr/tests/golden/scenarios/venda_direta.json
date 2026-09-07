@@ -1,21 +1,37 @@
 {
   "name": "venda_direta",
-  "description": "Cliente quer vender o veículo diretamente para a loja.",
+  "description": "Cliente quer vender o veículo diretamente para a loja. SALE nunca deve perguntar qual veículo ele quer comprar nem usar linguagem de troca.",
   "initial_state": {},
+  "expected_final_intent": "sale",
   "turns": [
     {
       "inbound": "Gostaria de vender meu Corolla",
       "understand_return": {"intent": "SALE", "facts": {"trade_model": "Corolla"}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_model": "corolla"},
-      "expected_ask_field_in": ["trade_year", "mileage"]
+      "expected_ask_field_in": ["trade_year", "mileage"],
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "qual modelo você procura",
+        "seria compra ou troca",
+        "que carro você está procurando",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "para a troca",
+        "qual modelo ou tipo de carro você está buscando para"
+      ]
     },
     {
       "inbound": "2020, prata, 50000 km",
       "understand_return": {"intent": "SALE", "facts": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000},
-      "expected_ask_field_in": ["trade_has_financing"]
+      "expected_ask_field_in": ["trade_has_financing"],
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "qual modelo você procura",
+        "seria compra ou troca"
+      ]
     }
   ]
 }

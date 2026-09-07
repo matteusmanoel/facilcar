@@ -1,27 +1,30 @@
 {
   "name": "troca_com_debitos",
-  "description": "Troca com débitos de multas e licenciamento pendente. Deve registrar os débitos e continuar o roteiro.",
+  "description": "Troca com débitos de multas e licenciamento pendente. Deve registrar os débitos e continuar o roteiro. Nunca perguntar 'compra ou troca?' após intent TRADE.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero trocar meu Gol por um Onix",
-      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Onix", "deal_type": "trade", "trade_model": "Gol"}},
+      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Onix Plus", "trade_model": "Gol"}},
       "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_model": "onix", "deal_type": "trade", "trade_model": "gol"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"]
+      "expected_facts_after": {"desired_model": "onix plus", "trade_model": "gol"},
+      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"],
+      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
     },
     {
       "inbound": "2017, preto, 90000 km, quitado",
       "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2017", "trade_color": "preto", "mileage": 90000, "trade_has_financing": "false"}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_has_debts"]
+      "expected_ask_field_in": ["trade_has_debts"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Tem uma multa e o licenciamento atrasado",
       "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "true", "trade_debt_type": "multa e licenciamento"}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_debt_type": "multa e licenciamento"},
-      "expected_ask_field_in": ["trade_price_expectation"]
+      "expected_ask_field_in": ["trade_price_expectation"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     }
   ]
 }

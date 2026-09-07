@@ -138,8 +138,62 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
     return False
 
 
+def is_handoff_ready(state: ConversationCanonicalState) -> bool:
+    """Return True when minimum data is collected to enable a productive handoff.
+
+    Looser than is_seller_actionable (full triage). Represents the minimum
+    threshold for the lead to be commercially actionable — even if the complete
+    qualification roteiro hasn't finished.
+    """
+    facts = state.facts
+    intent = state.intent
+
+    if intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
+        return False
+
+    # Any strong explicit signal → handoff ready regardless of collected data.
+    sig = state.signals
+    if any([sig.explicit_handoff, sig.explicit_offer, sig.high_purchase_intent, sig.visit_intent]):
+        return True
+
+    if intent == BusinessIntent.PURCHASE:
+        # Vehicle identity alone is sufficient for à-vista purchase lead.
+        return _desired_vehicle(facts)
+
+    if intent == BusinessIntent.PURCHASE_FINANCING:
+        # Vehicle identity sufficient to start financing conversation.
+        return _desired_vehicle(facts)
+
+    if intent == BusinessIntent.TRADE:
+        # Need both the desired vehicle AND the trade-in vehicle identity.
+        return _desired_vehicle(facts) and _own_vehicle_identity(facts)
+
+    if intent == BusinessIntent.SALE:
+        # Own vehicle identity is the minimum for a sale lead.
+        return _own_vehicle_identity(facts)
+
+    if intent == BusinessIntent.CONSIGNMENT:
+        # Own vehicle identity is the minimum for a consignment lead.
+        return _own_vehicle_identity(facts)
+
+    if intent == BusinessIntent.REFINANCING:
+        # Vehicle identity + amount is the minimum for refinancing.
+        identity = _own_vehicle_identity(facts) or _has(facts, "vehicle_model", "model")
+        return identity
+
+    return False
+
+
 def refresh_actionability(state: ConversationCanonicalState) -> ConversationCanonicalState:
-    """Update business.actionability from triage rules + handoff-now signals."""
+    """Update business.actionability from triage rules + handoff-now signals.
+
+    HANDOFF_NOW: explicit signal from customer or high-intent behaviour.
+    ACTIONABLE: full triage complete (is_seller_actionable); vendor can take over.
+    INSUFFICIENT: still collecting data.
+
+    Note: is_handoff_ready() represents a lower bar (minimum viable handoff)
+    but does not change actionability — it is available for temperature/scoring.
+    """
     signals = state.signals
     if any(
         (
@@ -157,12 +211,49 @@ def refresh_actionability(state: ConversationCanonicalState) -> ConversationCano
     return state
 
 
+# Fields that are INAPPLICABLE for each intent — must never be asked.
+# When a field is inapplicable, next_ask_field must skip it entirely.
+INAPPLICABLE_FIELDS: dict[BusinessIntent, frozenset[str]] = {
+    BusinessIntent.PURCHASE: frozenset({
+        "trade_model", "trade_year", "trade_color",
+        "trade_has_financing", "trade_installment_value",
+        "trade_installments_remaining", "trade_has_debts",
+        "trade_price_expectation", "trade_renavam",
+        "leave_at_store", "amount_needed",
+    }),
+    BusinessIntent.PURCHASE_FINANCING: frozenset({
+        "trade_model", "trade_year", "trade_color",
+        "trade_has_financing", "trade_installment_value",
+        "trade_installments_remaining", "trade_has_debts",
+        "trade_price_expectation", "trade_renavam",
+        "leave_at_store", "amount_needed",
+    }),
+    BusinessIntent.TRADE: frozenset({
+        "leave_at_store", "amount_needed",
+    }),
+    BusinessIntent.SALE: frozenset({
+        "desired_model", "desired_vehicle_text", "desired_vehicle",
+        "vehicle_interest", "down_payment", "desired_installment",
+        "leave_at_store", "amount_needed",
+    }),
+    BusinessIntent.CONSIGNMENT: frozenset({
+        "desired_model", "desired_vehicle_text", "desired_vehicle",
+        "vehicle_interest", "down_payment", "desired_installment",
+        "amount_needed",
+    }),
+    BusinessIntent.REFINANCING: frozenset({
+        "desired_model", "desired_vehicle_text", "desired_vehicle",
+        "vehicle_interest", "down_payment", "desired_installment",
+        "leave_at_store",
+    }),
+}
+
+
 # Preferential ask order per intent (one question at a time).
 # Fields marked # COND are only asked when a prerequisite is True.
 ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
     BusinessIntent.PURCHASE: [
         "desired_model",
-        "deal_type",   # "seria compra ou troca?" — helps qualify the lead type
         "name",
     ],
     BusinessIntent.PURCHASE_FINANCING: [
@@ -174,7 +265,6 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
     ],
     BusinessIntent.TRADE: [
         "desired_model",
-        "deal_type",
         "trade_model",
         "trade_year",
         "trade_color",            # NEW
@@ -267,14 +357,34 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
         "name": ("name",),
         "intent": (),
     }
+
+    # Inapplicable fields for this intent — never ask regardless of priority list.
+    inapplicable = INAPPLICABLE_FIELDS.get(state.intent, frozenset())
+
     for field in order:
         if field == "intent":
             if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
                 return "intent"
             continue
+
+        # Skip fields that are semantically inapplicable for this intent.
+        if field in inapplicable:
+            continue
+
         if field == "budget":
             # Budget is sensitive — extract if volunteered, never solicit.
             continue
+
+        # deal_type is only useful when intent is undetermined.
+        # When intent is already concrete (TRADE, PURCHASE, etc.), deal_type
+        # is implicit — never ask proactively.
+        if field == "deal_type":
+            if state.intent not in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
+                continue
+            if _has(facts, "deal_type"):
+                continue
+            return "deal_type"
+
         if field == "documents":
             if state.documents_asked:
                 continue

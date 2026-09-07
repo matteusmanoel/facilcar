@@ -232,17 +232,9 @@ def _build_response_directive(
     inventory_outcome = extract_inventory_outcome(tool_results)
     allowed, forbidden = claims_for_inventory_outcome(inventory_outcome)
 
-    # Only authorize the alternatives CTA when we will record pending_interaction.
+    # SUCCESS_EMPTY asks for other models directly — no yes/no alternatives gate.
     affordance = PendingInteraction.NONE
-    if (
-        plan.action == Action.SHOW_OFFERS
-        and inventory_outcome == InventoryOutcome.SUCCESS_EMPTY
-    ):
-        affordance = PendingInteraction.OFFER_ALTERNATIVES
-        if "ask_if_alternatives_acceptable" not in allowed:
-            allowed = [*allowed, "ask_if_alternatives_acceptable"]
-    else:
-        allowed = [c for c in allowed if c != "ask_if_alternatives_acceptable"]
+    allowed = [c for c in allowed if c != "ask_if_alternatives_acceptable"]
 
     claims_forbidden = [
         "approval_guarantee",
@@ -539,6 +531,8 @@ async def process_turn(
                 reason=f"Media could not be processed: {failure}",
             )
             outbound = _compose_media_failed_response(inbound)
+        if outbound:
+            state.assistant_turn_count = state.assistant_turn_count + 1
         return ProcessTurnResult(
             action_plan=plan,
             state=state,
@@ -795,6 +789,9 @@ async def process_turn(
                     "fallback_used": True,
                     "violations": ["composer_exception"],
                 }
+
+    if outbound or outbound_media or outbound_location:
+        merged.assistant_turn_count = state.assistant_turn_count + 1
 
     return ProcessTurnResult(
         action_plan=plan,

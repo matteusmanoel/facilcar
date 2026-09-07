@@ -34,9 +34,9 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "vehicle": "Qual modelo ou tipo de carro você está buscando?",
     "vehicle_interest": "Qual modelo ou tipo de carro você está buscando?",
     "brand": "Tem preferência por marca?",
-    "trade_in": "Qual marca, modelo e ano do carro da troca?",
-    "trade_model": "Qual marca e modelo do carro da troca?",
-    "trade_year": "Qual o ano do carro da troca?",
+    "trade_in": "Qual marca, modelo e ano do veículo?",
+    "trade_model": "Qual marca e modelo do veículo?",
+    "trade_year": "Qual o ano do veículo?",
     "trade_color": "Qual a cor do veículo?",
     "trade_has_financing": "O veículo tem financiamento em aberto?",
     "trade_installment_value": "Qual o valor atual da parcela?",
@@ -48,7 +48,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "plate": "Se tiver a placa do veículo, pode me passar?",
     "location": "Você está de qual cidade?",
     "city": "Você é de em qual cidade?",
-    "visit": "Qual dia e horário fica melhor pra você passar na loja?",
+    "visit": "Que tal esta semana? Pode ser de manhã ou à tarde — fico no aguardo!",
     "timeline": "Em quanto tempo você pensa em fechar?",
     "mileage": "Quantos km rodados tem o veículo, aproximadamente?",
     "asking_price": "Até qual valor você tem em mente?",
@@ -70,9 +70,9 @@ _FIELD_QUESTIONS_ES: dict[str, str] = {
     "vehicle": "¿Qué modelo o tipo de auto estás buscando?",
     "vehicle_interest": "¿Qué modelo o tipo de auto estás buscando?",
     "brand": "¿Tienes alguna marca de preferencia?",
-    "trade_in": "¿Me cuentas marca, modelo y año del auto del canje?",
-    "trade_model": "¿Cuál es la marca y modelo del auto del canje?",
-    "trade_year": "¿De qué año es el auto del canje?",
+    "trade_in": "¿Me cuentas marca, modelo y año del vehículo?",
+    "trade_model": "¿Cuál es la marca y modelo del vehículo?",
+    "trade_year": "¿De qué año es el vehículo?",
     "trade_color": "¿Cuál es el color del vehículo?",
     "trade_has_financing": "¿El vehículo tiene financiamiento vigente?",
     "trade_installment_value": "¿Cuánto es el valor de la cuota actual?",
@@ -878,7 +878,17 @@ async def compose_response(
             "na ficha para a simulação. NÃO reacuse 'financiado'."
         )
     if next_q_text:
-        tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
+        intent_val = str(state.get("intent") or "")
+        # Provide intent-specific framing so the LLM doesn't default to "da troca" language
+        if "trade_model" in str(action_plan.get("next_question") or action_plan.get("ask_field") or ""):
+            if intent_val in ("sale", "consignment", "refinancing"):
+                tone_rule += f"\nPergunta obrigatória deste turno: pergunte sobre o veículo do cliente (NÃO use 'da troca' — este é um atendimento de {intent_val})."
+            elif intent_val == "trade":
+                tone_rule += f"\nPergunta obrigatória deste turno: pergunte sobre o veículo que o cliente tem para incluir na troca."
+            else:
+                tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
+        else:
+            tone_rule += f"\nPergunta obrigatória deste turno: {next_q_text}"
     forbidden = state.get("claims_forbidden") or []
     if "reask_shown_vehicle" in forbidden:
         tone_rule += (

@@ -1,15 +1,26 @@
 {
   "name": "civic_vendido_foto",
-  "description": "Cliente manda foto do Civic que está 'Vendido' no catálogo. Agente deve informar que foi vendido e oferecer alternativas.",
+  "description": "Cliente pergunta sobre o Honda Civic Prata do catálogo. O seed tem o Civic como SOLD. Agente deve informar que foi vendido e oferecer alternativas.",
   "initial_state": {},
+  "seed_vehicle_hint": "VH-SOLD-CIVIC-001",
   "turns": [
     {
-      "inbound": "Esse Civic Prata da foto ainda está disponível?",
-      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Honda Civic", "desired_vehicle_text": "Civic Prata", "vehicle_hint_model": "Civic Prata"}},
+      "inbound": "Esse Honda Civic Prata ainda está disponível?",
+      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Honda Civic", "desired_vehicle_text": "Civic Prata"}},
       "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": ["SUCCESS_SOLD", "SUCCESS_EMPTY"],
       "forbidden_in_outbound": [
         "não trabalhamos",
-        "não localizei seu veículo"
+        "não localizei seu veículo",
+        "veículo disponível",
+        "está disponível"
+      ],
+      "required_in_outbound_any": [
+        "vendido",
+        "não está mais",
+        "não disponível",
+        "alternativ",
+        "outros"
       ]
     }
   ]

@@ -49,3 +49,27 @@ def test_vendor_summary_financing_not_cash() -> None:
     assert "Ana Souza" in summary
     assert "financiamento" in summary.lower() or "financiada" in summary.lower()
     assert "à vista" not in summary.lower()
+
+
+def test_vendor_summary_trade_is_narrative() -> None:
+    state = ConversationCanonicalState(
+        thread_id="t1",
+        customer=CustomerState(phone="5541999999999", name="Mateus Ferreira"),
+        intent=BusinessIntent.TRADE,
+        facts={
+            "desired_model": "Fox",
+            "trade_model": "Peugeot 2008",
+            "trade_year": "2019",
+            "trade_color": "branco",
+            "trade_has_financing": True,
+            "trade_installment_value": 850,
+            "trade_installments_remaining": 24,
+            "trade_has_debts": False,
+            "trade_price_expectation": 55000,
+        },
+    )
+    summary = build_vendor_summary(state)
+    assert "Mateus" in summary
+    assert "Peugeot" in summary or "2008" in summary
+    assert not summary.lstrip().startswith("-")
+    assert "\n-" not in summary

@@ -118,7 +118,8 @@ turn_assertions:
     no_budget_question: true
     has_outbound_media: true
     caption_on_last: true
-    follow_up_deal_type: true
+    # follow_up_deal_type removed: intent is already PURCHASE, asking "compra ou troca?" is incorrect.
+    # Contract: next ask must be name or visit intent, never deal_type.
 
   - turn: 3
     intent: purchase
@@ -127,7 +128,7 @@ turn_assertions:
     no_olha_o_que_encontrei: true
     has_outbound_media: true
     caption_on_last: true
-    follow_up_deal_type: true
+    # follow_up_deal_type removed: see turn 2 note.
 
   - turn: 4
     intent: purchase

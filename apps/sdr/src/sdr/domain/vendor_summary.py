@@ -109,6 +109,11 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         intro += (", " if age else " é") + " natural de " + "/".join(location_parts)
     intro += "."
 
+    # Minimal state: if intent is UNKNOWN and no relevant facts, report honestly.
+    from sdr.domain.types import BusinessIntent
+    if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK) and not facts:
+        return f"{intro} Cliente solicitou atendimento. Não há informações sobre veículo ou intenção comercial."
+
     # Interest
     desired = (
         facts.get("desired_vehicle_text")
@@ -127,8 +132,10 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     interest_sentence = ""
     if desired:
         interest_sentence = f"Está {intent_label} um {desired}."
+    elif state.intent.value not in ("unknown", "smalltalk"):
+        interest_sentence = f"Intenção: {intent_label}. Veículo de interesse não informado."
     else:
-        interest_sentence = f"Intenção: {intent_label}."
+        interest_sentence = "Solicitou falar com um vendedor. Não informou interesse específico."
 
     # Payment
     payment_parts: list[str] = []
@@ -206,11 +213,12 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
 def _build_vendor_summary_llm(state: ConversationCanonicalState) -> str:
     """LLM-generated narrative paragraph for CRM (sync wrapper, raises on failure)."""
     import json
-    import os
 
     import httpx
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    from sdr.config import get_settings
+
+    api_key = (get_settings().openai_api_key or "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
 

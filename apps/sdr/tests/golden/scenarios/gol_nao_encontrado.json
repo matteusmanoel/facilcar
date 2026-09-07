@@ -1,16 +1,18 @@
 {
   "name": "gol_nao_encontrado",
-  "description": "Cliente pede Gol que não está no estoque. Agente não deve dizer que não trabalha com a marca. Deve perguntar alternativas.",
+  "description": "Cliente pede Gol que não está no seed. Agente não deve dizer que não trabalha com a marca. Deve perguntar alternativas. O Gol intencionalmente não está no seed_inventory.json.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Tem Gol disponível?",
       "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Gol", "desired_vehicle_text": "Gol"}},
       "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": ["SUCCESS_EMPTY"],
       "forbidden_in_outbound": [
         "não trabalhamos com",
         "não temos esse tipo",
-        "A FacilCar não trabalha"
+        "A FacilCar não trabalha",
+        "nunca teremos"
       ]
     }
   ]

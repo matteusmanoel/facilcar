@@ -1,20 +1,22 @@
 {
   "name": "compra_financiada_sem_entrada",
-  "description": "Financiamento 100% sem entrada.",
+  "description": "Financiamento 100% sem entrada. Roteiro: modelo → veículo encontrado no seed → parcela → docs.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero financiar um HB20 sem entrada",
       "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_model": "HB20", "payment_method": "financing", "down_payment": 0}},
       "expected_action": "SHOW_OFFERS",
-      "expected_facts_after": {"desired_model": "hb20", "down_payment": 0}
+      "expected_facts_after": {"desired_model": "hb20", "down_payment": 0},
+      "forbidden_in_outbound": ["reservado", "garanto", "100% financiado", "seria compra ou troca"]
     },
     {
       "inbound": "Até 900 de parcela",
       "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_installment": 900}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"desired_installment": 900},
-      "expected_ask_field_in": ["documents"]
+      "expected_ask_field_in": ["documents"],
+      "forbidden_in_outbound": ["reservado", "garanto"]
     }
   ]
 }

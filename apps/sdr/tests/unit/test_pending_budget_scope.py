@@ -186,6 +186,7 @@ async def test_success_empty_sets_pending_affordance(monkeypatch) -> None:
     # New contract: SUCCESS_EMPTY no longer sets OFFER_ALTERNATIVES pending state.
     assert result.state.pending_interaction == PendingInteraction.NONE
     assert result.response_directive is not None
+    assert result.response_directive.conversational_affordance.value == "NONE"
     # Composer asks directly for other models — no yes/no gate.
     joined = " ".join(result.outbound_texts).lower()
     assert "estoque" in joined

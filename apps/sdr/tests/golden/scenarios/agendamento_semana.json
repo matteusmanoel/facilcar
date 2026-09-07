@@ -1,19 +1,35 @@
 {
   "name": "agendamento_semana",
-  "description": "Estado já actionable com inventário já buscado. Próxima ação deve ser REGISTER_VISIT_INTEREST com slots de horário.",
-  "initial_state": {
-    "intent": "purchase",
-    "facts": {"desired_model": "fiat cronos", "name": "Ana Ferreira"},
-    "last_inventory_search_key": "4511dbf2",
-    "assistant_turn_count": 4,
-    "visit_invited": false
-  },
+  "description": "Compra de Cronos: interesse → veículo → nome (aciona invite com 2 slots) → cliente confirma visit (Júlia não pode prometer reserva).",
+  "initial_state": {},
   "turns": [
     {
-      "inbound": "Ok, pode ser",
+      "inbound": "Quero comprar um Fiat Cronos",
+      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Fiat Cronos"}},
+      "expected_action": "SHOW_OFFERS"
+    },
+    {
+      "inbound": "Meu nome é Ana Ferreira",
+      "understand_return": {"intent": "PURCHASE", "facts": {"name": "Ana Ferreira"}},
+      "expected_facts_after": {"name": "Ana Ferreira"}
+    },
+    {
+      "inbound": "Gostaria de passar na loja para ver",
       "understand_return": {"intent": "PURCHASE", "facts": {}},
-      "expected_action": "REGISTER_VISIT_INTEREST",
-      "required_in_outbound_any": ["dia", "horário", "semana", "manhã", "tarde", "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "passar"]
+      "forbidden_in_outbound": [
+        "reservado pra você",
+        "reservado para você",
+        "está reservado",
+        "vou deixar reservado",
+        "vai ficar reservado"
+      ],
+      "llm_real_only": {
+        "required_in_outbound_any": [
+          "segunda", "terça", "quarta", "quinta", "sexta", "sábado",
+          "manhã", "tarde", "horário", "dia"
+        ],
+        "invariant_two_concrete_slots": true
+      }
     }
   ]
 }

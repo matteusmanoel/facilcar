@@ -19,44 +19,35 @@ from __future__ import annotations
 
 from typing import Any
 
+from sdr.domain.facts_schema import CANONICAL_FACT_KEYS
 from sdr.domain.inbound import InboundTurn
 from sdr.domain.introduction import intro_instruction, response_objective_for
 from sdr.domain.types import ActionPlan, ConversationCanonicalState
 
-# Customer-facing safe fact keys (exclude operational and sensitive fields).
-_SAFE_FACT_KEYS = frozenset({
-    "desired_model",
-    "desired_vehicle_text",
-    "desired_engine_displacement_liters",
-    "desired_engine_flexible",
-    "desired_engine_any",
-    "brand",
-    "category",
-    "vehicle_type",
-    "color",
-    "year",
-    "budget",
-    "max_price",
-    "deal_type",
-    "down_payment",
-    "desired_installment",
-    "payment_type",
-    "payment_method",
-    "use_type",
-    "trade_in",
-    "consignment",
-    "name",
-    "city",
-    "crm_linked_vehicles",
+# Identity / document identifiers — never sent to Understanding or Composer.
+_SENSITIVE_FACT_KEYS = frozenset({
+    "cpf",
+    "cnpj",
+    "birth_date",
+    "plate",
+    "trade_renavam",
+    "rg",
 })
+
+# Canonical customer facts plus CRM-linked titles. Derived from the schema so
+# new trade/sale keys cannot silently drop out of the Understanding summary.
+_SAFE_FACT_KEYS = CANONICAL_FACT_KEYS | {"crm_linked_vehicles"}
 
 
 def _safe_facts(facts: dict[str, Any]) -> dict[str, Any]:
-    """Return facts safe for LLM context — no operational markers, no sensitive data."""
+    """Return facts safe for LLM context — no operational metadata, no sensitive data."""
     return {
         k: v
         for k, v in facts.items()
-        if k in _SAFE_FACT_KEYS and v is not None
+        if k in _SAFE_FACT_KEYS
+        and k not in _SENSITIVE_FACT_KEYS
+        and v is not None
+        and not str(k).startswith("_")
     }
 
 
@@ -94,6 +85,7 @@ class ConversationContextBuilder:
         lines.append(f"Intenção identificada: {state.intent.value}")
         lines.append(f"Idioma: {state.language}")
         lines.append(f"Status do lifecycle: {state.lifecycle.status.value}")
+        lines.append(f"Turnos da Júlia nesta conversa: {state.assistant_turn_count}")
         lines.append(f"pending_interaction: {state.pending_interaction.value}")
         lines.append(f"alternative_scope: {state.alternative_scope.value}")
         lines.append(f"budget_status: {state.budget_status.value}")

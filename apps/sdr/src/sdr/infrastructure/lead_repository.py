@@ -500,7 +500,36 @@ class LeadRepository:
         )
         year = facts.get("sell_year") or facts.get("trade_year") or facts.get("year")
         mileage = facts.get("mileage") or facts.get("km")
+        extra_bits: list[str] = []
+        if facts.get("trade_color"):
+            extra_bits.append(f"cor {facts['trade_color']}")
+        financing = facts.get("trade_has_financing")
+        if financing is True:
+            parcela = facts.get("trade_installment_value")
+            restantes = facts.get("trade_installments_remaining")
+            bit = "financiamento em aberto"
+            if parcela is not None:
+                bit += f" parcela {parcela}"
+            if restantes is not None:
+                bit += f" restam {restantes}"
+            extra_bits.append(bit)
+        elif financing is False:
+            extra_bits.append("quitado")
+        debts = facts.get("trade_has_debts")
+        if debts is True:
+            extra_bits.append(
+                f"débitos: {facts.get('trade_debt_type')}"
+                if facts.get("trade_debt_type")
+                else "débitos pendentes"
+            )
+        elif debts is False:
+            extra_bits.append("sem débitos")
+        if facts.get("trade_price_expectation"):
+            extra_bits.append(f"expectativa {facts['trade_price_expectation']}")
+        extra = "; ".join(extra_bits)
         observations = facts.get("observations") or facts.get("notes")
+        if extra:
+            observations = f"{observations}; {extra}" if observations else extra
         if existing:
             await conn.execute(
                 f'''

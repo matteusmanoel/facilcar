@@ -2,7 +2,32 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# Phrases the Composer must NEVER produce — financial/reservation promises.
+_FORBIDDEN_PROMISE_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"vou\s+reservar", re.I),
+    re.compile(r"reservado\s+(?:para|pra)\s+você", re.I),
+    re.compile(r"está\s+reservado", re.I),
+    re.compile(r"deixar\s+reservado", re.I),
+    re.compile(r"\bgarantido\b", re.I),
+    re.compile(r"aprovação\s+garantida", re.I),
+    re.compile(r"taxa\s+de\s+\d", re.I),
+    re.compile(r"aprovado\s+no\s+crédito", re.I),
+    re.compile(r"100%\s+financiado", re.I),
+    re.compile(r"financ\w*\s+100", re.I),
+]
+
+# Phrases that indicate a "desired vehicle" question — forbidden for SALE/CONSIGNMENT/REFINANCING.
+_DESIRED_VEHICLE_QUESTION_PHRASES = [
+    "qual veículo você busca",
+    "qual modelo você procura",
+    "que carro você está procurando",
+    "qual o carro que você quer",
+    "qual modelo de carro você está buscando",
+    "qual carro você está buscando",
+]
 
 
 class InvariantViolation(AssertionError):
@@ -45,6 +70,60 @@ def check_turn(
             "GLOBAL: não_encontrei_banned",
             f"Response contains 'não encontrei': {outbound_joined[:120]}",
         )
+
+    # Must never reopen as first contact after the assistant has already spoken.
+    if turn_idx > 0:
+        from sdr.domain.introduction import is_first_contact_reopen
+
+        if is_first_contact_reopen(outbound_texts):
+            fail(
+                "GLOBAL: first_contact_reopen",
+                f"Continuation turn reopened as first contact: {outbound_joined[:160]}",
+            )
+
+    # Forbidden financial/reservation promises — never allowed in any context.
+    for pattern in _FORBIDDEN_PROMISE_PATTERNS:
+        if pattern.search(outbound_joined):
+            fail(
+                "GLOBAL: forbidden_promise",
+                f"Forbidden promise pattern {pattern.pattern!r} found in: {outbound_joined[:180]}",
+            )
+
+    # Intent-specific invariants.
+    intent_val = getattr(state.intent, "value", str(state.intent)) if state else ""
+
+    # SALE must not ask for desired vehicle.
+    if intent_val == "sale":
+        for phrase in _DESIRED_VEHICLE_QUESTION_PHRASES:
+            if phrase in outbound_joined:
+                fail(
+                    "GLOBAL: SALE_no_desired_vehicle_question",
+                    f"SALE intent asked for desired vehicle ({phrase!r}): {outbound_joined[:160]}",
+                )
+
+    # CONSIGNMENT must not use trade language.
+    if intent_val == "consignment":
+        if "carro que você quer trocar" in outbound_joined:
+            fail(
+                "GLOBAL: CONSIGNMENT_no_trade_language",
+                f"CONSIGNMENT used trade language: {outbound_joined[:160]}",
+            )
+
+    # REFINANCING must not use trade language.
+    if intent_val == "refinancing":
+        if "carro que você quer trocar" in outbound_joined:
+            fail(
+                "GLOBAL: REFINANCING_no_trade_language",
+                f"REFINANCING used trade language: {outbound_joined[:160]}",
+            )
+
+    # deal_type must not be asked when intent is already determined.
+    if intent_val in ("trade", "sale", "consignment", "refinancing", "purchase", "purchase_financing"):
+        if "seria compra ou troca" in outbound_joined or "seria uma compra ou troca" in outbound_joined:
+            fail(
+                "GLOBAL: NO_DEAL_TYPE_WHEN_INTENT_KNOWN",
+                f"Asked 'compra ou troca' when intent is already {intent_val!r}: {outbound_joined[:160]}",
+            )
 
     # --- Per-turn assertions ---
 
@@ -116,5 +195,19 @@ def check_turn(
         got = plan.action.value.upper() if hasattr(plan.action, "value") else str(plan.action).upper()
         if got == forbidden_action.upper():
             fail("forbidden_action", f"action {forbidden_action!r} was forbidden but got {got!r}")
+
+    # invariant_two_concrete_slots — REGISTER_VISIT_INTEREST must offer ≥2 concrete time markers.
+    if turn_def.get("invariant_two_concrete_slots"):
+        time_markers = re.findall(
+            r'\b(?:segunda|terça|quarta|quinta|sexta|sábado|domingo|'
+            r'hoje|amanhã|\d{1,2}/\d{1,2})\b',
+            outbound_joined,
+            re.I,
+        )
+        if len(time_markers) < 2:
+            fail(
+                "invariant_two_concrete_slots",
+                f"Expected ≥2 concrete time markers, found {time_markers!r} in: {outbound_joined[:180]}",
+            )
 
     return violations

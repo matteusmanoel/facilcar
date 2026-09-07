@@ -88,7 +88,7 @@ def test_inventory_not_repeated_when_search_key_matches() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"  # deal_type asked before name in PURCHASE roteiro
+    assert plan.ask_field == "name"  # deal_type no longer asked proactively when intent is PURCHASE
 
 
 def test_inventory_re_searched_when_preference_changes() -> None:
@@ -135,7 +135,7 @@ def test_ask_info_after_inventory_already_searched() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"  # deal_type comes before name in PURCHASE
+    assert plan.ask_field == "name"  # deal_type no longer asked proactively when intent is known
 
 
 def test_photo_request_sends_photos_of_last_shown_vehicle() -> None:

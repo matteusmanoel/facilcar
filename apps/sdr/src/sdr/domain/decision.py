@@ -65,12 +65,15 @@ _VISIT_ELIGIBLE_INTENTS = frozenset({
 # Re-export for callers that imported inventory_search_key from decision.
 __all__ = ["decide", "inventory_search_key", "inventory_search_key_from_request"]
 
-# After a vehicle is on the table, financing/docs/name answers must not re-SHOW_OFFERS.
+# After a vehicle is on the table, financing/docs answers must not re-SHOW_OFFERS.
+# "name" is intentionally excluded: if the customer changes their model preference
+# (a genuine new search), the decision engine must not block the re-search just
+# because the only remaining field is "name". Name does not affect the search key,
+# so if the key changed, it must be due to a real preference change.
 _POST_SHOW_ROTEIRO = frozenset({
     "down_payment",
     "desired_installment",
     "documents",
-    "name",
     "trade_model",
     "trade_year",
     "trade_color",

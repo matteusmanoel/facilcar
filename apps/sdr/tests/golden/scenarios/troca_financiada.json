@@ -1,47 +1,53 @@
 {
   "name": "troca_financiada",
-  "description": "Troca com financiamento em aberto: deve coletar parcela e qtd. restante.",
+  "description": "Troca com financiamento em aberto: deve coletar parcela e qtd. restante. Nunca perguntar 'compra ou troca?' quando intent já é TRADE.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Tenho um Peugeot 2008 para trocar por um Fox",
-      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Fox", "deal_type": "trade", "trade_model": "Peugeot 2008"}},
+      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Fox", "trade_model": "Peugeot 2008"}},
       "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_model": "fox", "deal_type": "trade", "trade_model": "peugeot 2008"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"]
+      "expected_facts_after": {"desired_model": "fox", "trade_model": "peugeot 2008"},
+      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"],
+      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
     },
     {
       "inbound": "2019, branco, 85000 km",
       "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000},
-      "expected_ask_field_in": ["trade_has_financing"]
+      "expected_ask_field_in": ["trade_has_financing"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Sim, ainda está financiado",
       "understand_return": {"intent": "TRADE", "facts": {"trade_has_financing": "true"}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_installment_value"]
+      "expected_ask_field_in": ["trade_installment_value"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "850 por mês",
       "understand_return": {"intent": "TRADE", "facts": {"trade_installment_value": 850}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_installment_value": 850},
-      "expected_ask_field_in": ["trade_installments_remaining"]
+      "expected_ask_field_in": ["trade_installments_remaining"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Mais 24 parcelas",
       "understand_return": {"intent": "TRADE", "facts": {"trade_installments_remaining": 24}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_installments_remaining": 24},
-      "expected_ask_field_in": ["trade_has_debts"]
+      "expected_ask_field_in": ["trade_has_debts"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Não tenho multas",
       "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "false"}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_price_expectation"]
+      "expected_ask_field_in": ["trade_price_expectation"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     }
   ]
 }

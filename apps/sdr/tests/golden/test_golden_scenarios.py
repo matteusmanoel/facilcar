@@ -4,18 +4,31 @@ Runs each scenario JSON as a single test, exercising the full pipeline
 (without a real DB pool — inventory calls return FAILED_RETRYABLE or
 use a pre-configured mock).
 
+Live LLM runs belong to `python -m sdr.replay --llm-real`, not pytest.
+
 To run: uv run pytest tests/golden/ -v
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from tests.golden.invariants import check_turn
+from sdr.config import get_settings
 
 _SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    os.environ["OPENAI_API_KEY"] = ""
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def _scenario_ids():

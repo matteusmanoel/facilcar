@@ -233,17 +233,38 @@ async def test_assistant_turn_count_propagated_to_directive() -> None:
     assert "Continuação" in directive1.response_objective
 
 
-def test_validator_rewrites_observed_first_contact_reopen() -> None:
-    """Exact observed outbound on continuation SMALLTALK must be rewritten."""
+def test_validator_strips_intro_prefix_keeps_question() -> None:
+    """Continuation ASK_INFO must drop 'Sou a Júlia' and keep the roteiro question."""
     bubbles, result = validate_introduction_policy(
-        ["Oi! Como posso ajudar você hoje?"],
+        [
+            "Oi! Sou a Júlia da FacilCar, vou te ajudar com a troca do Gol.",
+            "Qual o ano do seu Gol?",
+        ],
         should_introduce=False,
-        action="smalltalk",
+        action="ask_info",
         language="pt-BR",
     )
     assert result["pass"] is False
-    assert "first_contact_reopen" in result["violations"]
-    assert not is_first_contact_reopen(bubbles)
+    joined = " ".join(bubbles).lower()
+    assert "sou a júlia" not in joined
+    assert "ano" in joined
+
+
+@pytest.mark.asyncio
+async def test_process_turn_increments_assistant_turn_count() -> None:
+    """Outbound turns bump assistant_turn_count so the next turn cannot re-introduce."""
+    state = _state(turn_count=0)
+    r1 = await process_turn(state=state, inbound_text="Olá", understand=_fixed_smalltalk)
+    assert r1.state.assistant_turn_count == 1
+    assert r1.response_directive is not None
+    assert r1.response_directive.should_introduce is True
+
+    r2 = await process_turn(
+        state=r1.state, inbound_text="Tudo bem e você?", understand=_fixed_smalltalk
+    )
+    assert r2.response_directive is not None
+    assert r2.response_directive.should_introduce is False
+    _assert_not_first_contact_reopen(r2.outbound_texts)
 
 
 def test_validator_allows_introduction_on_first_turn() -> None:

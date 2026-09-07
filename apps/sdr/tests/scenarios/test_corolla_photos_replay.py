@@ -112,7 +112,8 @@ async def test_corolla_photos_deal_type_replay(monkeypatch) -> None:
             assert "*" in result.outbound_media[-1].caption
             assert result.outbound_media[-1].url.endswith("corolla-1.jpg")
             joined = " ".join(result.outbound_texts).lower()
-            assert "compra ou troca" in joined
+            # "compra ou troca" must NOT be asked — intent is already PURCHASE
+            assert "compra ou troca" not in joined
             assert "orçamento" not in joined
             assert "olha o que encontrei" not in joined
             assert state.last_shown_vehicle_ids == ["cmsuev4980026vm24shr68ui1"]
@@ -179,7 +180,8 @@ async def test_civic_images_semantic_variant(monkeypatch) -> None:
     assert "R$ 79.900" in r1.outbound_media[-1].caption
     assert r1.outbound_media[-1].url.endswith("civic-1.jpg")
     joined = " ".join(r1.outbound_texts).lower()
-    assert "compra ou troca" in joined
+    # "compra ou troca" must NOT be asked — intent is already PURCHASE
+    assert "compra ou troca" not in joined
     assert "orçamento" not in joined
     assert "olha o que encontrei" not in joined
 

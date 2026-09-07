@@ -13,6 +13,8 @@ os.environ.setdefault("JULIA_ENABLED", "false")
 os.environ.setdefault("SDR_TRANSPORT_MODE", "vercel_relay")
 os.environ.setdefault("DATABASE_URL", "postgresql://unused:unused@localhost:5432/unused")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
+# Pytest never calls the live LLM — `python -m sdr.replay --llm-real` does.
+os.environ["OPENAI_API_KEY"] = ""
 
 
 @pytest.fixture

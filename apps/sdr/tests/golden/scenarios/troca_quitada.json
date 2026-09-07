@@ -1,39 +1,44 @@
 {
   "name": "troca_quitada",
-  "description": "Troca com veículo quitado, sem débitos. Roteiro completo de TRADE: coleta info do veículo de troca, depois handoff.",
+  "description": "Troca com veículo quitado, sem débitos. A primeira pergunta após TRADE não deve ser 'compra ou troca?'. Roteiro de TRADE: coleta info do veículo de troca.",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero trocar meu Ka por um HB20",
-      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "HB20", "deal_type": "trade", "trade_model": "Ford Ka"}},
+      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "HB20", "trade_model": "Ford Ka"}},
       "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_model": "hb20", "deal_type": "trade", "trade_model": "ford ka"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"]
+      "expected_facts_after": {"desired_model": "hb20", "trade_model": "ford ka"},
+      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"],
+      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
     },
     {
       "inbound": "2019, prata, 72000 km",
       "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2019", "trade_color": "prata", "mileage": 72000}},
       "expected_action": "ASK_INFO",
       "expected_facts_after": {"trade_year": "2019", "trade_color": "prata", "mileage": 72000},
-      "expected_ask_field_in": ["trade_has_financing"]
+      "expected_ask_field_in": ["trade_has_financing"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Não, está quitado",
       "understand_return": {"intent": "TRADE", "facts": {"trade_has_financing": "false"}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_has_debts"]
+      "expected_ask_field_in": ["trade_has_debts"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Sem multas, tudo ok",
       "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "false"}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_price_expectation"]
+      "expected_ask_field_in": ["trade_price_expectation"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     },
     {
       "inbound": "Acho que vale uns 35 mil",
       "understand_return": {"intent": "TRADE", "facts": {"trade_price_expectation": 35000}},
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["name"]
+      "expected_ask_field_in": ["name"],
+      "forbidden_in_outbound": ["seria compra ou troca"]
     }
   ]
 }
