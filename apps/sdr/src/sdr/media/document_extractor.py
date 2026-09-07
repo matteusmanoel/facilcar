@@ -52,19 +52,30 @@ DOCUMENT_JSON_SCHEMA: dict[str, Any] = {
 SYSTEM_PROMPT = """\
 Extraia campos estruturados de documento brasileiro (CNH, CRLV, comprovante de renda ou residência).
 
-Regras:
+Regras gerais:
 - Retorne JSON conforme o schema. Use null quando o campo não estiver legível.
 - Não invente CPF, nome, data de nascimento, placa, cidade ou estado.
 - document_type: CNH | CRLV | INCOME_PROOF | RESIDENCE_PROOF | OTHER
-- CPF: 11 dígitos quando visível (campo CPF na CNH).
-- birth_date: SOMENTE o campo rotulado "DATA DE NASCIMENTO" / "NASCIMENTO" / "DATANASC".
-  NÃO use data de emissão, validade, 1ª habilitação ou qualquer outra data do documento.
-  Prefira o formato DD/MM/AAAA exatamente como impresso.
-- birth_city / birth_state: campo "LOCAL" / "NATURALIDADE" / "NATURAL DE".
-  Formato comum na CNH: "FOZ DO IGUAÇU/PR" ou "FOZ DO IGUAÇU - PR".
-  - birth_city = nome completo da cidade (ex.: "FOZ DO IGUAÇU"), sem a UF.
-  - birth_state = SOMENTE a sigla de 2 letras do estado (ex.: "PR").
-  Nunca invente UF. Se a naturalidade estiver ilegível, use null.
+
+CPF (campo "CPF" na CNH):
+- Copie os 11 dígitos EXATAMENTE como impressos, sem formatação.
+- Verifique cada dígito com atenção: 0 ≠ 6, 1 ≠ 7, 3 ≠ 8, 4 ≠ 9.
+- Se não tiver certeza de algum dígito, prefira null a inventar.
+- O CPF brasileiro tem dois dígitos verificadores (últimos dois); eles nunca são aleatórios.
+
+DATA DE NASCIMENTO:
+- SOMENTE o campo rotulado "DATA DE NASCIMENTO" / "NASCIMENTO" / "DATANASC".
+- NÃO use data de emissão, validade, 1ª habilitação ou qualquer outra data do documento.
+- Preste atenção especial ao MÊS: 01=Janeiro, 04=Abril, 07=Julho, 10=Outubro.
+  Dígitos 0 e 1 no mês são facilmente confundidos por OCR; releia com cuidado.
+- Formato obrigatório: DD/MM/AAAA exatamente como impresso.
+
+NATURALIDADE (birth_city / birth_state):
+- Campo "LOCAL" / "NATURALIDADE" / "NATURAL DE".
+- Formato comum na CNH: "FOZ DO IGUAÇU/PR" ou "FOZ DO IGUAÇU - PR".
+- birth_city = nome completo da cidade (ex.: "FOZ DO IGUAÇU"), sem a UF.
+- birth_state = SOMENTE a sigla de 2 letras do estado (ex.: "PR").
+- Nunca invente UF. Se a naturalidade estiver ilegível, use null.
 """
 
 # Valid Brazilian state codes — reject OCR hallucinations like "PE" for "PR" only
@@ -125,9 +136,37 @@ def _norm_critical(value: Any) -> str:
     return "".join(ch for ch in str(value).strip().lower() if ch.isalnum())
 
 
+def _cpf_valid_checksum(digits: str) -> bool:
+    """Validate Brazilian CPF via the two-digit checksum algorithm.
+
+    Returns False for sequences of all-same digits (e.g., 00000000000) and for
+    any 11-digit string that fails the official MOD-11 verification.
+    """
+    if len(digits) != 11 or len(set(digits)) == 1:
+        return False
+    # First check digit
+    total = sum(int(digits[i]) * (10 - i) for i in range(9))
+    r1 = 0 if (total % 11) < 2 else 11 - (total % 11)
+    if r1 != int(digits[9]):
+        return False
+    # Second check digit
+    total = sum(int(digits[i]) * (11 - i) for i in range(10))
+    r2 = 0 if (total % 11) < 2 else 11 - (total % 11)
+    return r2 == int(digits[10])
+
+
 def normalize_cpf(value: Any) -> str | None:
+    """Normalize CPF to 11 digits and validate checksum.
+
+    Returns None when the extracted string does not pass checksum verification
+    rather than storing a wrong value from OCR misreads.
+    """
     digits = _digits_only(value)
-    return digits if len(digits) == 11 else (digits or None)
+    if len(digits) != 11:
+        return digits or None
+    if not _cpf_valid_checksum(digits):
+        return None
+    return digits
 
 
 def check_extraction_conflicts(

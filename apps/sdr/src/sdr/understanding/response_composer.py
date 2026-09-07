@@ -211,11 +211,9 @@ def _document_received_bubbles(
                 if name
                 else "Show! CNH salva na sua ficha."
             )
-            extra = (
-                "Se tiver comprovante de renda, residência ou certidão de casamento, "
-                "pode me enviar também. Quanto mais informações tivermos, "
-                "maiores as chances de boas taxas na simulação!"
-            )
+            extra = "Se tiver comprovante de renda ou residência, pode me enviar também."
+        # Split into separate bubbles for natural cadence. Limit to 3 total so the
+        # caller (register_visit_interest) can append the visit question as bubble 3.
         bubbles = [ack, extra]
         if question:
             bubbles.append(question)
@@ -248,16 +246,26 @@ def _ack_followup_bubbles(
     es = lang == "es"
 
     if kind == "deal_purchase":
+        facts = state.get("facts") or {}
+        zero_down = facts.get("down_payment") in (0, "0") or facts.get("down_payment") == 0
         if es:
-            text = (
-                "Entendí tu interés en la compra, sin incluir un vehículo en la negociación."
-            )
+            text = "Entendí tu interés en la compra, sin incluir un vehículo en la negociación."
+            if zero_down:
+                financing_note = (
+                    "Financiamiento sin entrada puede ser posible, "
+                    "sujeto al análisis de crédito."
+                )
+                return [text, financing_note, question] if question else [text, financing_note]
             if question:
                 text = f"{text} {question}"
             return [text]
-        text = (
-            "Entendi seu interesse na compra, sem incluir veículo na negociação."
-        )
+        text = "Entendi seu interesse na compra, sem incluir veículo na negociação."
+        if zero_down:
+            financing_note = (
+                "Financiamento sem entrada pode ser possível, "
+                "sujeito à análise de crédito."
+            )
+            return [text, financing_note, question] if question else [text, financing_note]
         if question:
             text = f"{text} {question}"
         return [text]
@@ -344,6 +352,22 @@ def _follow_up_bubble(
         if key in {"budget", "budget_max"}:
             key = "deal_type"
         if key == "visit":
+            # If the customer already gave a day (e.g. "segunda-feira que vem"),
+            # ask only for the time slot instead of day+time again.
+            known_day = (state.get("facts") or {}).get("timeline") or state.get("visit_preferred_time")
+            if known_day and isinstance(known_day, str):
+                from sdr.domain.pending_question import _VISIT_TIME_OF_DAY as _vtod
+                if not _vtod.search(known_day):
+                    # Day is known but no time yet — ask specifically for the hour.
+                    if lang == "es":
+                        return (
+                            f"¿Y qué horario te queda mejor {known_day}? "
+                            "Estamos abiertos de 8h a 18h."
+                        )
+                    return (
+                        f"E qual horário fica melhor pra você {known_day}? "
+                        "Estamos abertos das 8h às 18h."
+                    )
             return (
                 "¿Qué día y horario te queda mejor para pasar por la tienda?"
                 if lang == "es"

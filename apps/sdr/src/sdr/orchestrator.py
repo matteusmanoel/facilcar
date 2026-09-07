@@ -1191,11 +1191,17 @@ class Orchestrator:
 
         send_media = getattr(self.evolution, "send_media", None)
         directive = result.response_directive
+        # Send leading text before photos when:
+        # (a) introducing Julia on first contact, OR
+        # (b) showing inventory results — so "Deixa eu dar uma olhadinha..." arrives
+        #     before the vehicle images.
         intro_then_media = bool(
-            directive
-            and directive.should_introduce
+            result.outbound_texts
             and result.outbound_media
-            and result.outbound_texts
+            and (
+                (directive and directive.should_introduce)
+                or result.action_plan.action == Action.SHOW_OFFERS
+            )
         )
         leading_texts = result.outbound_texts[:1] if intro_then_media else []
         trailing_texts = (

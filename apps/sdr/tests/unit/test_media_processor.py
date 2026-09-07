@@ -92,7 +92,7 @@ def test_sanitize_strips_forbidden_sentences() -> None:
 @pytest.mark.asyncio
 async def test_image_as_document_routes_to_extractor() -> None:
     payload = (
-        '{"name":"Maria Silva","cpf":"12345678901","birth_date":"1990-01-15",'
+        '{"name":"Maria Silva","cpf":"12345678909","birth_date":"1990-01-15",'
         '"plate":null,"document_type":"CNH"}'
     )
     client = _mock_vision_client(payload)
@@ -106,7 +106,7 @@ async def test_image_as_document_routes_to_extractor() -> None:
     assert result.routed_as == "document_extractor"
     assert result.extracted is not None
     assert result.extracted.document_type == "CNH"
-    assert result.extracted.cpf == "12345678901"
+    assert result.extracted.cpf == "12345678909"
     assert result.extracted.name == "Maria Silva"
 
 

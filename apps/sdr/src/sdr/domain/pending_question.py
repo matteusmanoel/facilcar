@@ -29,8 +29,7 @@ _NO_DOWN = re.compile(
     re.I,
 )
 _SHORT_YES = re.compile(
-    r"^\s*(?:sim|pode|claro|ok|okay|vou|vamos|consigo|essa\s+semana|"
-    r"ainda\s+essa\s+semana|pode\s+ser|fechado|combinado)\b",
+    r"^\s*(?:sim|pode|claro|ok|okay|vou|vamos|consigo|pode\s+ser|fechado|combinado)\b",
     re.I,
 )
 _SHORT_NO = re.compile(
@@ -41,10 +40,37 @@ _VISIT_POSITIVE = re.compile(
     r"(?:seria\s+[oó]timo|[oó]timo|legal|quero\s+ir|topa|combinado|pode\s+ser|fechado)",
     re.I,
 )
+
+# Matches a specific day or time reference that anchors a visit slot.
+# Includes "essa semana" / "próxima semana" and weekday names, with optional
+# "-feira" suffix and "que vem" modifier.
 _VISIT_TIME = re.compile(
-    r"\b(?:hoje|amanh[ãa]|essa\s+semana|segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo|"
-    r"manh[ãa]|tarde|noite|\d{1,2}\s*h(?:oras)?|\d{1,2}:\d{2})\b"
+    r"\b(?:"
+    r"(?:segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:[\s-]feira)?"
+    r"|hoje|amanh[ãa]"
+    r"|essa\s+semana|esta\s+semana"
+    r"|pr[oó]xim[ao]\s+(?:semana|segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo)"
+    r"|semana\s+que\s+vem"
+    r"|manh[ãa]|tarde|noite"
+    r"|\d{1,2}\s*h(?:oras)?|\d{1,2}:\d{2}"
+    r")"
+    r"(?:\s+que\s+vem)?"
     r"(?:\s+(?:ao?\s+)?(?:meio[\s-]dia|manh[ãa]|tarde|noite|\d{1,2}:\d{2}|\d{1,2}h))?",
+    re.I,
+)
+
+# Detects a time-of-day component within the matched slot (hour, period of day).
+# A slot without this is day-only → needs a follow-up question for the hour.
+_VISIT_TIME_OF_DAY = re.compile(
+    r"\b(?:meio[\s-]dia|\d{1,2}:\d{2}|\d{1,2}\s*h(?:oras)?|manh[ãa]|tarde|noite)\b",
+    re.I,
+)
+
+# Negation language that invalidates a "this week" time match.
+# "Essa semana estou corrido" = busy this week → NOT a visit confirmation.
+_VISIT_NEGATION = re.compile(
+    r"\b(?:corrido|ocupado|chei[ao]|puxado|n[aã]o\s+consigo|n[aã]o\s+posso|"
+    r"sem\s+tempo|meio\s+(?:corrido|ocupado|difícil|puxado))\b",
     re.I,
 )
 _INSTALLMENT_SKIP = re.compile(
@@ -117,13 +143,50 @@ def overlay_pending_question(
             if money is not None:
                 extra["desired_installment"] = money
     elif pending == "visit":
-        # Protocol: we just invited a visit. A concrete slot is confirmation;
-        # a short yes without time still counts as visit_intent; a positive
-        # without a slot stays on the visit question so Decision can ask when.
+        # Protocol: we just invited a visit.
+        # Full slot (day + time-of-day) → visit_intent=True → triggers handoff.
+        # Day-only with positive affirmation ("Sim, essa semana") → visit_intent=True
+        #   but still ask for hour on the next turn (state keeps timeline day).
+        # Day-only without affirmation, or with negation ("estou corrido essa
+        #   semana, posso ir na segunda") → record the concrete day, keep pending.
+        # Short "sim" / positive without time → visit_intent=True.
         time_m = _VISIT_TIME.search(text)
         if time_m:
-            extra["timeline"] = time_m.group(0)
-            facts.signals.visit_intent = True
+            slot = time_m.group(0)
+            has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+
+            # When the first match is day-only AND the text has negation language
+            # (e.g. "estou corrido essa semana"), look for a later, more concrete
+            # day reference in the same utterance.
+            if not has_time and _VISIT_NEGATION.search(text):
+                alt_m = _VISIT_TIME.search(text, time_m.end())
+                if alt_m:
+                    slot = alt_m.group(0)
+                    has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+                else:
+                    slot = None  # only negated reference found
+
+            if slot:
+                if has_time:
+                    # Full slot — combine with a previously known day when the new
+                    # input is time-only and state already recorded the day.
+                    existing_day = state.visit_preferred_time or state.facts.get("timeline", "")
+                    if (
+                        existing_day
+                        and isinstance(existing_day, str)
+                        and not _VISIT_TIME_OF_DAY.search(existing_day)
+                    ):
+                        slot = f"{existing_day} às {slot}"
+                    extra["timeline"] = slot
+                    facts.signals.visit_intent = True
+                else:
+                    # Day-only: record it for context.
+                    extra["timeline"] = slot
+                    # If the customer also said "sim" / positive, they're willing
+                    # to come this week — mark intent so Decision knows to confirm.
+                    if _SHORT_YES.search(text) or _VISIT_POSITIVE.search(text):
+                        facts.signals.visit_intent = True
+                    # Without a positive, keep pending to ask for the hour.
         elif _SHORT_YES.search(text) and len(text.split()) <= 8:
             facts.signals.visit_intent = True
         elif _VISIT_POSITIVE.search(text) and len(text.split()) <= 12:

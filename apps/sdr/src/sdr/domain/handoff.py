@@ -105,21 +105,13 @@ def customer_handoff_bubbles(
     _TRIAGE_REASONS = {"triage_actionable", "visit_invitation_pre_handoff"}
 
     if visit_time and reason_code in _VISIT_REASONS:
-        # Customer confirmed a visit slot — acknowledge the appointment.
-        if es:
-            thanks = (
-                f"Combinado{f', {name}' if name else ''}! "
-                f"Esperamos você {visit_time}. "
-                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
-                "Excelente dia!"
-            )
-        else:
-            thanks = (
-                f"Combinado{f', {name}' if name else ''}! "
-                f"Esperamos você {visit_time}. "
-                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
-                "Excelente dia!"
-            )
+        # Customer confirmed a visit slot — split into 2 bubbles for natural cadence.
+        slot_line = f"Combinado{f', {name}' if name else ''}! Esperamos você {visit_time}."
+        specialist_line = (
+            "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
+            "Excelente dia!"
+        )
+        return [slot_line, specialist_line, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
     elif reason_code in _TRIAGE_REASONS:
         # Triage complete without a specific visit slot — neutral warm close.
         if es:
@@ -132,6 +124,7 @@ def customer_handoff_bubbles(
                 f"Perfeito{f', {name}' if name else ''}! "
                 "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
             )
+        return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
     else:
         # Default: explicit handoff / offer / high_purchase_intent.
         if es:
@@ -145,8 +138,7 @@ def customer_handoff_bubbles(
                 f"Eu quem agradeço{f', {name}' if name else ''}. Já reuni suas informações "
                 "e logo um dos nossos especialistas entrará em contato. Tenha um excelente dia."
             )
-
-    return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
+        return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
 
 
 def should_handoff_now(state: ConversationCanonicalState) -> bool:

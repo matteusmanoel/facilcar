@@ -22,13 +22,20 @@ def dynamic_debounce_ms(
     base_ms: int | None = None,
     settings: Settings | None = None,
 ) -> int:
-    """Shorter coalesce on first contact; more typing room after Júlia has spoken."""
+    """Shorter coalesce on first contact; more typing room after Júlia has spoken.
+
+    Baseline increased so bursts (image + text sent seconds apart) are coalesced
+    into a single batch, giving the agent richer context before replying.
+    """
     cfg = settings or get_settings()
     base = int(base_ms if base_ms is not None else cfg.sdr_debounce_ms)
     count = max(0, int(assistant_turn_count or 0))
     if count <= 0:
-        return max(800, min(base, 1200))
-    return min(4500, 2000 + min(count, 8) * 300)
+        # First contact: give a bit more room for the customer to send multiple
+        # messages (e.g., audio + text, image + caption).
+        return max(1500, min(base, 2500))
+    # After Julia spoke: ramp up to allow typing longer replies.
+    return min(6000, 3000 + min(count, 8) * 400)
 
 
 async def wait_until_quiet(

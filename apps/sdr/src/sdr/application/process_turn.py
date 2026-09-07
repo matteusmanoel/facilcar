@@ -726,6 +726,15 @@ async def process_turn(
             plan.action == Action.SHOW_OFFERS
             and inv_outcome != InventoryOutcome.NOT_EXECUTED
         ):
+            # Pre-search preview: tell the customer we're looking it up.
+            # Only on subsequent turns — first contact intro already says
+            # "Deixa eu te enviar umas fotos" so we avoid duplicate phrasing.
+            if outbound_media and merged.assistant_turn_count > 0:
+                _lang = directive.language or "pt-BR"
+                if _lang.startswith("es"):
+                    outbound.append("Déjame buscar en nuestro stock...")
+                else:
+                    outbound.append("Deixa eu dar uma olhadinha no nosso estoque...")
             from sdr.understanding.response_composer import compose_inventory_response
             from sdr.understanding.validator import validate_inventory_policy
 
