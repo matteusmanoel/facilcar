@@ -48,7 +48,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "plate": "Se tiver a placa do veículo, pode me passar?",
     "location": "Você está de qual cidade?",
     "city": "Você é de em qual cidade?",
-    "visit": "Que tal esta semana? Pode ser de manhã ou à tarde — fico no aguardo!",
+    "visit": "Que tal segunda-feira, 7/09 às 14h ou terça-feira, 8/09 às 9h30? O horário fica pendente de confirmação do vendedor.",
     "timeline": "Em quanto tempo você pensa em fechar?",
     "mileage": "Quantos km rodados tem o veículo, aproximadamente?",
     "asking_price": "Até qual valor você tem em mente?",
@@ -134,7 +134,17 @@ def _required_question(
         if key in {"budget", "budget_max"}:
             key = "deal_type"
         if key == "visit":
-            return None
+            from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+            offered = list(state.get("offered_visit_slots") or [])
+            if not offered:
+                inbound_low = str(state.get("inbound_text") or "").lower()
+                prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
+                offered = suggest_visit_slots(
+                    lang=lang if lang else "pt",
+                    prefer_saturday=prefer_sat,
+                )
+            return format_slot_suggestion(offered, lang=lang if lang else "pt")
         if key == "alternatives_ok" and action_plan.get("reason_code") == "installment_tight":
             if lang == "es":
                 return (
@@ -155,7 +165,12 @@ def _required_question(
             if field in {"budget", "budget_max"}:
                 return questions["deal_type"]
             if isinstance(field, str) and field == "visit":
-                return None
+                from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+                offered = list(state.get("offered_visit_slots") or [])
+                if not offered:
+                    offered = suggest_visit_slots(lang=lang if lang else "pt")
+                return format_slot_suggestion(offered, lang=lang if lang else "pt")
             if isinstance(field, str) and field in questions:
                 return questions[field]
     return None
@@ -168,40 +183,24 @@ def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
         if es:
             return [
                 "Podemos evaluar las condiciones de la negociación aquí en la tienda. "
-                "Si te queda bien, pasa esta semana. ¡Te esperamos!"
+                "El vendedor confirma el horario contigo."
             ]
         return [
             "Conseguimos avaliar as condições da negociação aqui na loja. "
-            "Se fizer sentido, passa aqui esta semana. Esperamos você!"
+            "O vendedor confirma o horário com você."
         ]
-    if style == "hot_ask_slot":
-        from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
-        slots = suggest_visit_slots(lang=lang if lang else "pt")
-        slot_text = format_slot_suggestion(slots, lang=lang if lang else "pt")
-        if lang == "es":
-            return [
-                f"{slot_text} Así avanzamos la propuesta juntos."
-            ]
-        return [
-            f"{slot_text} Assim a gente avança essa proposta juntos."
-        ]
-    if style == "hot_schedule":
-        if es:
-            return [
-                "Podemos evaluar las condiciones de negociación aquí en la tienda. "
-                "Si te queda bien, pasa a conocernos esta semana — sin compromiso."
-            ]
-        return [
-            "Conseguimos avaliar as condições da negociação aqui na loja. "
-            "Se fizer sentido, passa aqui esta semana — sem compromisso."
-        ]
-    if es:
-        return [
-            "Nuestra tienda está de puertas abiertas. Pasa a tomar un café, sin compromiso."
-        ]
-    return [
-        "Nossa loja está de portas abertas. Aparece tomar um café, sem compromisso."
-    ]
+    from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+    offered = list(state.get("offered_visit_slots") or [])
+    if not offered:
+        inbound_low = str(state.get("inbound_text") or "").lower()
+        prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
+        offered = suggest_visit_slots(
+            lang=lang if lang else "pt",
+            prefer_saturday=prefer_sat,
+        )
+    slot_text = format_slot_suggestion(offered, lang=lang if lang else "pt")
+    return [slot_text]
 
 
 def _document_received_bubbles(
@@ -372,27 +371,17 @@ def _follow_up_bubble(
         if key in {"budget", "budget_max"}:
             key = "deal_type"
         if key == "visit":
-            # If the customer already gave a day (e.g. "segunda-feira que vem"),
-            # ask only for the time slot instead of day+time again.
-            known_day = (state.get("facts") or {}).get("timeline") or state.get("visit_preferred_time")
-            if known_day and isinstance(known_day, str):
-                from sdr.domain.pending_question import _VISIT_TIME_OF_DAY as _vtod
-                if not _vtod.search(known_day):
-                    # Day is known but no time yet — ask specifically for the hour.
-                    if lang == "es":
-                        return (
-                            f"¿Y qué horario te queda mejor {known_day}? "
-                            "Estamos abiertos de 8h a 18h."
-                        )
-                    return (
-                        f"E qual horário fica melhor pra você {known_day}? "
-                        "Estamos abertos das 8h às 18h."
-                    )
-            return (
-                "¿Qué día y horario te queda mejor para pasar por la tienda?"
-                if lang == "es"
-                else "Qual dia e horário fica melhor pra você passar na loja?"
-            )
+            from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+            offered = state.get("offered_visit_slots") or []
+            if not offered:
+                inbound_low = str(state.get("inbound_text") or "").lower()
+                prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
+                offered = suggest_visit_slots(
+                    lang=lang if lang else "pt",
+                    prefer_saturday=prefer_sat,
+                )
+            return format_slot_suggestion(list(offered), lang=lang if lang else "pt")
         if key in questions:
             return questions[key]
         if key not in {"budget", "budget_max"}:
@@ -774,6 +763,12 @@ async def compose_response(
         "show_offers",
         "send_location",
         "media_failed",
+        "register_visit_interest",
+    ):
+        use_templates = True
+    elif (
+        action == "ask_info"
+        and str(action_plan.get("ask_field") or action_plan.get("next_question") or "") == "visit"
     ):
         use_templates = True
     elif state.get("ack_kind"):

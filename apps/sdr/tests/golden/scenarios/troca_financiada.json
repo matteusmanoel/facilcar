@@ -1,53 +1,191 @@
 {
   "name": "troca_financiada",
-  "description": "Troca com financiamento em aberto: deve coletar parcela e qtd. restante. Nunca perguntar 'compra ou troca?' quando intent já é TRADE.",
+  "description": "Troca Peugeot→HB20 com financiamento; multas parciais; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "trade",
   "initial_state": {},
   "turns": [
     {
-      "inbound": "Tenho um Peugeot 2008 para trocar por um Fox",
-      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "Fox", "trade_model": "Peugeot 2008"}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_model": "fox", "trade_model": "peugeot 2008"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"],
-      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
+      "inbound": "Quero trocar meu Peugeot 2008 por um HB20",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "HB20",
+          "trade_model": "Peugeot 2008"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "2019, branco, 85000 km",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_year": "2019", "trade_color": "branco", "mileage": 85000},
-      "expected_ask_field_in": ["trade_has_financing"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_year": "2019",
+          "trade_color": "branco",
+          "mileage": 85000
+        }
+      },
+      "expected_facts_after": {
+        "trade_year": "2019",
+        "trade_color": "branco",
+        "mileage": 85000
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "Sim, ainda está financiado",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_has_financing": "true"}},
-      "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_installment_value"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_financing": true
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_installment_value"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "850 por mês",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_installment_value": 850}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_installment_value": 850},
-      "expected_ask_field_in": ["trade_installments_remaining"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_installment_value": 850
+        }
+      },
+      "expected_facts_after": {
+        "trade_installment_value": 850
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "Mais 24 parcelas",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_installments_remaining": 24}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_installments_remaining": 24},
-      "expected_ask_field_in": ["trade_has_debts"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_installments_remaining": 24
+        }
+      },
+      "expected_facts_after": {
+        "trade_installments_remaining": 24
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "Não tenho multas",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "false"}},
-      "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_price_expectation"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_debt_type": "sem_multas"
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_has_debts"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "IPVA e licenciamento estão em dia",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_debts": false
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Espero uns 40 mil no meu",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_price_expectation": 40000
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "A diferença eu financio também",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "payment_method": "financing"
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Sou Paulo Lima",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "name": "Paulo Lima"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Pode ser o primeiro horário",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     }
   ]
 }

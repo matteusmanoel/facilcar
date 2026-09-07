@@ -12,7 +12,9 @@ from typing import Any
 
 from sdr.domain.facts_schema import normalize_facts, normalize_money_value
 from sdr.domain.pending_interaction import PendingResolution
+from sdr.domain.scheduling import resolve_slot_choice
 from sdr.domain.types import BusinessIntent, ConversationCanonicalState, TurnFacts
+from sdr.domain.vehicle_roles import canonicalize_vehicle_roles, parse_packed_vehicle_attrs
 
 _CASH = re.compile(
     r"\b(?:[aà]\s*vista|avista|dinheiro|pix|cart[aã]o)\b",
@@ -79,6 +81,20 @@ _INSTALLMENT_SKIP = re.compile(
 )
 _TRADE = re.compile(r"\b(?:troca|trocar|permuta)\b", re.I)
 _PURCHASE = re.compile(r"\b(?:compra|comprar|comprando)\b", re.I)
+_FINES_ONLY = re.compile(
+    r"n[aã]o\s+tenho\s+multas|sem\s+multas|multas?\s+n[aã]o|s[oó]\s+n[aã]o\s+tenho\s+multa",
+    re.I,
+)
+_CLEAR_DEBTS = re.compile(
+    r"tudo\s+em\s+dia|sem\s+d[eé]bitos|nada\s+pendente|regularizado|"
+    r"sem\s+pend[eê]ncias|n[aã]o\s+tenho\s+d[eé]bito",
+    re.I,
+)
+_DOCS_LATER = re.compile(
+    r"n[aã]o\s+tenho\s+(agora|no\s+momento)|depois\s+eu\s+(envio|mando)|"
+    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)",
+    re.I,
+)
 
 
 def _norm(text: str) -> str:
@@ -143,54 +159,28 @@ def overlay_pending_question(
             if money is not None:
                 extra["desired_installment"] = money
     elif pending == "visit":
-        # Protocol: we just invited a visit.
-        # Full slot (day + time-of-day) → visit_intent=True → triggers handoff.
-        # Day-only with positive affirmation ("Sim, essa semana") → visit_intent=True
-        #   but still ask for hour on the next turn (state keeps timeline day).
-        # Day-only without affirmation, or with negation ("estou corrido essa
-        #   semana, posso ir na segunda") → record the concrete day, keep pending.
-        # Short "sim" / positive without time → visit_intent=True.
-        time_m = _VISIT_TIME.search(text)
-        if time_m:
-            slot = time_m.group(0)
-            has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
-
-            # When the first match is day-only AND the text has negation language
-            # (e.g. "estou corrido essa semana"), look for a later, more concrete
-            # day reference in the same utterance.
-            if not has_time and _VISIT_NEGATION.search(text):
-                alt_m = _VISIT_TIME.search(text, time_m.end())
-                if alt_m:
-                    slot = alt_m.group(0)
-                    has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
-                else:
-                    slot = None  # only negated reference found
-
-            if slot:
-                if has_time:
-                    # Full slot — combine with a previously known day when the new
-                    # input is time-only and state already recorded the day.
-                    existing_day = state.visit_preferred_time or state.facts.get("timeline", "")
-                    if (
-                        existing_day
-                        and isinstance(existing_day, str)
-                        and not _VISIT_TIME_OF_DAY.search(existing_day)
-                    ):
-                        slot = f"{existing_day} às {slot}"
-                    extra["timeline"] = slot
-                    facts.signals.visit_intent = True
-                else:
-                    # Day-only: record it for context.
-                    extra["timeline"] = slot
-                    # If the customer also said "sim" / positive, they're willing
-                    # to come this week — mark intent so Decision knows to confirm.
-                    if _SHORT_YES.search(text) or _VISIT_POSITIVE.search(text):
-                        facts.signals.visit_intent = True
-                    # Without a positive, keep pending to ask for the hour.
-        elif _SHORT_YES.search(text) and len(text.split()) <= 8:
+        chosen = resolve_slot_choice(text, list(state.offered_visit_slots or []))
+        if chosen:
+            extra["timeline"] = chosen
             facts.signals.visit_intent = True
-        elif _VISIT_POSITIVE.search(text) and len(text.split()) <= 12:
-            pass
+        else:
+            time_m = _VISIT_TIME.search(text)
+            if time_m:
+                slot = time_m.group(0)
+                has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+                if not has_time and _VISIT_NEGATION.search(text):
+                    alt_m = _VISIT_TIME.search(text, time_m.end())
+                    if alt_m:
+                        slot = alt_m.group(0)
+                        has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+                    else:
+                        slot = None
+                if slot:
+                    extra["timeline"] = slot
+                    if has_time or _SHORT_YES.search(text) or _VISIT_POSITIVE.search(text):
+                        facts.signals.visit_intent = True
+            elif _SHORT_YES.search(text) and len(text.split()) <= 8:
+                facts.signals.visit_intent = True
     elif pending == "alternatives_ok" and facts.pending_resolution is None:
         if _SHORT_YES.search(text) and len(text.split()) <= 10:
             facts.pending_resolution = PendingResolution.ACCEPT
@@ -202,10 +192,17 @@ def overlay_pending_question(
         elif _SHORT_NO.search(text):
             extra["trade_has_financing"] = False
     elif pending == "trade_has_debts":
-        if _SHORT_YES.search(text):
+        if _FINES_ONLY.search(text) and not _CLEAR_DEBTS.search(text):
+            extra["trade_debt_type"] = "sem_multas"
+        elif _CLEAR_DEBTS.search(text):
+            extra["trade_has_debts"] = False
+        elif _SHORT_YES.search(text):
             extra["trade_has_debts"] = True
         elif _SHORT_NO.search(text):
             extra["trade_has_debts"] = False
+    elif pending == "documents":
+        if _DOCS_LATER.search(text) or _SHORT_NO.search(text):
+            extra["documents_deferred"] = True
     elif pending == "trade_in_owner_is_client":
         if _SHORT_YES.search(text):
             extra["trade_in_owner_is_client"] = True
@@ -254,9 +251,28 @@ def overlay_pending_question(
     ):
         extra.setdefault("deal_type", "purchase")
 
-    if not extra:
-        return facts
+    if pending in {"trade_year", "trade_color", "mileage", "trade_model"}:
+        packed = parse_packed_vehicle_attrs(text)
+        if packed.get("year"):
+            extra.setdefault("trade_year", packed["year"])
+        if packed.get("color"):
+            extra.setdefault("trade_color", packed["color"])
+        if packed.get("mileage") is not None:
+            extra.setdefault("mileage", packed["mileage"])
 
-    canonical_extra, _rejected = normalize_facts(extra, source_text=inbound_text)
-    facts.facts = {**facts.facts, **canonical_extra}
+    if (
+        _CASH.search(text)
+        and not facts.facts.get("payment_method")
+        and "payment_method" not in extra
+        and not state.facts.get("payment_method")
+    ):
+        extra.setdefault("payment_method", "cash")
+
+    if extra:
+        canonical_extra, _rejected = normalize_facts(extra, source_text=inbound_text)
+        facts.facts = {**facts.facts, **canonical_extra}
+    facts.facts = canonicalize_vehicle_roles(
+        facts.facts,
+        facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent,
+    )
     return facts

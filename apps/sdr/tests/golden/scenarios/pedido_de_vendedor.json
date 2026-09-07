@@ -1,6 +1,8 @@
 {
   "name": "pedido_de_vendedor",
-  "description": "Cliente explicitamente pede para falar com um vendedor. Handoff imediato. Resumo CRM deve declarar dados pendentes quando não há informações coletadas.",
+  "description": "Handoff imediato sem fingir coleta.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
   "initial_state": {},
   "turns": [
     {
@@ -8,18 +10,23 @@
       "understand_return": {
         "intent": "UNKNOWN",
         "facts": {},
-        "signals": {"explicit_handoff": true}
+        "signals": {
+          "explicit_handoff": true
+        }
       },
       "expected_action": "HANDOFF_VENDOR",
       "required_in_outbound_any": [
         "encaminh",
-        "equipe",
-        "especialistas",
-        "vendedor",
-        "organiz",
-        "reuni"
+        "vendedor"
       ],
-      "forbidden_in_outbound": ["Qual modelo", "seria compra ou troca"]
+      "forbidden_in_outbound": [
+        "já reuni",
+        "já organizei",
+        "qual modelo",
+        "seria compra ou troca",
+        "visita",
+        "horário"
+      ]
     }
   ]
 }

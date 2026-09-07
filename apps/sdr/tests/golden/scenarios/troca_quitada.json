@@ -1,44 +1,152 @@
 {
   "name": "troca_quitada",
-  "description": "Troca com veículo quitado, sem débitos. A primeira pergunta após TRADE não deve ser 'compra ou troca?'. Roteiro de TRADE: coleta info do veículo de troca.",
+  "description": "Troca Ka→HB20 disponível, veículo quitado, até handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "trade",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero trocar meu Ka por um HB20",
-      "understand_return": {"intent": "TRADE", "facts": {"desired_model": "HB20", "trade_model": "Ford Ka"}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_model": "hb20", "trade_model": "ford ka"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage"],
-      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "HB20",
+          "trade_model": "Ford Ka"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "expected_facts_after": {
+        "desired_model": "hb20",
+        "trade_model": "ford ka"
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "2019, prata, 72000 km",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_year": "2019", "trade_color": "prata", "mileage": 72000}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_year": "2019", "trade_color": "prata", "mileage": 72000},
-      "expected_ask_field_in": ["trade_has_financing"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_year": "2019",
+          "trade_color": "prata",
+          "mileage": 72000
+        }
+      },
+      "expected_facts_after": {
+        "trade_year": "2019",
+        "trade_color": "prata",
+        "mileage": 72000
+      },
+      "expected_ask_field_in": [
+        "trade_has_financing"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "Não, está quitado",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_has_financing": "false"}},
-      "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_has_debts"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_financing": false
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_has_debts"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
-      "inbound": "Sem multas, tudo ok",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_has_debts": "false"}},
-      "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_price_expectation"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "inbound": "Tudo em dia, sem débitos",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_debts": false
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_price_expectation"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     },
     {
       "inbound": "Acho que vale uns 35 mil",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_price_expectation": 35000}},
-      "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["name"],
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_price_expectation": 35000
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "A diferença eu pago à vista",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "payment_method": "cash"
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Me chamo Rita Nunes",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "name": "Rita Nunes"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     }
   ]
 }

@@ -1,26 +1,92 @@
 {
   "name": "civic_vendido_foto",
-  "description": "Cliente pergunta sobre o Honda Civic Prata do catálogo. O seed tem o Civic como SOLD. Agente deve informar que foi vendido e oferecer alternativas.",
+  "description": "Anúncio Civic SOLD com listing_id inequívoco; alternativa; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
   "initial_state": {},
-  "seed_vehicle_hint": "VH-SOLD-CIVIC-001",
   "turns": [
     {
       "inbound": "Esse Honda Civic Prata ainda está disponível?",
-      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Honda Civic", "desired_vehicle_text": "Civic Prata"}},
+      "listing_id": "VH-SOLD-CIVIC-001",
+      "listing_url": "https://facilcar.com.br/veiculo/VH-SOLD-CIVIC-001",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Honda Civic"
+        }
+      },
       "expected_action": "SHOW_OFFERS",
-      "expected_outcome_in": ["SUCCESS_SOLD", "SUCCESS_EMPTY"],
+      "expected_outcome_in": [
+        "SUCCESS_SOLD"
+      ],
       "forbidden_in_outbound": [
         "não trabalhamos",
-        "não localizei seu veículo",
-        "veículo disponível",
         "está disponível"
       ],
       "required_in_outbound_any": [
         "vendido",
         "não está mais",
-        "não disponível",
-        "alternativ",
-        "outros"
+        "já foi vendido",
+        "alternativ"
+      ]
+    },
+    {
+      "inbound": "Pode ser o Corolla então, à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Corolla",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Me chamo Sérgio Pires",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Sérgio Pires"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
       ]
     }
   ]

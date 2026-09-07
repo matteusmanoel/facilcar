@@ -81,6 +81,13 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "installment_mismatch_offered": bool(state.installment_mismatch_offered),
         "installment_capacity": state.installment_capacity,
         "last_shown_price_cash": state.last_shown_price_cash,
+        "deferred_fields": list(state.deferred_fields),
+        "offered_visit_slots": list(state.offered_visit_slots),
+        "listing_reference": state.listing_reference,
+        "handoff_ready": state.handoff_ready,
+        "profile_complete": state.profile_complete,
+        "missing_fields": list(state.missing_fields),
+        "collected_fields": list(state.collected_fields),
     }
     return json.dumps(payload)
 
@@ -194,6 +201,13 @@ def canonical_state_from_json(
             if data.get("last_shown_price_cash") is not None
             else None
         ),
+        deferred_fields=list(data.get("deferred_fields") or []),
+        offered_visit_slots=list(data.get("offered_visit_slots") or []),
+        listing_reference=data.get("listing_reference") or None,
+        handoff_ready=bool(data.get("handoff_ready") or False),
+        profile_complete=bool(data.get("profile_complete") or False),
+        missing_fields=list(data.get("missing_fields") or []),
+        collected_fields=list(data.get("collected_fields") or []),
     )
 
 

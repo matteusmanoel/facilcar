@@ -73,3 +73,21 @@ def test_vendor_summary_trade_is_narrative() -> None:
     assert "Peugeot" in summary or "2008" in summary
     assert not summary.lstrip().startswith("-")
     assert "\n-" not in summary
+
+
+def test_empty_vendor_request_summary_is_honest() -> None:
+    from sdr.domain.types import HandoffSignals
+
+    state = ConversationCanonicalState(
+        thread_id="t1",
+        customer=CustomerState(phone="5541999999999"),
+        intent=BusinessIntent.UNKNOWN,
+        signals=HandoffSignals(explicit_handoff=True),
+        facts={},
+    )
+    summary = build_vendor_summary(state)
+    low = summary.lower()
+    assert "vendedor" in low
+    assert "visita" not in low
+    assert "horário" not in low
+    assert "já reuni" not in low

@@ -79,6 +79,45 @@ def _field(vehicle: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
+_TRANSMISSION_PT = {
+    "automatic": "automático",
+    "automatico": "automático",
+    "auto": "automático",
+    "cvt": "CVT",
+    "manual": "manual",
+    "automated": "automatizado",
+}
+
+
+def _vehicle_title(data: Mapping[str, Any]) -> str:
+    title = str(_field(data, "title") or "").strip()
+    if title and title.lower() not in {"veículo publicado", "veiculo publicado", "publicado"}:
+        return title
+    brand = str(_field(data, "brand", "marca") or "").strip()
+    model = str(_field(data, "model", "modelo") or "").strip()
+    version = str(_field(data, "version", "versao", "versão") or "").strip()
+    parts = [p for p in (brand, model, version) if p]
+    return " ".join(parts)
+
+
+def _transmission_label(raw: Any, *, es: bool) -> str | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    mapped = _TRANSMISSION_PT.get(text.lower())
+    if mapped:
+        if es and mapped == "automático":
+            return "automático"
+        if es and mapped == "manual":
+            return "manual"
+        return mapped
+    if text.lower() in {"automatic", "automatico"}:
+        return "automático"
+    return text
+
+
 def format_vehicle_caption(
     vehicle: Any,
     *,
@@ -86,16 +125,16 @@ def format_vehicle_caption(
 ) -> str:
     """Listing caption from published fields only. Missing fields are omitted."""
     data = _as_mapping(vehicle)
-    title = str(_field(data, "title") or "").strip()
-    year = _field(data, "yearModel", "year_model")
+    title = _vehicle_title(data)
+    year = _field(data, "yearModel", "year_model", "year")
     price = format_price_brl(_field(data, "priceCash", "price_cash", "price"))
     mileage = _field(data, "mileage")
     color = _field(data, "color")
     version = _field(data, "version")
     engine = _field(data, "engineDisplacementLiters", "engine_displacement_liters")
-    transmission = _field(data, "transmission", "cambio")
+    transmission = _transmission_label(_field(data, "transmission", "cambio"), es=str(language).lower().startswith("es"))
 
-    header = title or "Veículo publicado"
+    header = title or "Veículo"
     if year is not None and str(year) not in header:
         header = f"{header} • {year}"
 
@@ -125,10 +164,6 @@ def format_vehicle_caption(
         lines.append(f"⚙️ {engine_label}: {engine}")
     if transmission:
         lines.append(f"🔧 {trans_label}: {transmission}")
-    if es:
-        lines.append("Vale la visita para verlo de cerca.")
-    else:
-        lines.append("Conforto e estilo sem igual.")
     return "\n".join(lines)
 
 

@@ -36,7 +36,7 @@ def test_caption_uses_published_fields_and_omits_missing() -> None:
     assert "não consta" not in caption.lower()
     assert "Cor:" not in caption
     assert "84900.0" not in caption
-    assert "Conforto e estilo sem igual." in caption
+    assert "conforto e estilo sem igual" not in caption.lower()
 
 
 def test_caption_on_last_photo_only() -> None:
@@ -113,3 +113,25 @@ def test_photo_request_is_protocol_not_product_list() -> None:
     assert has_photo_request_evidence("manda as fotos por aqui")
     assert not has_photo_request_evidence("Gostaria de ver um corolla que vi no estoque")
     assert not has_photo_request_evidence("Olá, tudo bem?")
+
+
+def test_seed_cards_identify_vehicle_and_translate_transmission() -> None:
+    from tests.golden.fixtures.seed_inventory_adapter import load_seed
+
+    seed = {row["id"]: row for row in load_seed()}
+    onix = format_vehicle_caption(seed["VH-PUBLISHED-005"])
+    hb20 = format_vehicle_caption(seed["VH-PUBLISHED-004"])
+    cronos = format_vehicle_caption(seed["VH-PUBLISHED-001"])
+    sold = format_vehicle_caption(seed["VH-SOLD-CIVIC-001"])
+    for caption in (onix, hb20, cronos, sold):
+        assert "veículo publicado" not in caption.lower()
+        assert "automatic" not in caption.lower()
+    assert "Onix" in onix
+    assert "automático" in onix
+    assert "HB20" in hb20
+    assert "Cronos" in cronos
+    assert "Civic" in sold
+    models = {row["model"].lower() for row in load_seed()}
+    assert "gol" not in models
+    assert "fox" not in models
+

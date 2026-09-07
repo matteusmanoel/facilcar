@@ -194,7 +194,7 @@ async def test_reject_alternatives_asks_budget(pool_and_search) -> None:
     assert r.state.pending_interaction == PendingInteraction.NONE
     assert r.state.alternative_scope == AlternativeScope.NONE
     assert r.action_plan.action == Action.ASK_INFO
-    assert r.action_plan.ask_field == "name"  # deal_type no longer asked proactively when intent is known
+    assert r.action_plan.ask_field == "payment_method"
 
 
 @pytest.mark.asyncio

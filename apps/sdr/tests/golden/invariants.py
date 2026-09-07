@@ -64,11 +64,11 @@ def check_turn(
 
     # --- Global invariants (apply to every turn) ---
 
-    # Must never say "não encontrei" as a permanent inventory absence
-    if "não encontrei" in outbound_joined:
+    # Must never claim the FacilCar does not work with a vehicle category.
+    if re.search(r"n[aã]o trabalhamos|n[aã]o temos esse tipo|nunca teremos", outbound_joined):
         fail(
-            "GLOBAL: não_encontrei_banned",
-            f"Response contains 'não encontrei': {outbound_joined[:120]}",
+            "GLOBAL: category_ban_as_stock",
+            f"Response treated stock miss as category ban: {outbound_joined[:120]}",
         )
 
     # Must never reopen as first contact after the assistant has already spoken.
@@ -143,9 +143,38 @@ def check_turn(
         if inv_outcome not in expected_outcome_in:
             fail("expected_outcome_in", f"expected one of {expected_outcome_in!r}, got {inv_outcome!r}")
 
+    # Re-asking a field already collected is a contract failure.
+    ask_field = plan.ask_field
+    if ask_field and ask_field in (getattr(state, "collected_fields", None) or []):
+        fail(
+            "GLOBAL: repeat_answered_field",
+            f"ask_field={ask_field!r} already in collected_fields={state.collected_fields}",
+        )
+
+    if "veículo publicado" in outbound_joined or "veiculo publicado" in outbound_joined:
+        fail("GLOBAL: card_generic_title", "Outbound used generic 'Veículo publicado' title")
+
+    if re.search(r"\bautomatic\b", outbound_joined) and "automático" not in outbound_joined:
+        fail("GLOBAL: raw_enum_to_customer", f"Raw enum in outbound: {outbound_joined[:160]}")
+
+    collected = getattr(state, "collected_fields", None) or []
+    if not collected and re.search(r"j[áa]\s+reuni", outbound_joined):
+        fail(
+            "GLOBAL: false_completeness",
+            "Claimed to have gathered information with empty collected_fields",
+        )
+
+    media = list(getattr(result, "outbound_media", None) or [])
+    for item in media:
+        caption = (getattr(item, "caption", None) or "").lower()
+        if "veículo publicado" in caption or "veiculo publicado" in caption:
+            fail("GLOBAL: card_must_identify_vehicle", caption[:160])
+        if re.search(r"\bautomatic\b", caption):
+            fail("GLOBAL: raw_enum_in_card", caption[:160])
+
     expected_facts_after = turn_def.get("expected_facts_after") or {}
     for fact_key, expected_val in expected_facts_after.items():
-        actual_val = state.facts.get(fact_key)
+        actual_val = _fact_path(state.facts, fact_key)
         if actual_val is None:
             fail(f"expected_facts_after[{fact_key}]", f"key missing; facts={dict(state.facts)}")
         elif expected_val is not None:
@@ -209,5 +238,154 @@ def check_turn(
                 "invariant_two_concrete_slots",
                 f"Expected ≥2 concrete time markers, found {time_markers!r} in: {outbound_joined[:180]}",
             )
+        if not re.search(r"\d{1,2}\s*h", outbound_joined, re.I):
+            fail(
+                "invariant_two_concrete_slots",
+                f"Slots must include exact hours, got: {outbound_joined[:180]}",
+            )
 
     return violations
+
+
+def _fact_path(facts: dict[str, Any], key: str) -> Any:
+    if "." not in key:
+        return facts.get(key)
+    cur: Any = facts
+    for part in key.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def check_scenario(
+    *,
+    scenario: dict[str, Any],
+    result: Any,
+    llm_real: bool = False,
+) -> list[InvariantViolation]:
+    """End-of-conversation invariants. Empty list = pass."""
+    violations: list[InvariantViolation] = []
+    name = scenario.get("name", "unknown")
+
+    def fail(invariant: str, detail: str = "") -> None:
+        violations.append(InvariantViolation(name, -1, invariant, detail))
+
+    expected_terminal = scenario.get("expected_terminal")
+    obtained = _obtained_terminal(result)
+    if expected_terminal and obtained != expected_terminal:
+        fail(
+            "SCENARIO: expected_terminal",
+            f"expected {expected_terminal!r}, got {obtained!r}",
+        )
+
+    last_outbound = ""
+    if result.turns:
+        last = result.turns[-1]
+        last_outbound = " ".join(last.get("outbound") or []).lower()
+        last_action = (last.get("action") or "").upper()
+        if expected_terminal == "HANDOFF_VENDOR" and last_action != "HANDOFF_VENDOR":
+            if last.get("ask_field"):
+                fail(
+                    "SCENARIO: ended_on_question",
+                    f"Conversation ended asking {last.get('ask_field')!r} instead of handoff",
+                )
+
+    state = getattr(result, "final_state", None)
+    facts = getattr(state, "facts", {}) if state is not None else {}
+
+    if name == "compra_avista":
+        payment = str(facts.get("payment_method") or "").lower()
+        if payment not in {"cash", "a_vista", "à vista"}:
+            fail("SCENARIO: compra_avista_cash", f"payment_method={payment!r}")
+
+    if name == "compra_financiada_com_entrada":
+        if facts.get("down_payment") in (None, 0, "0"):
+            fail("SCENARIO: down_payment_missing", f"down_payment={facts.get('down_payment')!r}")
+        deferred = list(getattr(state, "deferred_fields", None) or []) if state else []
+        if "documents" not in deferred and not facts.get("documents_deferred"):
+            fail("SCENARIO: documents_not_deferred", f"deferred={deferred!r}")
+
+    if name == "compra_financiada_sem_entrada":
+        if facts.get("down_payment") not in (0, 0.0, "0"):
+            fail("SCENARIO: zero_down", f"down_payment={facts.get('down_payment')!r}")
+
+    if name in {"venda_direta", "consignacao", "refinanciamento"}:
+        desired = facts.get("desired_vehicle") if isinstance(facts.get("desired_vehicle"), dict) else {}
+        if desired.get("model") or facts.get("desired_model"):
+            fail(
+                "SCENARIO: customer_intent_no_desired",
+                f"desired leaked into {name}: {desired or facts.get('desired_model')!r}",
+            )
+
+    if name.startswith("troca_"):
+        from sdr.domain.vehicle_roles import customer_identity, desired_identity
+
+        if state is not None and not desired_identity(facts):
+            fail("SCENARIO: trade_desired_missing", str(facts.get("desired_vehicle")))
+        if state is not None and not customer_identity(facts):
+            fail("SCENARIO: trade_customer_missing", str(facts.get("customer_vehicle")))
+
+    if name == "fox_peugeot_troca":
+        if getattr(state, "last_inventory_outcome", None) == "SUCCESS_FOUND":
+            shown = " ".join(str(x) for x in (getattr(state, "last_shown_vehicle_ids", None) or []))
+            if "fox" in last_outbound and "argo" not in last_outbound:
+                fail("SCENARIO: fox_treated_available", last_outbound[:160])
+
+    if name == "pedido_de_vendedor":
+        summary = (result.vendor_summary or "").lower()
+        if "visita" in summary or "horário" in summary or "horario" in summary:
+            fail("SCENARIO: vendor_summary_invented_visit", summary[:200])
+        if "já reuni" in last_outbound:
+            fail("SCENARIO: vendor_false_completeness", last_outbound[:160])
+
+    if name.startswith("agendamento_"):
+        if state is not None and not getattr(state, "visit_preferred_time", None):
+            fail("SCENARIO: visit_slot_not_recorded", "visit_preferred_time is empty")
+        if "esperamos você" in last_outbound and "vendedor" not in last_outbound:
+            fail("SCENARIO: false_visit_confirmation", last_outbound[:160])
+
+    if name == "civic_vendido_foto":
+        sold_hits = [
+            t for t in (result.turns or [])
+            if t.get("matched_inventory_id") == "VH-SOLD-CIVIC-001"
+            or t.get("inventory_outcome") == "SUCCESS_SOLD"
+        ]
+        if not sold_hits:
+            match = getattr(state, "last_inventory_match", None) or {}
+            fail("SCENARIO: sold_identity", f"no sold listing hit; last={match!r}")
+
+    if name == "gol_nao_encontrado":
+        # The Gol lookup itself must stay empty; later alternatives may find other cars.
+        gol_outcomes = [
+            t.get("inventory_outcome")
+            for t in (result.turns or [])
+            if t.get("inventory_query_model") and "gol" in str(t.get("inventory_query_model")).lower()
+        ]
+        if gol_outcomes and any(o != "SUCCESS_EMPTY" for o in gol_outcomes):
+            fail("SCENARIO: gol_must_be_empty", str(gol_outcomes))
+
+    if llm_real:
+        if getattr(result, "fallback_count", 0):
+            fail("SCENARIO: llm_fallback", f"fallbacks={result.fallback_count}")
+        if any(not (t.get("outbound") or []) for t in (result.turns or []) if t.get("action") != "NO_REPLY"):
+            fail("SCENARIO: empty_composer", "A turn produced no outbound text")
+
+    return violations
+
+
+def _obtained_terminal(result: Any) -> str:
+    explicit = getattr(result, "obtained_terminal", None)
+    if explicit:
+        return str(explicit)
+    turns = list(getattr(result, "turns", None) or [])
+    if not turns:
+        return "INCOMPLETE"
+    last_action = (turns[-1].get("action") or "").upper()
+    if last_action == "HANDOFF_VENDOR":
+        return "HANDOFF_VENDOR"
+    if last_action == "NO_REPLY":
+        return "SILENCE"
+    if turns[-1].get("ask_field"):
+        return "INCOMPLETE"
+    return last_action or "INCOMPLETE"

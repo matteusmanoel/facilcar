@@ -28,6 +28,7 @@ from sdr.domain.engine_displacement import (
     is_engine_flexible_utterance,
 )
 from sdr.domain.facts_schema import is_pure_greeting, normalize_facts
+from sdr.domain.vehicle_roles import canonicalize_vehicle_roles
 from sdr.domain.pending_interaction import (
     parse_alternative_scope,
     parse_pending_resolution,
@@ -84,7 +85,7 @@ _NAME_INTRO = re.compile(
 )
 # PROTOCOL_DETERMINISTIC: financing and debt status for own vehicle
 _QUITADO = re.compile(r"\b(quitad[ao]|sem\s+financiamento|n[aã]o\s+(?:tem|tenho|h[aá])\s+financiamento)\b", re.I)
-_SEM_DEBITOS = re.compile(r"\bsem\s+(d[eé]bitos?|multas?|licenciamento)\b", re.I)
+_SEM_DEBITOS = re.compile(r"\bsem\s+d[eé]bitos?\b|\btudo\s+em\s+dia\b", re.I)
 # SAFE_FAST_PATH: explicit color mentions for trade-in / sale vehicle
 _TRADE_COLOR = re.compile(
     r"\bcor\s+(prat[ao]|branc[oa]|pret[oa]|vermelh[oa]|azul|cinn[za]|bege|champagne|marrom|dourad[oa]|verde)\b|"
@@ -334,7 +335,7 @@ def _heuristic_extract(text: str, state_summary: str | None = None) -> TurnFacts
     return TurnFacts(
         intent=intent,
         language=language,
-        facts=canonical,
+        facts=canonicalize_vehicle_roles(canonical, intent),
         signals=signals,
         confidence={"intent": 0.55 if intent != BusinessIntent.UNKNOWN else 0.2},
         photo_request=True if has_photo_request_evidence(normalized) else None,
@@ -439,7 +440,7 @@ def _parse_llm_payload(payload: Mapping[str, Any], *, source_text: str = "") -> 
     return TurnFacts(
         intent=intent,
         language=lang,
-        facts=canonical,
+        facts=canonicalize_vehicle_roles(canonical, intent),
         signals=signals,
         confidence=confidence,
         budget_status=budget_status,

@@ -63,18 +63,36 @@ def _compute_age(birth_date_str: str | None) -> int | None:
 
 
 def build_vendor_summary(state: ConversationCanonicalState) -> str:
-    """Human-readable narrative brief for the seller (CRM and handoff confirmation).
-
-    Prefers a narrative LLM-generated paragraph when the OpenAI client is
-    available at runtime.  Falls back to a deterministic bullet-free summary
-    so the system never crashes without the LLM.
-    """
-    # Try async-safe synchronous call if client available.
+    """Human-readable narrative brief for the seller (CRM and handoff confirmation)."""
+    if _is_empty_vendor_request(state):
+        return _empty_vendor_request_summary(state)
     try:
         return _build_vendor_summary_llm(state)
     except Exception:
         pass
     return _build_vendor_summary_deterministic(state)
+
+
+def _is_empty_vendor_request(state: ConversationCanonicalState) -> bool:
+    from sdr.domain.vehicle_roles import customer_identity, desired_identity
+
+    if state.signals.explicit_handoff is not True:
+        return False
+    facts = state.facts or {}
+    if desired_identity(facts) or customer_identity(facts):
+        return False
+    if facts.get("desired_model") or facts.get("trade_model") or facts.get("name"):
+        return False
+    return True
+
+
+def _empty_vendor_request_summary(state: ConversationCanonicalState) -> str:
+    name = (state.customer.name or state.facts.get("name") or "").strip()
+    who = f"Cliente {name}" if name and not is_placeholder_display_name(name) else "Cliente"
+    return (
+        f"{who} solicitou atendimento direto de um vendedor. "
+        "Ainda não informou nome, veículo de interesse ou tipo de negociação."
+    )
 
 
 def _fmt_money(value: object) -> str | None:
@@ -111,15 +129,24 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
 
     # Minimal state: if intent is UNKNOWN and no relevant facts, report honestly.
     from sdr.domain.types import BusinessIntent
+    from sdr.domain.vehicle_roles import format_vehicle_label, get_customer_vehicle, get_desired_vehicle
+
+    if _is_empty_vendor_request(state):
+        return _empty_vendor_request_summary(state)
+
     if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK) and not facts:
-        return f"{intro} Cliente solicitou atendimento. Não há informações sobre veículo ou intenção comercial."
+        return (
+            f"{intro} solicitou atendimento direto de um vendedor. "
+            "Ainda não informou nome, veículo de interesse ou tipo de negociação."
+        )
 
     # Interest
-    desired = (
+    desired = format_vehicle_label(get_desired_vehicle(facts)) or (
         facts.get("desired_vehicle_text")
         or facts.get("desired_model")
         or facts.get("vehicle_interest")
     )
+    cv = get_customer_vehicle(facts)
     intent_label = {
         "purchase": "comprando",
         "purchase_financing": "comprando via financiamento",
@@ -155,10 +182,10 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
 
     # Own vehicle
     own_parts: list[str] = []
-    trade_model = facts.get("trade_model") or facts.get("sell_model")
-    trade_year = facts.get("trade_year") or facts.get("sell_year")
-    trade_color = facts.get("trade_color")
-    mileage = facts.get("mileage") or facts.get("km")
+    trade_model = cv.get("model") or facts.get("trade_model") or facts.get("sell_model")
+    trade_year = cv.get("year") or facts.get("trade_year") or facts.get("sell_year")
+    trade_color = cv.get("color") or facts.get("trade_color")
+    mileage = cv.get("mileage") if cv.get("mileage") is not None else (facts.get("mileage") or facts.get("km"))
     if trade_model:
         desc = str(trade_model)
         if trade_year:
@@ -204,9 +231,28 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     # Visit
     visit_sentence = ""
     if state.visit_preferred_time:
-        visit_sentence = f"Prefere visitar: {state.visit_preferred_time}."
+        visit_sentence = (
+            f"Preferência de visita: {state.visit_preferred_time} "
+            "(pendente de confirmação do vendedor)."
+        )
+    elif state.signals.visit_intent is True:
+        visit_sentence = "Cliente demonstrou interesse em visitar a loja."
 
-    sentences = [s for s in [intro, interest_sentence, payment_sentence, own_sentence, visit_sentence] if s]
+    pending = list(state.missing_fields or [])
+    deferred = list(state.deferred_fields or [])
+    pending_sentence = ""
+    if pending:
+        pending_sentence = "Ainda pendente: " + ", ".join(pending) + "."
+    if deferred:
+        pending_sentence = (pending_sentence + " " if pending_sentence else "") + (
+            "Adiado: " + ", ".join(deferred) + "."
+        )
+
+    sentences = [
+        s
+        for s in [intro, interest_sentence, payment_sentence, own_sentence, visit_sentence, pending_sentence]
+        if s
+    ]
     return " ".join(sentences)
 
 

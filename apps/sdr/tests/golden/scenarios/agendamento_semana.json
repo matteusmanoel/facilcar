@@ -1,35 +1,77 @@
 {
   "name": "agendamento_semana",
-  "description": "Compra de Cronos: interesse → veículo → nome (aciona invite com 2 slots) → cliente confirma visit (Júlia não pode prometer reserva).",
+  "description": "Dois horários exatos; cliente escolhe 14h; vendedor confirma.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
   "initial_state": {},
   "turns": [
     {
-      "inbound": "Quero comprar um Fiat Cronos",
-      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Fiat Cronos"}},
-      "expected_action": "SHOW_OFFERS"
+      "inbound": "Quero comprar um Fiat Cronos à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Fiat Cronos",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     },
     {
       "inbound": "Meu nome é Ana Ferreira",
-      "understand_return": {"intent": "PURCHASE", "facts": {"name": "Ana Ferreira"}},
-      "expected_facts_after": {"name": "Ana Ferreira"}
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Ana Ferreira"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Ana Ferreira"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
     },
     {
-      "inbound": "Gostaria de passar na loja para ver",
-      "understand_return": {"intent": "PURCHASE", "facts": {}},
-      "forbidden_in_outbound": [
-        "reservado pra você",
-        "reservado para você",
-        "está reservado",
-        "vou deixar reservado",
-        "vai ficar reservado"
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor",
+        "confirma"
       ],
-      "llm_real_only": {
-        "required_in_outbound_any": [
-          "segunda", "terça", "quarta", "quinta", "sexta", "sábado",
-          "manhã", "tarde", "horário", "dia"
-        ],
-        "invariant_two_concrete_slots": true
-      }
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você"
+      ]
     }
   ]
 }

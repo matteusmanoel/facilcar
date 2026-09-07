@@ -22,6 +22,12 @@ from sdr.domain.types import (
     LifecycleStatus,
     TurnFacts,
 )
+from sdr.domain.vehicle_roles import (
+    CUSTOMER_VEHICLE_KEY,
+    DESIRED_VEHICLE_KEY,
+    canonicalize_vehicle_roles,
+    merge_vehicle_dicts,
+)
 from sdr.domain.vendor_summary import is_placeholder_display_name
 
 _UNKNOWN_TOKENS = frozenset({"unknown", "unk", "n/a", "na", "?"})
@@ -105,6 +111,11 @@ def _merge_facts(
             continue
         if _is_unknown(raw_value):
             # Omission / unknown must not delete or falsify known data.
+            continue
+
+        if key in (DESIRED_VEHICLE_KEY, CUSTOMER_VEHICLE_KEY) and isinstance(raw_value, dict):
+            prev_vehicle = merged.get(key) if isinstance(merged.get(key), dict) else {}
+            merged[key] = merge_vehicle_dicts(prev_vehicle, raw_value)
             continue
 
         prev_value = merged.get(key)
@@ -285,6 +296,14 @@ def deterministic_merge(
         installment_mismatch_offered=prev.installment_mismatch_offered,
         installment_capacity=prev.installment_capacity,
         last_shown_price_cash=prev.last_shown_price_cash,
+        deferred_fields=list(prev.deferred_fields),
+        offered_visit_slots=list(prev.offered_visit_slots),
+        listing_reference=prev.listing_reference,
+        last_inventory_match=deepcopy(prev.last_inventory_match) if prev.last_inventory_match else None,
+        handoff_ready=prev.handoff_ready,
+        profile_complete=prev.profile_complete,
+        missing_fields=list(prev.missing_fields),
+        collected_fields=list(prev.collected_fields),
     )
 
     state.language = _merge_language(state.language, facts.language)
@@ -322,6 +341,11 @@ def deterministic_merge(
         facts.explicit_corrections,
         state.pending_confirmation,
     )
+    state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    if state.facts.get("documents_deferred") is True:
+        if "documents" not in state.deferred_fields:
+            state.deferred_fields = list(state.deferred_fields) + ["documents"]
+        state.documents_asked = True
     if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:
         state.intent = BusinessIntent.PURCHASE_FINANCING
         state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE_FINANCING]

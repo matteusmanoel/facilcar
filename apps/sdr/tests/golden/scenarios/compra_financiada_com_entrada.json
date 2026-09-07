@@ -1,36 +1,140 @@
 {
   "name": "compra_financiada_com_entrada",
-  "description": "Compra financiada com entrada de 10k. Roteiro: modelo → veículo encontrado no seed → entrada → parcela → docs → nome → handoff.",
+  "description": "Financiamento com entrada; documentos adiados; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase_financing",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero financiar um HB20",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_model": "HB20", "payment_method": "financing"}},
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "HB20",
+          "payment_method": "financing"
+        }
+      },
       "expected_action": "SHOW_OFFERS",
-      "expected_facts_after": {"desired_model": "hb20"},
-      "forbidden_in_outbound": ["reservado", "garanto", "seria compra ou troca"]
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "expected_facts_after": {
+        "desired_model": "hb20"
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     },
     {
       "inbound": "Posso dar uma entrada de 10 mil",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"down_payment": 10000}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"down_payment": 10000},
-      "expected_ask_field_in": ["desired_installment"],
-      "forbidden_in_outbound": ["reservado", "garanto"]
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "down_payment": 10000
+        }
+      },
+      "expected_facts_after": {
+        "down_payment": 10000
+      },
+      "expected_ask_field_in": [
+        "desired_installment"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     },
     {
       "inbound": "Até 1200 de parcela",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_installment": 1200}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_installment": 1200},
-      "expected_ask_field_in": ["documents"],
-      "forbidden_in_outbound": ["reservado", "garanto"]
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_installment": 1200
+        }
+      },
+      "expected_facts_after": {
+        "desired_installment": 1200
+      },
+      "expected_ask_field_in": [
+        "documents",
+        "name"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Não tenho os documentos no momento, mando depois",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "documents_deferred": true
+        }
+      },
+      "expected_facts_after": {
+        "documents_deferred": true
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "recebi seu documento",
+        "cnh guardada"
+      ]
     },
     {
       "inbound": "Meu nome é Carlos Souza",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"name": "Carlos Souza"}},
-      "expected_facts_after": {"name": "Carlos Souza"},
-      "forbidden_in_outbound": ["Qual o seu nome", "reservado", "garanto"]
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "name": "Carlos Souza"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Carlos Souza"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Prefiro o segundo horário",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     }
   ]
 }

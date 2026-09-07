@@ -131,6 +131,7 @@ class TestVisitInviteHandoffGuard:
         state = _actionable_financing_state(
             visit_invited=True,
             pending_question="visit",
+            visit_preferred_time="segunda-feira, 7/09 às 14h",
             signals=HandoffSignals(visit_intent=True),
         )
         plan = decide(state)
@@ -519,7 +520,7 @@ class TestHardFallbackRegisterVisitInterest:
 
         assert bubbles, "Expected at least one bubble from _hard_fallback for REGISTER_VISIT_INTEREST."
         combined = " ".join(bubbles).lower()
-        assert "loja" in combined or "visita" in combined or "visitar" in combined, (
+        assert "14h" in combined or "horário" in combined or "vendedor" in combined, (
             f"Expected visit-related content in hard fallback bubbles, got: {bubbles!r}"
         )
         assert "como posso ajudar" not in combined, (

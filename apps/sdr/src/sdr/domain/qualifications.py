@@ -9,6 +9,13 @@ from sdr.domain.types import (
     BusinessIntent,
     ConversationCanonicalState,
 )
+from sdr.domain.vehicle_roles import (
+    canonicalize_vehicle_roles,
+    customer_has,
+    customer_identity,
+    desired_identity,
+    get_customer_vehicle,
+)
 
 
 def _has(facts: dict[str, Any], *keys: str) -> bool:
@@ -18,26 +25,29 @@ def _has(facts: dict[str, Any], *keys: str) -> bool:
             continue
         if isinstance(value, str) and not value.strip():
             continue
+        if isinstance(value, dict) and not value:
+            continue
         return True
     return False
 
 
 def _desired_vehicle(facts: dict[str, Any]) -> bool:
+    if desired_identity(facts):
+        return True
     return _has(
         facts,
         "desired_model",
         "desired_vehicle_text",
-        "desired_vehicle",
         "vehicle_interest",
         "category",
-        "model",
         "brand_model",
-        "brand",
     )
 
 
 def _own_vehicle_identity(facts: dict[str, Any]) -> bool:
-    has_model = _has(facts, "trade_model", "sell_model", "vehicle_model", "model", "brand")
+    if customer_identity(facts):
+        return True
+    has_model = _has(facts, "trade_model", "sell_model", "vehicle_model")
     has_year = _has(facts, "trade_year", "sell_year", "vehicle_year", "year", "year_model")
     return has_model and has_year
 
@@ -55,22 +65,35 @@ def _has_name(state: ConversationCanonicalState) -> bool:
 
 def _trade_financing_detail(facts: dict[str, Any]) -> bool:
     """Trade financing detail is satisfied when: no financing, OR details provided."""
+    cv = get_customer_vehicle(facts)
+    if cv.get("financing_status") == "paid_off":
+        return True
+    if cv.get("financing_status") == "financed":
+        return customer_has(facts, "installment_value") and customer_has(
+            facts, "installments_remaining"
+        )
     has_fin = facts.get("trade_has_financing")
     if has_fin is False:
-        # Quitado — no further detail needed.
         return True
     if has_fin is True:
-        # Financiado — need installment value + remaining count.
         return _has(facts, "trade_installment_value") and _has(facts, "trade_installments_remaining")
-    # trade_has_financing not yet answered — not complete.
+    return False
+
+
+def _documents_satisfied(state: ConversationCanonicalState) -> bool:
+    if state.documents_asked:
+        return True
+    if "documents" in (state.deferred_fields or []):
+        return True
+    if state.facts.get("documents_deferred") is True:
+        return True
     return False
 
 
 def is_seller_actionable(state: ConversationCanonicalState) -> bool:
-    """Return True when a vendor can continue without restarting triage.
+    """Return True when the qualification profile is complete for this intent.
 
-    Triage complete ≠ financing/sell form complete. Only fields needed to
-    unlock the next commercial action matter.
+    Distinct from is_handoff_ready: a vendor can take an incomplete lead.
     """
     facts = state.facts
     intent = state.intent
@@ -79,59 +102,85 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
         return False
 
     if intent == BusinessIntent.PURCHASE:
-        # Model + name. À vista is implicit (no financing roteiro needed).
         return _desired_vehicle(facts) and _has_name(state)
 
     if intent == BusinessIntent.PURCHASE_FINANCING:
-        # Vehicle + name + installment preference + documents asked.
         return (
             _desired_vehicle(facts)
             and _has_name(state)
             and _has(facts, "desired_installment")
-            and state.documents_asked
+            and _documents_satisfied(state)
         )
 
     if intent == BusinessIntent.TRADE:
-        # Desired vehicle + own vehicle identity + colour + km + financing
-        # situation + debts + price expectation + name.
         base = _desired_vehicle(facts) and _own_vehicle_identity(facts)
-        color = _has(facts, "trade_color")
-        km = _has(facts, "mileage", "km")
-        financing_answered = _has(facts, "trade_has_financing")
+        color = customer_has(facts, "color") or _has(facts, "trade_color")
+        km = customer_has(facts, "mileage") or _has(facts, "mileage", "km")
+        financing_answered = (
+            get_customer_vehicle(facts).get("financing_status") is not None
+            or _has(facts, "trade_has_financing")
+        )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = _has(facts, "trade_has_debts")
-        price_exp = _has(facts, "trade_price_expectation")
+        debts_answered = (
+            get_customer_vehicle(facts).get("debt_status") is not None
+            or _has(facts, "trade_has_debts")
+        )
+        price_exp = customer_has(facts, "price_expectation") or _has(facts, "trade_price_expectation")
         name = _has_name(state)
-        return bool(base and color and km and financing_answered and financing_detail and debts_answered and price_exp and name)
+        return bool(
+            base and color and km and financing_answered and financing_detail
+            and debts_answered and price_exp and name
+        )
 
     if intent == BusinessIntent.SALE:
-        # Own vehicle identity + colour + km + financing + debts + price + name.
         base = _own_vehicle_identity(facts)
-        color = _has(facts, "trade_color")
-        km = _has(facts, "mileage", "km")
-        financing_answered = _has(facts, "trade_has_financing")
+        color = customer_has(facts, "color") or _has(facts, "trade_color")
+        km = customer_has(facts, "mileage") or _has(facts, "mileage", "km")
+        financing_answered = (
+            get_customer_vehicle(facts).get("financing_status") is not None
+            or _has(facts, "trade_has_financing")
+        )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = _has(facts, "trade_has_debts")
-        price_exp = _has(facts, "trade_price_expectation", "asking_price", "desired_price")
+        debts_answered = (
+            get_customer_vehicle(facts).get("debt_status") is not None
+            or _has(facts, "trade_has_debts")
+        )
+        price_exp = (
+            customer_has(facts, "price_expectation")
+            or _has(facts, "trade_price_expectation", "asking_price", "desired_price")
+        )
         name = _has_name(state)
-        return bool(base and color and km and financing_answered and financing_detail and debts_answered and price_exp and name)
+        return bool(
+            base and color and km and financing_answered and financing_detail
+            and debts_answered and price_exp and name
+        )
 
     if intent == BusinessIntent.CONSIGNMENT:
-        # Same as SALE + explicit consignment terms.
         base = _own_vehicle_identity(facts)
-        color = _has(facts, "trade_color")
-        km = _has(facts, "mileage", "km")
-        financing_answered = _has(facts, "trade_has_financing")
+        color = customer_has(facts, "color") or _has(facts, "trade_color")
+        km = customer_has(facts, "mileage") or _has(facts, "mileage", "km")
+        financing_answered = (
+            get_customer_vehicle(facts).get("financing_status") is not None
+            or _has(facts, "trade_has_financing")
+        )
         financing_detail = _trade_financing_detail(facts)
-        debts_answered = _has(facts, "trade_has_debts")
-        price_exp = _has(facts, "trade_price_expectation", "asking_price", "desired_price")
+        debts_answered = (
+            get_customer_vehicle(facts).get("debt_status") is not None
+            or _has(facts, "trade_has_debts")
+        )
+        price_exp = (
+            customer_has(facts, "price_expectation")
+            or _has(facts, "trade_price_expectation", "asking_price", "desired_price")
+        )
         terms = _has(facts, "leave_at_store", "consign_ok")
         name = _has_name(state)
-        return bool(base and color and km and financing_answered and financing_detail and debts_answered and price_exp and terms and name)
+        return bool(
+            base and color and km and financing_answered and financing_detail
+            and debts_answered and price_exp and terms and name
+        )
 
     if intent == BusinessIntent.REFINANCING:
-        # Vehicle + amount needed + name. No financing detail required (bank does it).
-        identity = _own_vehicle_identity(facts) or _has(facts, "vehicle_model", "model")
+        identity = _own_vehicle_identity(facts) or _has(facts, "vehicle_model")
         amount = _has(facts, "amount_needed", "raise_amount", "valor_levantar")
         return bool(identity and amount and _has_name(state))
 
@@ -139,61 +188,96 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
 
 
 def is_handoff_ready(state: ConversationCanonicalState) -> bool:
-    """Return True when minimum data is collected to enable a productive handoff.
-
-    Looser than is_seller_actionable (full triage). Represents the minimum
-    threshold for the lead to be commercially actionable — even if the complete
-    qualification roteiro hasn't finished.
-    """
+    """Minimum commercially useful handoff — vendor can start without a full form."""
     facts = state.facts
     intent = state.intent
+
+    sig = state.signals
+    if any(
+        [
+            sig.explicit_handoff is True,
+            sig.explicit_offer is True,
+            sig.high_purchase_intent is True,
+            sig.visit_intent is True,
+        ]
+    ):
+        return True
 
     if intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
         return False
 
-    # Any strong explicit signal → handoff ready regardless of collected data.
-    sig = state.signals
-    if any([sig.explicit_handoff, sig.explicit_offer, sig.high_purchase_intent, sig.visit_intent]):
-        return True
-
     if intent == BusinessIntent.PURCHASE:
-        # Vehicle identity alone is sufficient for à-vista purchase lead.
-        return _desired_vehicle(facts)
+        return _desired_vehicle(facts) and _has_name(state)
 
     if intent == BusinessIntent.PURCHASE_FINANCING:
-        # Vehicle identity sufficient to start financing conversation.
-        return _desired_vehicle(facts)
+        return _desired_vehicle(facts) and _has_name(state)
 
     if intent == BusinessIntent.TRADE:
-        # Need both the desired vehicle AND the trade-in vehicle identity.
-        return _desired_vehicle(facts) and _own_vehicle_identity(facts)
+        return _desired_vehicle(facts) and _own_vehicle_identity(facts) and _has_name(state)
 
     if intent == BusinessIntent.SALE:
-        # Own vehicle identity is the minimum for a sale lead.
-        return _own_vehicle_identity(facts)
+        return _own_vehicle_identity(facts) and _has_name(state)
 
     if intent == BusinessIntent.CONSIGNMENT:
-        # Own vehicle identity is the minimum for a consignment lead.
-        return _own_vehicle_identity(facts)
+        return _own_vehicle_identity(facts) and _has_name(state)
 
     if intent == BusinessIntent.REFINANCING:
-        # Vehicle identity + amount is the minimum for refinancing.
-        identity = _own_vehicle_identity(facts) or _has(facts, "vehicle_model", "model")
-        return identity
+        identity = _own_vehicle_identity(facts) or _has(facts, "vehicle_model")
+        amount = _has(facts, "amount_needed", "raise_amount", "valor_levantar")
+        return bool(identity and amount and _has_name(state))
 
     return False
 
 
+def collected_fields(state: ConversationCanonicalState) -> list[str]:
+    """Applicable fields that already have a value."""
+    found: list[str] = []
+    for field in ASK_FIELD_PRIORITY.get(state.intent, []):
+        if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+            continue
+        if _field_is_filled(state, field):
+            found.append(field)
+    return found
+
+
+def missing_fields(state: ConversationCanonicalState) -> list[str]:
+    """Applicable fields still empty and not deferred."""
+    missing: list[str] = []
+    deferred = set(state.deferred_fields or [])
+    for field in ASK_FIELD_PRIORITY.get(state.intent, []):
+        if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+            continue
+        if field in deferred:
+            continue
+        if field == "intent":
+            continue
+        if not _field_is_filled(state, field):
+            if field in ("trade_installment_value", "trade_installments_remaining"):
+                has_fin = state.facts.get("trade_has_financing")
+                cv = get_customer_vehicle(state.facts)
+                if has_fin is not True and cv.get("financing_status") != "financed":
+                    continue
+            missing.append(field)
+    return missing
+
+
 def refresh_actionability(state: ConversationCanonicalState) -> ConversationCanonicalState:
-    """Update business.actionability from triage rules + handoff-now signals.
+    """Update actionability + completeness projection from canonical state.
 
-    HANDOFF_NOW: explicit signal from customer or high-intent behaviour.
-    ACTIONABLE: full triage complete (is_seller_actionable); vendor can take over.
-    INSUFFICIENT: still collecting data.
-
-    Note: is_handoff_ready() represents a lower bar (minimum viable handoff)
-    but does not change actionability — it is available for temperature/scoring.
+    HANDOFF_NOW: explicit customer signal (vendor / offer / visit / close).
+    ACTIONABLE: handoff_ready — vendor can take over even if the form is incomplete.
+    INSUFFICIENT: still collecting the minimum for this intent.
     """
+    state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    if state.facts.get("documents_deferred") is True and "documents" not in state.deferred_fields:
+        state.deferred_fields = list(state.deferred_fields) + ["documents"]
+        state.documents_asked = True
+
+    state.profile_complete = is_seller_actionable(state)
+    state.handoff_ready = is_handoff_ready(state)
+    state.missing_fields = missing_fields(state)
+    state.collected_fields = collected_fields(state)
+
     signals = state.signals
     if any(
         (
@@ -204,15 +288,13 @@ def refresh_actionability(state: ConversationCanonicalState) -> ConversationCano
         )
     ):
         state.business.actionability = Actionability.HANDOFF_NOW
-    elif is_seller_actionable(state):
+    elif state.handoff_ready:
         state.business.actionability = Actionability.ACTIONABLE
     else:
         state.business.actionability = Actionability.INSUFFICIENT
     return state
 
 
-# Fields that are INAPPLICABLE for each intent — must never be asked.
-# When a field is inapplicable, next_ask_field must skip it entirely.
 INAPPLICABLE_FIELDS: dict[BusinessIntent, frozenset[str]] = {
     BusinessIntent.PURCHASE: frozenset({
         "trade_model", "trade_year", "trade_color",
@@ -234,51 +316,51 @@ INAPPLICABLE_FIELDS: dict[BusinessIntent, frozenset[str]] = {
     BusinessIntent.SALE: frozenset({
         "desired_model", "desired_vehicle_text", "desired_vehicle",
         "vehicle_interest", "down_payment", "desired_installment",
-        "leave_at_store", "amount_needed",
+        "leave_at_store", "amount_needed", "payment_method",
     }),
     BusinessIntent.CONSIGNMENT: frozenset({
         "desired_model", "desired_vehicle_text", "desired_vehicle",
         "vehicle_interest", "down_payment", "desired_installment",
-        "amount_needed",
+        "amount_needed", "payment_method",
     }),
     BusinessIntent.REFINANCING: frozenset({
         "desired_model", "desired_vehicle_text", "desired_vehicle",
         "vehicle_interest", "down_payment", "desired_installment",
-        "leave_at_store",
+        "leave_at_store", "payment_method",
     }),
 }
 
 
-# Preferential ask order per intent (one question at a time).
-# Fields marked # COND are only asked when a prerequisite is True.
 ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
     BusinessIntent.PURCHASE: [
         "desired_model",
+        "payment_method",
         "name",
     ],
     BusinessIntent.PURCHASE_FINANCING: [
         "desired_model",
-        "down_payment",           # copy suave: ideia de negócio / entrada
+        "down_payment",
         "desired_installment",
-        "documents",              # ask docs before name (financing flow)
+        "documents",
         "name",
     ],
     BusinessIntent.TRADE: [
         "desired_model",
         "trade_model",
         "trade_year",
-        "trade_color",            # NEW
+        "trade_color",
         "mileage",
-        "trade_has_financing",    # NEW
-        "trade_installment_value",       # NEW — asked only when trade_has_financing=True
-        "trade_installments_remaining",  # NEW — asked only when trade_has_financing=True
-        "trade_has_debts",        # NEW
-        "trade_price_expectation",       # NEW
+        "trade_has_financing",
+        "trade_installment_value",
+        "trade_installments_remaining",
+        "trade_has_debts",
+        "trade_price_expectation",
+        "payment_method",
         "name",
-        "trade_renavam",          # nice-to-have — after handoff-blocking fields
+        "trade_renavam",
     ],
     BusinessIntent.SALE: [
-        "trade_model",            # sell_model aliases to trade_model
+        "trade_model",
         "trade_year",
         "trade_color",
         "mileage",
@@ -315,106 +397,83 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
 }
 
 
+def _field_is_filled(state: ConversationCanonicalState, field: str) -> bool:
+    facts = state.facts
+    cv = get_customer_vehicle(facts)
+
+    if field == "desired_model":
+        return desired_identity(facts)
+    if field == "trade_model":
+        return bool(cv.get("model") or _has(facts, "trade_model", "sell_model", "vehicle_model"))
+    if field == "trade_year":
+        return bool(cv.get("year") or _has(facts, "trade_year", "sell_year", "vehicle_year", "year"))
+    if field == "trade_color":
+        return bool(cv.get("color") or _has(facts, "trade_color", "color", "sell_color"))
+    if field == "mileage":
+        return cv.get("mileage") is not None or _has(facts, "mileage", "km")
+    if field == "trade_has_financing":
+        return cv.get("financing_status") is not None or _has(facts, "trade_has_financing")
+    if field == "trade_installment_value":
+        return cv.get("installment_value") is not None or _has(facts, "trade_installment_value")
+    if field == "trade_installments_remaining":
+        return cv.get("installments_remaining") is not None or _has(
+            facts, "trade_installments_remaining"
+        )
+    if field == "trade_has_debts":
+        return cv.get("debt_status") is not None or _has(facts, "trade_has_debts")
+    if field == "trade_price_expectation":
+        return cv.get("price_expectation") is not None or _has(
+            facts, "trade_price_expectation", "asking_price"
+        )
+    if field == "trade_renavam":
+        return bool(cv.get("renavam") or _has(facts, "trade_renavam"))
+    if field == "name":
+        return _has_name(state)
+    if field == "documents":
+        return _documents_satisfied(state)
+    if field == "desired_installment":
+        return state.installment_asked or _has(facts, "desired_installment", "parcela")
+    if field == "payment_method":
+        return _has(facts, "payment_method", "payment_type")
+    if field == "leave_at_store":
+        return _has(facts, "leave_at_store", "consign_ok")
+    if field == "amount_needed":
+        return _has(facts, "amount_needed", "raise_amount", "valor_levantar")
+    if field == "down_payment":
+        return _has(facts, "down_payment", "entrada")
+    return _has(facts, field)
+
+
 def next_ask_field(state: ConversationCanonicalState) -> str | None:
     """Single missing field to ask next, or None if nothing useful."""
     facts = state.facts
     order = ASK_FIELD_PRIORITY.get(state.intent, ["intent"])
-    aliases: dict[str, tuple[str, ...]] = {
-        "desired_model": (
-            "desired_model",
-            "desired_vehicle_text",
-            "desired_vehicle",
-            "vehicle_interest",
-            "model",
-            "category",
-            "brand",
-        ),
-        "deal_type": ("deal_type",),
-        "budget": ("budget", "max_price", "price_range", "valor"),
-        "trade_model": ("trade_model", "sell_model", "vehicle_model", "model", "brand"),
-        "trade_year": ("trade_year", "sell_year", "vehicle_year", "year", "year_model"),
-        "trade_color": ("trade_color",),
-        "model": ("model", "sell_model", "vehicle_model", "brand", "trade_model"),
-        "year": ("year", "sell_year", "vehicle_year", "year_model", "trade_year"),
-        "mileage": ("mileage", "km"),
-        "asking_price": ("asking_price", "desired_price"),
-        "amount_needed": ("amount_needed", "raise_amount", "valor_levantar"),
-        "down_payment": ("down_payment", "entrada"),
-        "desired_installment": ("desired_installment", "parcela"),
-        "payment_method": ("payment_method", "payment_type"),
-        "timeline": ("timeline", "urgency", "purchase_timeline"),
-        "city": ("city", "location"),
-        "leave_at_store": ("leave_at_store", "consign_ok"),
-        "vehicle_value": ("vehicle_value", "approx_value"),
-        "trade_has_financing": ("trade_has_financing",),
-        "trade_installment_value": ("trade_installment_value",),
-        "trade_installments_remaining": ("trade_installments_remaining",),
-        "trade_has_debts": ("trade_has_debts",),
-        "trade_debt_type": ("trade_debt_type",),
-        "trade_price_expectation": ("trade_price_expectation",),
-        "trade_in_owner_is_client": ("trade_in_owner_is_client",),
-        "trade_renavam": ("trade_renavam",),
-        "name": ("name",),
-        "intent": (),
-    }
-
-    # Inapplicable fields for this intent — never ask regardless of priority list.
     inapplicable = INAPPLICABLE_FIELDS.get(state.intent, frozenset())
+    deferred = set(state.deferred_fields or [])
 
     for field in order:
         if field == "intent":
             if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
                 return "intent"
             continue
-
-        # Skip fields that are semantically inapplicable for this intent.
-        if field in inapplicable:
+        if field in inapplicable or field in deferred:
             continue
-
         if field == "budget":
-            # Budget is sensitive — extract if volunteered, never solicit.
             continue
-
-        # deal_type is only useful when intent is undetermined.
-        # When intent is already concrete (TRADE, PURCHASE, etc.), deal_type
-        # is implicit — never ask proactively.
         if field == "deal_type":
             if state.intent not in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
                 continue
             if _has(facts, "deal_type"):
                 continue
             return "deal_type"
-
-        if field == "documents":
-            if state.documents_asked:
-                continue
-            return "documents"
-        if field == "desired_installment":
-            if state.installment_asked:
-                continue
-            return "desired_installment"
-        # Conditional: financing detail only when trade_has_financing=True
         if field in ("trade_installment_value", "trade_installments_remaining"):
             has_fin = facts.get("trade_has_financing")
-            if has_fin is not True:
-                # Financing not confirmed yet — skip these sub-fields.
+            cv = get_customer_vehicle(facts)
+            if has_fin is not True and cv.get("financing_status") != "financed":
                 continue
-        # name: skip if already known from customer profile
-        if field == "name":
-            if _has_name(state):
-                continue
-            return "name"
-        # trade_renavam: never block handoff, but ask after other fields done
         if field == "trade_renavam":
-            if _has(facts, "trade_renavam"):
-                continue
-            # Only ask RENAVAM after the blocking fields are answered.
-            # Check if handoff-blocking fields for TRADE/SALE are already present.
-            if is_seller_actionable(state):
-                return "trade_renavam"
-            # Not yet actionable — skip RENAVAM for now.
+            # Optional document identifier — never blocks handoff.
             continue
-        keys = aliases.get(field, (field,))
-        if not _has(facts, *keys):
+        if not _field_is_filled(state, field):
             return field
     return None

@@ -39,6 +39,7 @@ from sdr.domain.pending_interaction import (
 )
 from sdr.domain.qualifications import (
     _desired_vehicle,
+    is_handoff_ready,
     is_seller_actionable,
     next_ask_field,
     refresh_actionability,
@@ -100,7 +101,11 @@ def _state_search_key(state: ConversationCanonicalState) -> str:
 
 
 def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
-    if state.intent not in (BusinessIntent.PURCHASE, BusinessIntent.PURCHASE_FINANCING):
+    if state.intent not in (
+        BusinessIntent.PURCHASE,
+        BusinessIntent.PURCHASE_FINANCING,
+        BusinessIntent.TRADE,
+    ):
         return False
 
     widened = state.alternative_scope in (
@@ -124,7 +129,7 @@ def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
     # Post-visit: a visit was already invited and triage is actionable — inventory
     # was already presented. Any new fact that changes the hash (e.g. visit_intent
     # signal extraction) must not reopen the catalog. The next action is handoff.
-    if state.visit_invited and is_seller_actionable(state):
+    if state.visit_invited and is_handoff_ready(state):
         return False
     return True
 
@@ -151,7 +156,25 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 reason="Thread closed; no new commercial intent",
             )
 
-    # Pending affordance without a resolution this turn → clarify, do not invent.
+    # Desired vehicle unavailable in a TRADE: do not continue the evaluation
+    # roteiro as if that specific swap can still close. If the preference
+    # changed, inventory must run first.
+    if (
+        state.last_inventory_outcome in ("SUCCESS_EMPTY", "SUCCESS_SOLD")
+        and state.intent == BusinessIntent.TRADE
+        and state.alternative_scope == AlternativeScope.NONE
+        and state.pending_interaction == PendingInteraction.NONE
+        and not state.last_shown_vehicle_ids
+        and not _needs_inventory_search(state)
+    ):
+        return ActionPlan(
+            action=Action.ASK_INFO,
+            handoff=False,
+            ask_field="alternatives_ok",
+            next_question="alternatives_ok",
+            reason_code="desired_unavailable_clarify",
+            reason="Desired vehicle is unavailable; clarify alternatives before continuing",
+        )
     if state.pending_interaction == PendingInteraction.OFFER_ALTERNATIVES:
         return ActionPlan(
             action=Action.ASK_INFO,
@@ -284,47 +307,6 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason="Desired installment is tight vs published cash price",
         )
 
-    # Triage actionable only after inventory opportunity has been consumed.
-    if is_seller_actionable(state):
-        # Visit invitation before irreversible handoff (non-blocking: max 1 turn).
-        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
-            state.visit_invited = True
-            return ActionPlan(
-                action=Action.REGISTER_VISIT_INTEREST,
-                handoff=False,
-                tool_calls=[{"tool": "register_visit_interest"}],
-                reason_code="visit_invitation_pre_handoff",
-                reason="Invite customer to visit store before handoff",
-            )
-        # If the visit question was just asked this turn (pending_question="visit"),
-        # allow one turn for natural response before handoff. The subsequent turn
-        # (pending_question cleared) always handoffs. This prevents "Obrigado" or
-        # a new question from being treated as implicit visit confirmation.
-        if state.pending_question == "visit":
-            # Hot lead already invited: ask for a slot instead of inventing a
-            # new commercial question (COMMERCIAL_UNKNOWN restarted the roteiro).
-            if compute_temperature(state) == LeadTemperature.HOT:
-                return ActionPlan(
-                    action=Action.ASK_INFO,
-                    handoff=False,
-                    ask_field="visit",
-                    next_question="visit",
-                    reason_code="visit_schedule_ask",
-                    reason="Ask for visit day/time before handoff",
-                )
-            pass  # fall through to COMMERCIAL_UNKNOWN / location / smalltalk
-        else:
-            state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
-            state.lifecycle.handoff_reason = "triage_actionable"
-            state.business.actionability = Actionability.ACTIONABLE
-            state.temperature = compute_temperature(state)
-            return ActionPlan(
-                action=Action.HANDOFF_VENDOR,
-                handoff=True,
-                reason_code="triage_actionable",
-                reason=HANDOFF_CONFIRMATION_PT_BR,
-            )
-
     # Budget known but no vehicle preference yet → alternatives by budget.
     if (
         state.intent in (BusinessIntent.PURCHASE, BusinessIntent.PURCHASE_FINANCING)
@@ -342,22 +324,55 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 reason="Show published alternatives for known budget",
             )
 
+    # Collect applicable fields before closing. Incomplete leads still hand off
+    # on explicit signals (handled above) or once the minimum roteiro is done.
     ask = next_ask_field(state)
-    if (
-        state.intent not in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK)
-        or ask not in (None, "intent")
-    ):
-        if ask and ask != "intent":
-            if state.lifecycle.status == LifecycleStatus.BOT_ACTIVE:
-                state.lifecycle.status = LifecycleStatus.QUALIFYING
+    if ask and ask != "intent":
+        if state.lifecycle.status == LifecycleStatus.BOT_ACTIVE:
+            state.lifecycle.status = LifecycleStatus.QUALIFYING
+        return ActionPlan(
+            action=Action.ASK_INFO,
+            handoff=False,
+            ask_field=ask,
+            next_question=ask,
+            reason_code="need_field",
+            reason=f"Ask one field: {ask}",
+        )
+
+    if is_handoff_ready(state) or is_seller_actionable(state):
+        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
+            state.visit_invited = True
+            return ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code="visit_invitation_pre_handoff",
+                reason="Invite customer to visit store before handoff",
+            )
+        from sdr.domain.scheduling import is_concrete_visit_slot
+
+        if state.pending_question == "visit" and not is_concrete_visit_slot(
+            state.visit_preferred_time
+        ):
             return ActionPlan(
                 action=Action.ASK_INFO,
                 handoff=False,
-                ask_field=ask,
-                next_question=ask,
-                reason_code="need_field",
-                reason=f"Ask one field: {ask}",
+                ask_field="visit",
+                next_question="visit",
+                reason_code="visit_schedule_ask",
+                reason="Ask for visit day/time before handoff",
             )
+        reason = "triage_actionable" if is_seller_actionable(state) else "handoff_ready"
+        state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
+        state.lifecycle.handoff_reason = reason
+        state.business.actionability = Actionability.ACTIONABLE
+        state.temperature = compute_temperature(state)
+        return ActionPlan(
+            action=Action.HANDOFF_VENDOR,
+            handoff=True,
+            reason_code=reason,
+            reason=HANDOFF_CONFIRMATION_PT_BR,
+        )
 
     if state.intent == BusinessIntent.SMALLTALK:
         return ActionPlan(

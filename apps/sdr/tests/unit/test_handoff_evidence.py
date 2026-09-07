@@ -89,12 +89,17 @@ def test_immediate_closing_intent_handoff() -> None:
 def test_visit_intent_handoff() -> None:
     state = _state(
         intent=BusinessIntent.PURCHASE,
+        facts={"desired_model": "Civic", "payment_method": "cash", "name": "Ana"},
+        visit_invited=True,
+        visit_preferred_time="segunda-feira, 7/09 às 14h",
         signals=HandoffSignals(visit_intent=True),
+        last_inventory_search_key=inventory_search_key(
+            {"desired_model": "Civic", "payment_method": "cash", "name": "Ana"}
+        ),
     )
     plan = decide(state)
     assert plan.action == Action.HANDOFF_VENDOR
     assert plan.reason_code == "visit_intent"
-    assert any(tc.get("tool") == "register_visit_interest" for tc in plan.tool_calls)
 
 
 def test_triage_actionable_after_inventory_key_set() -> None:

@@ -369,6 +369,12 @@ def _directive_to_state_and_plan_maps(
         "alternative_scope": directive.alternative_scope.value,
         "budget_status": directive.budget_status.value,
         "original_desired_model": directive.original_desired_model,
+        "offered_visit_slots": list(getattr(directive, "offered_visit_slots", None) or []),
+        "visit_preferred_time": getattr(directive, "visit_preferred_time", None),
+        "handoff_ready": bool(getattr(directive, "handoff_ready", False)),
+        "profile_complete": bool(getattr(directive, "profile_complete", False)),
+        "deferred_fields": list(getattr(directive, "deferred_fields", None) or []),
+        "collected_fields": list(getattr(directive, "collected_fields", None) or []),
     }
     plan_map: dict[str, Any] = {
         "action": plan.action.value,
@@ -413,6 +419,33 @@ def _update_inventory_search_key(
         budget_status=merged.budget_status,
     )
     merged.last_inventory_outcome = outcome.value
+
+
+def _record_inventory_match(
+    merged: ConversationCanonicalState,
+    tool_results: list[dict[str, Any]],
+) -> None:
+    """Persist listing identity + outcome for SUCCESS_SOLD auditability."""
+    for result in tool_results:
+        if result.get("tool") != "inventory_search":
+            continue
+        vehicles = result.get("vehicles") or []
+        first = vehicles[0] if vehicles and isinstance(vehicles[0], dict) else {}
+        matched_id = (
+            result.get("matched_inventory_id")
+            or result.get("listing_id")
+            or first.get("id")
+        )
+        merged.last_inventory_match = {
+            "listing_reference_received": result.get("listing_reference_received")
+            or merged.listing_reference,
+            "listing_reference_resolved": result.get("listing_reference_resolved")
+            or matched_id,
+            "matched_inventory_id": matched_id,
+            "matched_status": result.get("matched_status") or first.get("status"),
+            "inventory_outcome": result.get("outcome") or result.get("inventory_outcome"),
+        }
+        return
 
 
 def _apply_pending_after_offers(
@@ -499,6 +532,10 @@ async def process_turn(
 ) -> ProcessTurnResult:
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
+
+    listing_meta = inbound.raw_message_ref or {}
+    listing_ref = listing_meta.get("listing_id") or listing_meta.get("listing_url")
+    state.listing_reference = str(listing_ref) if listing_ref else None
 
     # HANDOFF_SENT / HUMAN_ACTIVE: ingest already happened upstream; never reply
     # and never call Understanding (no tokens after qualification).
@@ -617,9 +654,27 @@ async def process_turn(
         merged.document_received = True
 
     # Extract visit time preference from this turn's facts before deciding.
+    from sdr.domain.scheduling import (
+        is_concrete_visit_slot,
+        resolve_slot_choice,
+        suggest_visit_slots,
+    )
+
     visit_pref = _extract_visit_preference(facts)
-    if visit_pref and not merged.visit_preferred_time:
+    inbound_low = (inbound.effective_text or "").lower()
+    pref_low = (visit_pref or inbound_low).lower()
+    saturday_ask = "sábado" in pref_low or "sabado" in pref_low
+    if visit_pref and is_concrete_visit_slot(visit_pref):
         merged.visit_preferred_time = visit_pref
+    elif visit_pref or saturday_ask:
+        chosen = resolve_slot_choice(
+            visit_pref or inbound.effective_text,
+            list(merged.offered_visit_slots or []),
+        )
+        if chosen:
+            merged.visit_preferred_time = chosen
+        elif saturday_ask and not is_concrete_visit_slot(merged.visit_preferred_time):
+            merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
 
     plan = decide(merged)
 
@@ -645,6 +700,11 @@ async def process_turn(
     # from a normal post-triage turn. Overrides the None set above.
     if plan.action == Action.REGISTER_VISIT_INTEREST:
         merged.pending_question = "visit"
+        from sdr.domain.scheduling import suggest_visit_slots
+
+        inbound_low = (inbound.effective_text or "").lower()
+        prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
+        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=prefer_sat)
 
     # Track engagement quality based on this turn.
     _track_engagement(merged, inbound.effective_text, facts)
@@ -663,6 +723,7 @@ async def process_turn(
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _record_inventory_match(merged, tool_results)
             # Extract location pin so the orchestrator sends it before the handoff text.
             outbound_location = _location_pin_from_tools(tool_results)
         from sdr.domain.handoff import customer_handoff_bubbles
@@ -676,6 +737,7 @@ async def process_turn(
             tool_results = await execute_tool_calls(plan, merged, pool)
             _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _record_inventory_match(merged, tool_results)
 
         if _should_silence_tool_failure(plan, tool_results):
             silent = ActionPlan(
@@ -709,6 +771,13 @@ async def process_turn(
             prev_pending,
         )
         state_map, plan_map, tool_ctx = _directive_to_state_and_plan_maps(directive, plan)
+        state_map["offered_visit_slots"] = list(merged.offered_visit_slots or [])
+        state_map["visit_preferred_time"] = merged.visit_preferred_time
+        state_map["handoff_ready"] = bool(merged.handoff_ready)
+        state_map["profile_complete"] = bool(merged.profile_complete)
+        state_map["deferred_fields"] = list(merged.deferred_fields or [])
+        state_map["collected_fields"] = list(merged.collected_fields or [])
+        state_map["missing_fields"] = list(merged.missing_fields or [])
         tool_ctx = dict(tool_ctx or {})
         tool_ctx["outbound_media_planned"] = bool(outbound_media)
         tool_ctx["outbound_media_count"] = len(outbound_media)
@@ -838,10 +907,10 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
     if action == Action.REGISTER_VISIT_INTEREST:
-        return [
-            "Qual dia e horário fica melhor pra você passar na loja? "
-            "Assim a gente avança essa proposta juntos."
-        ]
+        from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+        slots = suggest_visit_slots()
+        return [format_slot_suggestion(slots, lang=directive.language or "pt")]
     if action == Action.MEDIA_FAILED:
         return ["Tive um problema com a mídia. Pode me contar em texto?"]
     return ["Como posso ajudar?"]

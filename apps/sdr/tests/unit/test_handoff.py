@@ -84,16 +84,15 @@ def test_customer_handoff_bubbles_title_case_and_site() -> None:
             "down_payment": 30000,
         },
     )
-    bubbles = customer_handoff_bubbles(state)
+    bubbles = customer_handoff_bubbles(state, reason_code="handoff_ready")
     assert len(bubbles) == 2
     assert "Mateus" in bubbles[0]
-    assert bubbles[0].startswith("Eu quem agradeço")
     assert "MATEUS MANOEL" not in bubbles[0]
-    assert "excelente dia" in bubbles[0].lower()
     assert "CPF" not in bubbles[0]
     assert HANDOFF_SITE_URL in bubbles[1]
     joined = " ".join(bubbles).lower()
-    assert "encaminhar para nossa equipe continuar" not in joined
+    assert "encaminhar" in joined
+    assert "já reuni" not in joined
 
 
 @pytest.mark.asyncio
@@ -133,4 +132,21 @@ async def test_process_turn_handoff_uses_narrative_not_ficha() -> None:
     assert "facilcarmultimarcas.com.br" in joined.lower()
     assert "ANA SOUZA" not in joined
     assert "Intent:" not in joined
+
+
+def test_empty_vendor_request_is_honest() -> None:
+    from sdr.domain.handoff import customer_handoff_bubbles
+
+    state = _state(
+        intent=BusinessIntent.UNKNOWN,
+        signals=HandoffSignals(explicit_handoff=True),
+        facts={},
+    )
+    bubbles = customer_handoff_bubbles(state, reason_code="explicit_vendor")
+    joined = " ".join(bubbles).lower()
+    assert "encaminhar" in joined
+    assert "já reuni" not in joined
+    assert "já organizei" not in joined
+    assert "visita" not in joined
+
 

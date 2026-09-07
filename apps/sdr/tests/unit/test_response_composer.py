@@ -136,11 +136,11 @@ async def test_send_location_followup_is_visit_cta_not_address() -> None:
     )
     assert len(bubbles) == 1
     joined = bubbles[0].lower()
-    assert "café" in joined or "cafe" in joined
     assert "av. brasil" not in joined
     assert "foz" not in joined
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
+    assert "vendedor" in joined or "14h" in joined or "9h" in joined
 
 
 @pytest.mark.asyncio
@@ -151,10 +151,9 @@ async def test_send_location_hot_asks_visit_this_week() -> None:
         {"location_pin": {"latitude": -24.9, "longitude": -53.4}},
     )
     joined = " ".join(bubbles).lower()
-    assert "semana" in joined
-    assert "loja" in joined
     assert "encaminhar" not in joined
     assert "ipanema" not in joined
+    assert any(w in joined for w in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "14h", "9h"])
 
 
 @pytest.mark.asyncio
@@ -281,7 +280,7 @@ async def test_visit_invite_does_not_announce_handoff() -> None:
     assert "mateus" in joined
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
-    assert "café" in joined or "cafe" in joined or "portas abertas" in joined
+    assert any(w in joined for w in ["14h", "9h", "segunda", "terça", "quarta", "quinta", "sexta"])
 
 
 @pytest.mark.asyncio

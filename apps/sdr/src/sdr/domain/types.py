@@ -206,6 +206,17 @@ class ConversationCanonicalState:
     last_shown_price_cash: float | None = None
     # Turn-scoped: inbound this turn was a successfully processed document.
     document_received: bool = False
+    # Completeness vs handoff (refreshed deterministically each turn).
+    handoff_ready: bool = False
+    profile_complete: bool = False
+    missing_fields: list[str] = field(default_factory=list)
+    deferred_fields: list[str] = field(default_factory=list)
+    collected_fields: list[str] = field(default_factory=list)
+    # Visit slots offered this thread (exact labels from scheduling).
+    offered_visit_slots: list[str] = field(default_factory=list)
+    # Unequivocal listing identity from inbound (id / url / media metadata).
+    listing_reference: str | None = None
+    last_inventory_match: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

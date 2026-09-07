@@ -1,23 +1,130 @@
 {
   "name": "fox_peugeot_troca",
-  "description": "Cliente pede Fox, depois informa Peugeot 2008 para troca. Não deve re-buscar estoque ao informar a troca. Após TRADE confirmado, nunca perguntar 'compra ou troca?'.",
+  "description": "Troca Peugeot→Fox indisponível; não negociar Fox; Argo; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "trade",
   "initial_state": {},
   "turns": [
     {
-      "inbound": "Tem alguma opção de Fox até uns 45 mil reais?",
-      "understand_return": {"intent": "PURCHASE", "facts": {"desired_model": "Volkswagen Fox", "max_price": 45000}},
+      "inbound": "Quero trocar meu Peugeot 2008 por um Fox",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "Fox",
+          "trade_model": "Peugeot 2008"
+        }
+      },
       "expected_action": "SHOW_OFFERS",
-      "expected_facts_after": {"desired_model": "volkswagen fox"},
-      "forbidden_in_outbound": ["seria compra ou troca"]
+      "expected_outcome_in": [
+        "SUCCESS_EMPTY"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "o fox está disponível"
+      ]
     },
     {
-      "inbound": "Tenho um Peugeot 2008 para dar na troca",
-      "understand_return": {"intent": "TRADE", "facts": {"trade_model": "Peugeot 2008"}},
-      "expected_action": "ASK_INFO",
-      "forbidden_action": "SHOW_OFFERS",
-      "expected_facts_after": {"trade_model": "peugeot 2008"},
-      "expected_ask_field_in": ["trade_year", "trade_color", "mileage", "trade_has_financing"],
-      "forbidden_in_outbound": ["seria compra ou troca", "compra ou troca"]
+      "inbound": "Pode ser um Argo então",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "Argo"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "fox disponível"
+      ]
+    },
+    {
+      "inbound": "O Peugeot é 2019, branco, 85000 km",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_year": "2019",
+          "trade_color": "branco",
+          "mileage": 85000
+        }
+      },
+      "expected_facts_after": {
+        "trade_model": "peugeot 2008",
+        "trade_year": "2019"
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Está quitado e tudo em dia",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_financing": false,
+          "trade_has_debts": false
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Vale uns 38 mil; a diferença eu pago à vista",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_price_expectation": 38000,
+          "payment_method": "cash"
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Sou Renata Alves",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "name": "Renata Alves"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
     }
   ]
 }

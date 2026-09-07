@@ -1,124 +1,233 @@
-"""Store scheduling helpers — suggest concrete visit slots.
+"""Store scheduling helpers — suggest concrete visit slots with exact times.
 
-Computes human-readable time proposals based on store hours and the
-current moment, eliminating "Qual dia funciona para você?" back-and-forth.
+Uses the injectable commercial clock (America/Sao_Paulo). Labels always include
+weekday, date and a clock time — never a vague period alone.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Store opening hours by ISO weekday (Monday=0 … Sunday=6).
-# Value is (open_hour, close_hour) in 24h, or None if closed.
+from sdr.domain.clock import TZ_BRT, now_brt
+
 STORE_HOURS: dict[int, tuple[int, int] | None] = {
-    0: (8, 18),   # Monday
-    1: (8, 18),   # Tuesday
-    2: (8, 18),   # Wednesday
-    3: (8, 18),   # Thursday
-    4: (8, 18),   # Friday
-    5: (8, 16),   # Saturday
-    6: None,      # Sunday — closed
+    0: (8, 18),
+    1: (8, 18),
+    2: (8, 18),
+    3: (8, 18),
+    4: (8, 18),
+    5: (8, 16),  # Saturday until 16h
+    6: None,
 }
 
-_WEEKDAY_PT = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+_WEEKDAY_PT = [
+    "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+    "sexta-feira", "sábado", "domingo",
+]
 _WEEKDAY_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
-_PERIOD_MORNING_PT = "de manhã"
-_PERIOD_AFTERNOON_PT = "à tarde"
-_PERIOD_MORNING_ES = "por la mañana"
-_PERIOD_AFTERNOON_ES = "por la tarde"
+# Default concrete hours inside opening hours.
+_MORNING_HOUR, _MORNING_MINUTE = 9, 30
+_AFTERNOON_HOUR, _AFTERNOON_MINUTE = 14, 0
 
 
-def _is_morning(hour: int) -> bool:
-    return hour < 12
+def _weekday_name(dt: datetime, lang: str) -> str:
+    return _WEEKDAY_ES[dt.weekday()] if lang == "es" else _WEEKDAY_PT[dt.weekday()]
+
+
+def _is_open(dt: datetime) -> bool:
+    hours = STORE_HOURS.get(dt.weekday())
+    if hours is None:
+        return False
+    open_h, close_h = hours
+    minutes = dt.hour * 60 + dt.minute
+    return open_h * 60 <= minutes < close_h * 60
 
 
 def _next_open_day(start: datetime) -> datetime | None:
-    """Return the next open day starting from `start` (inclusive), or None if >14 days away."""
     for offset in range(14):
         candidate = start + timedelta(days=offset)
         if STORE_HOURS.get(candidate.weekday()) is not None:
-            return candidate
+            return candidate.replace(hour=0, minute=0, second=0, microsecond=0)
     return None
 
 
-def _slot_label(dt: datetime, period: str, lang: str) -> str:
-    weekday = _WEEKDAY_PT[dt.weekday()] if lang != "es" else _WEEKDAY_ES[dt.weekday()]
-    day = dt.day
-    month = dt.month
-    return f"{weekday}, {day}/{month:02d}, {period}"
+def format_slot_datetime(dt: datetime, lang: str = "pt") -> str:
+    weekday = _weekday_name(dt, lang)
+    time_label = f"{dt.hour}h" if dt.minute == 0 else f"{dt.hour}h{dt.minute:02d}"
+    if lang == "es":
+        return f"{weekday}, {dt.day}/{dt.month:02d}, a las {time_label}"
+    return f"{weekday}, {dt.day}/{dt.month:02d} às {time_label}"
+
+
+def _slot_at(day: datetime, hour: int, minute: int) -> datetime | None:
+    hours = STORE_HOURS.get(day.weekday())
+    if hours is None:
+        return None
+    open_h, close_h = hours
+    candidate = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate.hour < open_h:
+        candidate = day.replace(hour=open_h, minute=0, second=0, microsecond=0)
+    if candidate.hour >= close_h:
+        return None
+    return candidate
+
+
+def suggest_visit_datetimes(
+    now: datetime | None = None,
+    tz: str = "America/Sao_Paulo",
+    *,
+    prefer_saturday: bool = False,
+) -> list[datetime]:
+    """Return two concrete in-store datetimes."""
+    tz_obj = ZoneInfo(tz) if tz else TZ_BRT
+    if now is None:
+        now = now_brt()
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=tz_obj)
+    else:
+        now = now.astimezone(tz_obj)
+
+    slots: list[datetime] = []
+
+    if prefer_saturday:
+        cursor = now
+        for _ in range(14):
+            if cursor.weekday() == 5:
+                morning = _slot_at(cursor, _MORNING_HOUR, _MORNING_MINUTE)
+                afternoon = _slot_at(cursor, min(_AFTERNOON_HOUR, 14), 0)
+                if morning and morning > now:
+                    slots.append(morning)
+                elif morning and cursor.date() > now.date():
+                    slots.append(morning)
+                if afternoon and afternoon > now:
+                    slots.append(afternoon)
+                break
+            cursor = cursor + timedelta(days=1)
+            cursor = cursor.replace(hour=0, minute=0, second=0, microsecond=0)
+        return slots[:2]
+
+    if now.hour < 12:
+        today_afternoon = _slot_at(now, _AFTERNOON_HOUR, _AFTERNOON_MINUTE)
+        if today_afternoon and today_afternoon > now:
+            slots.append(today_afternoon)
+        tomorrow = _next_open_day(now + timedelta(days=1))
+        if tomorrow:
+            morning = _slot_at(tomorrow, _MORNING_HOUR, _MORNING_MINUTE)
+            if morning:
+                slots.append(morning)
+            if len(slots) < 2:
+                afternoon = _slot_at(tomorrow, _AFTERNOON_HOUR, _AFTERNOON_MINUTE)
+                if afternoon:
+                    slots.append(afternoon)
+    else:
+        tomorrow = _next_open_day(now + timedelta(days=1))
+        if tomorrow:
+            morning = _slot_at(tomorrow, _MORNING_HOUR, _MORNING_MINUTE)
+            afternoon = _slot_at(tomorrow, _AFTERNOON_HOUR, _AFTERNOON_MINUTE)
+            if morning:
+                slots.append(morning)
+            if afternoon:
+                slots.append(afternoon)
+            if len(slots) < 2:
+                nxt = _next_open_day(tomorrow + timedelta(days=1))
+                if nxt:
+                    extra = _slot_at(nxt, _MORNING_HOUR, _MORNING_MINUTE)
+                    if extra:
+                        slots.append(extra)
+
+    seen: set[str] = set()
+    unique: list[datetime] = []
+    for s in slots:
+        key = s.isoformat()
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    return unique[:2]
 
 
 def suggest_visit_slots(
     now: datetime | None = None,
     tz: str = "America/Sao_Paulo",
     lang: str = "pt",
+    *,
+    prefer_saturday: bool = False,
 ) -> list[str]:
-    """Return 2 concrete visit slot labels (human-readable).
-
-    Logic:
-    - If now is morning (before 12h): suggest today afternoon + tomorrow morning.
-    - If now is afternoon/evening: suggest tomorrow morning + tomorrow afternoon.
-    - Skip closed days (Sunday). Roll forward to the next open day.
-    - Saturday closes at 16h, so afternoon slot uses "pela manhã" on Saturday.
-    """
-    tz_obj = ZoneInfo(tz)
-    if now is None:
-        now = datetime.now(tz_obj)
-    elif now.tzinfo is None:
-        now = now.replace(tzinfo=tz_obj)
-
-    is_es = lang == "es"
-    morning_label = _PERIOD_MORNING_ES if is_es else _PERIOD_MORNING_PT
-    afternoon_label = _PERIOD_AFTERNOON_ES if is_es else _PERIOD_AFTERNOON_PT
-
-    slots: list[str] = []
-
-    if _is_morning(now.hour):
-        # Slot 1: today afternoon (if store closes after 14h)
-        today_hours = STORE_HOURS.get(now.weekday())
-        if today_hours and today_hours[1] > 14:
-            slots.append(_slot_label(now, afternoon_label, lang))
-        # Slot 2: tomorrow morning
-        tomorrow = _next_open_day(now + timedelta(days=1))
-        if tomorrow:
-            slots.append(_slot_label(tomorrow, morning_label, lang))
-    else:
-        # Slot 1: next open day morning
-        tomorrow = _next_open_day(now + timedelta(days=1))
-        if tomorrow:
-            slots.append(_slot_label(tomorrow, morning_label, lang))
-        # Slot 2: same day afternoon if still open, else day after morning
-        if tomorrow:
-            tomorrow_hours = STORE_HOURS.get(tomorrow.weekday())
-            if tomorrow_hours and tomorrow_hours[1] > 14:
-                slots.append(_slot_label(tomorrow, afternoon_label, lang))
-            else:
-                day_after = _next_open_day(tomorrow + timedelta(days=1))
-                if day_after:
-                    slots.append(_slot_label(day_after, morning_label, lang))
-
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique: list[str] = []
-    for s in slots:
-        if s not in seen:
-            seen.add(s)
-            unique.append(s)
-    return unique[:2]
+    """Return 2 concrete visit slot labels with weekday + exact time."""
+    datetimes = suggest_visit_datetimes(now, tz, prefer_saturday=prefer_saturday)
+    return [format_slot_datetime(dt, lang) for dt in datetimes]
 
 
 def format_slot_suggestion(slots: list[str], lang: str = "pt") -> str:
     """Format slot list as a natural language suggestion."""
     if not slots:
-        return "Qual dia e horário fica melhor pra você passar na loja?" if lang != "es" else "¿Qué día y horario te queda mejor para pasar?"
-    if len(slots) == 1:
         return (
-            f"Que tal {slots[0]}?"
+            "Qual dia e horário fica melhor pra você passar na loja?"
             if lang != "es"
-            else f"¿Qué tal el {slots[0]}?"
+            else "¿Qué día y horario te queda mejor para pasar?"
         )
+    vendor_note = (
+        "O horário fica pendente de confirmação do vendedor."
+        if lang != "es"
+        else "El horario queda pendiente de confirmación del vendedor."
+    )
+    if len(slots) == 1:
+        lead = f"Que tal {slots[0]}?" if lang != "es" else f"¿Qué tal el {slots[0]}?"
+        return f"{lead} {vendor_note}"
     if lang == "es":
-        return f"¿Qué tal el {slots[0]}, o el {slots[1]}?"
-    return f"Que tal {slots[0]} ou {slots[1]}?"
+        return f"¿Qué tal el {slots[0]}, o el {slots[1]}? {vendor_note}"
+    return f"Que tal {slots[0]} ou {slots[1]}? {vendor_note}"
+
+
+def is_concrete_visit_slot(text: str | None) -> bool:
+    """True when the label includes an exact clock time (e.g. 14h, 9h30)."""
+    if not text or not str(text).strip():
+        return False
+    return bool(re.search(r"\d{1,2}\s*h", str(text), re.I))
+
+
+def resolve_slot_choice(
+    text: str,
+    offered: list[str],
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Map a customer reply onto an offered slot or a saturday preference."""
+    if not text:
+        return None
+    low = text.lower()
+    if offered:
+        if any(p in low for p in ("primeiro", "a primeira", "1º", "opção 1", "opcao 1")):
+            return offered[0]
+        if any(p in low for p in ("segundo", "a segunda", "2º", "opção 2", "opcao 2")):
+            if len(offered) > 1:
+                return offered[1]
+        for slot in offered:
+            slot_low = slot.lower()
+            # Match weekday token present in the slot label.
+            for day in _WEEKDAY_PT:
+                if day in low and day in slot_low:
+                    if "manhã" in low or "manha" in low:
+                        if "9h" in slot_low or "8h" in slot_low or "10h" in slot_low:
+                            return slot
+                    if "tarde" in low or "14h" in low:
+                        if "14h" in slot_low or "15h" in slot_low:
+                            return slot
+                    return slot
+            if "14h" in low and "14h" in slot_low:
+                return slot
+            if "9h" in low and "9h" in slot_low:
+                return slot
+    if "sábado" in low or "sabado" in low:
+        sat = suggest_visit_slots(now, prefer_saturday=True)
+        if not sat:
+            return None
+        if "tarde" in low and len(sat) > 1:
+            return sat[-1]
+        if "manhã" in low or "manha" in low:
+            return sat[0]
+        # Day-only: do not lock a slot — Decision must offer two Saturday times.
+        return None
+    return None

@@ -1,36 +1,151 @@
 {
   "name": "venda_direta",
-  "description": "Cliente quer vender o veículo diretamente para a loja. SALE nunca deve perguntar qual veículo ele quer comprar nem usar linguagem de troca.",
-  "initial_state": {},
+  "description": "Venda do Corolla do cliente, sem veículo desejado, até handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
   "expected_final_intent": "sale",
+  "initial_state": {},
   "turns": [
     {
       "inbound": "Gostaria de vender meu Corolla",
-      "understand_return": {"intent": "SALE", "facts": {"trade_model": "Corolla"}},
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_model": "Corolla"
+        }
+      },
       "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_model": "corolla"},
-      "expected_ask_field_in": ["trade_year", "mileage"],
+      "expected_facts_after": {
+        "trade_model": "corolla"
+      },
       "forbidden_in_outbound": [
-        "qual veículo você busca",
-        "qual modelo você procura",
         "seria compra ou troca",
-        "que carro você está procurando",
+        "compra ou troca",
+        "qual veículo você busca",
         "ajudar com a troca",
         "troca do seu carro",
-        "para a troca",
-        "qual modelo ou tipo de carro você está buscando para"
+        "qual modelo você procura"
       ]
     },
     {
       "inbound": "2020, prata, 50000 km",
-      "understand_return": {"intent": "SALE", "facts": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_year": "2020", "trade_color": "prata", "mileage": 50000},
-      "expected_ask_field_in": ["trade_has_financing"],
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_year": "2020",
+          "trade_color": "prata",
+          "mileage": 50000
+        }
+      },
+      "expected_facts_after": {
+        "trade_year": "2020",
+        "trade_color": "prata",
+        "mileage": 50000
+      },
+      "expected_ask_field_in": [
+        "trade_has_financing"
+      ],
       "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
         "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
         "qual modelo você procura",
-        "seria compra ou troca"
+        "qual a cor"
+      ]
+    },
+    {
+      "inbound": "Está quitado",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_has_financing": false
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_has_debts"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Tudo em dia",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_has_debts": false
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Espero uns 80 mil",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_price_expectation": 80000
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Sou Bruno Azevedo",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "name": "Bruno Azevedo"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser o segundo horário",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
       ]
     }
   ]

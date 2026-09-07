@@ -185,8 +185,8 @@ async def test_observed_corolla_financing_path_stays_on_roteiro() -> None:
     joined2 = " ".join(r2.outbound_texts).lower()
     assert "consórcio" not in joined2
     assert "uso pessoal" not in joined2
-    # After "Compra" on PURCHASE intent (model already known), system asks name.
-    assert r2.action_plan.ask_field == "name"
+    # After "Compra" on PURCHASE intent (model already known), system asks payment method.
+    assert r2.action_plan.ask_field == "payment_method"
 
     r3 = await process_turn(state=state, inbound_text="Financiar", understand=understand)
     state = r3.state
@@ -312,8 +312,8 @@ async def test_ack_before_next_question_after_deal_type() -> None:
     joined = " ".join(result.outbound_texts)
     assert "anotei" not in joined.lower()
     assert "beleza, então é compra" not in joined.lower()
-    # After deal_type=purchase on PURCHASE intent, system asks for name.
-    assert "nome" in joined.lower()
+    # After deal_type=purchase on PURCHASE intent, system asks payment method.
+    assert "vista" in joined.lower() or "financ" in joined.lower()
     assert "que ótimo saber" not in joined.lower()
     assert "bacana" not in joined.lower()
 

@@ -129,7 +129,7 @@ async def test_first_commercial_turn_introduces_with_photos(monkeypatch) -> None
     joined = " ".join(result.outbound_texts).lower()
     assert "júlia" in joined or "julia" in joined
     assert "excelente opção" in joined
-    assert "nome" in joined or "troca" in joined  # after showing inventory, asks deal_type or name
+    assert "vista" in joined or "financ" in joined
     assert result.outbound_media
     assert result.outbound_media[-1].url.endswith("cover.jpg")
     assert "*" in result.outbound_media[-1].caption

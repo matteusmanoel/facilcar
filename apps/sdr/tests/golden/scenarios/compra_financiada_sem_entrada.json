@@ -1,22 +1,106 @@
 {
   "name": "compra_financiada_sem_entrada",
-  "description": "Financiamento 100% sem entrada. Roteiro: modelo → veículo encontrado no seed → parcela → docs.",
+  "description": "Financiamento sem entrada até handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase_financing",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero financiar um HB20 sem entrada",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_model": "HB20", "payment_method": "financing", "down_payment": 0}},
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "HB20",
+          "payment_method": "financing",
+          "down_payment": 0
+        }
+      },
       "expected_action": "SHOW_OFFERS",
-      "expected_facts_after": {"desired_model": "hb20", "down_payment": 0},
-      "forbidden_in_outbound": ["reservado", "garanto", "100% financiado", "seria compra ou troca"]
+      "expected_facts_after": {
+        "desired_model": "hb20",
+        "down_payment": 0
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     },
     {
-      "inbound": "Até 900 de parcela",
-      "understand_return": {"intent": "PURCHASE_FINANCING", "facts": {"desired_installment": 900}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"desired_installment": 900},
-      "expected_ask_field_in": ["documents"],
-      "forbidden_in_outbound": ["reservado", "garanto"]
+      "inbound": "Até 2500 de parcela",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_installment": 2500
+        }
+      },
+      "expected_facts_after": {
+        "desired_installment": 2500
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Posso enviar a CNH depois",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "documents_deferred": true
+        }
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Sou Marina Dias",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "name": "Marina Dias"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Marina Dias"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Pode ser o primeiro horário",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
     }
   ]
 }

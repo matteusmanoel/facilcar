@@ -53,6 +53,18 @@ class ScenarioRunResult:
     turns: list[dict[str, Any]] = field(default_factory=list)
     vendor_summary: str | None = None
     llm_real: bool = False
+    final_state: Any = None
+    obtained_terminal: str = "INCOMPLETE"
+    crm_report: dict[str, Any] | None = None
+    fallback_count: int = 0
+    retry_count: int = 0
+    traces: list[dict[str, Any]] = field(default_factory=list)
+    clock_iso: str | None = None
+    seed_version: str | None = None
+    understanding_model: str | None = None
+    composer_model: str | None = None
+    technical_status: str = "TECHNICAL_FAIL"
+
 
 
 # ---------------------------------------------------------------------------
@@ -139,59 +151,68 @@ async def run_scenario_detailed(
     use_live_inventory: bool = False,
 ) -> ScenarioRunResult:
     import contextlib
+    import time
     import unittest.mock as mock
 
     from sdr.application.process_turn import process_turn
+    from sdr.domain.clock import GOLDEN_CLOCK_ISO, set_clock
+    from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
     from sdr.domain.types import Action
-    from tests.golden.invariants import check_turn
+    from sdr.infrastructure.isolated_crm import IsolatedCrmStore
+    from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION
+    from tests.golden.invariants import check_scenario, check_turn
 
     name = scenario.get("name", "unknown")
     turns = scenario.get("turns", [])
     state = _initial_state(scenario)
     errors: list[str] = []
     transcript: list[dict[str, Any]] = []
+    traces: list[dict[str, Any]] = []
     vendor_summary: str | None = None
+    fallback_count = 0
+    crm_store = IsolatedCrmStore()
+    crm_report: dict[str, Any] | None = None
+    clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
+    set_clock(clock_iso)
 
-    async def _seed_run_inventory_search(state: Any, _pool: Any) -> dict[str, Any]:
-        """Seed-based _run_inventory_search for golden scenarios.
-
-        Replaces the real DB call with seed_inventory.json data so that golden
-        scenarios can assert on SUCCESS_FOUND / SUCCESS_SOLD / SUCCESS_EMPTY
-        without touching a live database.
-        """
+    async def _seed_run_inventory_search(search_state: Any, _pool: Any) -> dict[str, Any]:
         from sdr.domain.inventory_outcome import inventory_result
         from sdr.domain.inventory_search import build_inventory_search_request
         from sdr.domain.types import InventoryOutcome
         from tests.golden.fixtures.seed_inventory_adapter import search_seed
 
         req = build_inventory_search_request(
-            state.facts,
-            alternative_scope=state.alternative_scope,
-            budget_status=state.budget_status,
+            search_state.facts,
+            alternative_scope=search_state.alternative_scope,
+            budget_status=search_state.budget_status,
             limit=3,
         )
-        # InventorySearchRequest uses original_model / original_brand (not .model / .brand).
-        model = (
-            getattr(req, "original_model", None)
-            or getattr(req, "model", None)
-            or ""
+        model = getattr(req, "original_model", None) or ""
+        brand = getattr(req, "original_brand", None) or ""
+        listing_id = getattr(search_state, "listing_reference", None) or search_state.facts.get(
+            "_seed_vehicle_hint"
         )
-        brand = (
-            getattr(req, "original_brand", None)
-            or getattr(req, "brand", None)
-            or ""
+        listing_url = None
+        if isinstance(listing_id, str) and listing_id.startswith("http"):
+            listing_url, listing_id = listing_id, None
+        result = search_seed(
+            model=model,
+            brand=brand,
+            vehicle_hint_id=listing_id,
+            listing_url=listing_url,
         )
-
-        # Check for scenario-level vehicle hint (e.g. for civic_vendido_foto).
-        vehicle_hint_id = state.facts.get("_seed_vehicle_hint") or None
-
-        result = search_seed(model=model, brand=brand, vehicle_hint_id=vehicle_hint_id)
         outcome_str = result.get("outcome", "SUCCESS_EMPTY")
         search_params = req.as_trace_dict() if hasattr(req, "as_trace_dict") else {}
-
+        listing_meta = {
+            "listing_reference_received": result.get("listing_reference_received"),
+            "listing_reference_resolved": result.get("listing_reference_resolved"),
+            "matched_inventory_id": result.get("matched_inventory_id"),
+            "matched_status": result.get("matched_status"),
+            "inventory_outcome": result.get("inventory_outcome") or outcome_str,
+        }
         if outcome_str == "SUCCESS_FOUND":
             vehicles = result.get("vehicles") or []
-            return inventory_result(
+            payload = inventory_result(
                 outcome=InventoryOutcome.SUCCESS_FOUND,
                 count=len(vehicles),
                 vehicles=vehicles,
@@ -200,21 +221,24 @@ async def run_scenario_detailed(
             )
         elif outcome_str == "SUCCESS_SOLD":
             vehicle = result.get("vehicle") or {}
-            return inventory_result(
+            payload = inventory_result(
                 outcome=InventoryOutcome.SUCCESS_SOLD,
                 count=0,
                 vehicles=[vehicle],
                 alternatives=[],
                 search_params=search_params,
             )
+            payload["listing_id"] = result.get("listing_id")
         else:
-            return inventory_result(
+            payload = inventory_result(
                 outcome=InventoryOutcome.SUCCESS_EMPTY,
                 count=0,
                 vehicles=[],
                 alternatives=[],
                 search_params=search_params,
             )
+        payload.update(listing_meta)
+        return payload
 
     if llm_real:
         from sdr.orchestrator import default_understand
@@ -226,27 +250,52 @@ async def run_scenario_detailed(
         understand, turn_idx_ref, understand_stubs = _stub_understand(turns)
 
     process_pool = pool if pool is not None else object()
+    understanding_model = None
+    composer_model = None
+    if llm_real:
+        from sdr.config import get_settings
+
+        settings = get_settings()
+        understanding_model = getattr(settings, "openai_model", None) or "gpt-4.1-mini"
+        composer_model = getattr(settings, "openai_composer_model", None) or understanding_model
 
     for idx, turn_def in enumerate(turns):
         turn_idx_ref[0] = idx
         inbound_text = turn_def.get("inbound", "")
-        vehicle_hint = turn_def.get("inbound_vehicle_hint")
-
-        if vehicle_hint:
-            state.facts["vehicle_hint_model"] = vehicle_hint
-
+        listing_id = turn_def.get("listing_id")
+        listing_url = turn_def.get("listing_url")
+        state_before = {
+            "intent": state.intent.value if hasattr(state.intent, "value") else str(state.intent),
+            "facts": dict(state.facts),
+            "missing_fields": list(state.missing_fields or []),
+            "deferred_fields": list(state.deferred_fields or []),
+            "collected_fields": list(state.collected_fields or []),
+            "visit_preferred_time": state.visit_preferred_time,
+        }
+        inbound = InboundTurn(
+            thread_id=state.thread_id,
+            content_type=ContentType.TEXT,
+            text=inbound_text,
+            media_status=MediaStatus.NONE,
+            raw_message_ref={
+                k: v
+                for k, v in {
+                    "listing_id": listing_id,
+                    "listing_url": listing_url,
+                    "media_metadata": turn_def.get("media_metadata"),
+                }.items()
+                if v
+            },
+        )
         if show_trace:
             print(f"\n{'='*60}")
             print(f"  Turn {idx}: {inbound_text!r}")
+            print(f"  listing_id: {listing_id}")
             print(f"  assistant_turn_count: {state.assistant_turn_count}")
             print(f"  State facts before: {dict(state.facts)}")
 
+        started = time.perf_counter()
         try:
-            # Apply scenario-level vehicle hint to state if present.
-            scenario_hint = scenario.get("seed_vehicle_hint")
-            if scenario_hint and not state.facts.get("_seed_vehicle_hint"):
-                state.facts["_seed_vehicle_hint"] = scenario_hint
-
             ctx = (
                 mock.patch.dict(
                     "sdr.application.tool_executor._TOOL_REGISTRY",
@@ -258,6 +307,7 @@ async def run_scenario_detailed(
             with ctx:
                 result = await process_turn(
                     state=state,
+                    inbound=inbound,
                     inbound_text=inbound_text,
                     understand=understand,
                     pool=process_pool,
@@ -265,12 +315,24 @@ async def run_scenario_detailed(
         except Exception as exc:
             errors.append(f"[{name}] turn {idx}: process_turn raised {type(exc).__name__}: {exc}")
             break
+        latency_ms = int((time.perf_counter() - started) * 1000)
 
         plan = result.action_plan
         action_val = plan.action.value if hasattr(plan.action, "value") else str(plan.action)
         facts_out = {
             k: v for k, v in result.turn_facts.facts.items() if v is not None
         } if result.turn_facts else {}
+        inv_tr = next(
+            (tr for tr in (result.tool_results or []) if tr.get("tool") == "inventory_search"),
+            {},
+        )
+        validator = result.validator_result or {}
+        fallback_used = bool(validator.get("fallback_used"))
+        if fallback_used:
+            fallback_count += 1
+        if not (result.outbound_texts or []) and action_val != "NO_REPLY":
+            errors.append(f"[{name}] turn {idx}: empty Composer outbound")
+
         transcript.append({
             "idx": idx,
             "inbound": inbound_text,
@@ -284,8 +346,59 @@ async def run_scenario_detailed(
                 else None
             ),
             "outbound": list(result.outbound_texts or []),
+            "inventory_outcome": inv_tr.get("outcome"),
+            "inventory_query_model": (inv_tr.get("search_params") or {}).get("original_model"),
+            "listing_reference_received": inv_tr.get("listing_reference_received"),
+            "listing_reference_resolved": inv_tr.get("listing_reference_resolved"),
+            "matched_inventory_id": inv_tr.get("matched_inventory_id"),
         })
-
+        trace_row = {
+            "scenario_id": name,
+            "turn_id": idx,
+            "timestamp": clock_iso,
+            "timezone": "America/Sao_Paulo",
+            "customer_message": inbound_text,
+            "listing_metadata": inbound.raw_message_ref,
+            "understanding_model": understanding_model if llm_real else "stub",
+            "raw_facts": facts_out,
+            "normalized_facts": dict(result.state.facts),
+            "extracted_intent": result.turn_facts.intent.value if result.turn_facts else None,
+            "final_intent": result.state.intent.value,
+            "state_before": state_before,
+            "state_after": {
+                "intent": result.state.intent.value,
+                "facts": dict(result.state.facts),
+                "handoff_ready": result.state.handoff_ready,
+                "profile_complete": result.state.profile_complete,
+                "missing_fields": list(result.state.missing_fields or []),
+                "deferred_fields": list(result.state.deferred_fields or []),
+                "collected_fields": list(result.state.collected_fields or []),
+                "visit_preferred_time": result.state.visit_preferred_time,
+                "last_inventory_match": result.state.last_inventory_match,
+            },
+            "applicable_fields": list(result.state.collected_fields or [])
+            + list(result.state.missing_fields or []),
+            "missing_fields": list(result.state.missing_fields or []),
+            "deferred_fields": list(result.state.deferred_fields or []),
+            "action_plan": {
+                "action": action_val,
+                "reason_code": plan.reason_code,
+                "handoff": plan.handoff,
+            },
+            "ask_field": plan.ask_field,
+            "tool_calls": plan.tool_calls,
+            "tool_results": result.tool_results,
+            "inventory_query": inv_tr.get("search_params"),
+            "inventory_match": result.state.last_inventory_match,
+            "composer_result": list(result.outbound_texts or []),
+            "composer_model": composer_model if llm_real else "template/stub",
+            "retry": 0,
+            "fallback": fallback_used,
+            "validations": validator,
+            "latency_ms": latency_ms,
+            "handoff_reason": result.state.lifecycle.handoff_reason,
+        }
+        traces.append(trace_row)
         if show_trace:
             if not llm_real and idx < len(understand_stubs):
                 print(f"  Stub understand: intent={understand_stubs[idx].get('intent', 'UNKNOWN')}")
@@ -293,37 +406,24 @@ async def run_scenario_detailed(
                 print(f"  Understand: intent={result.turn_facts.intent.value} facts={facts_out}")
             print(f"  Action: {action_val}")
             print(f"  ask_field: {plan.ask_field}")
-            print(f"  should_introduce: {transcript[-1]['should_introduce']}")
+            print(f"  inventory_match: {result.state.last_inventory_match}")
             print(f"  Outbound: {result.outbound_texts}")
             if result.tool_results:
                 for tr in result.tool_results:
                     print(f"  ToolResult: {tr.get('tool')} outcome={tr.get('outcome')}")
 
-        skip_routing = llm_real
         turn_for_check = dict(turn_def)
-        if skip_routing:
-            # In LLM-real mode: strip only deterministic routing assertions.
-            # Semantic/safety assertions (forbidden_in_outbound, required_in_outbound_any,
-            # expected_in_outbound_one_of) are kept — they are the quality gate.
-            turn_for_check.pop("expected_action", None)
-            turn_for_check.pop("expected_ask_field_in", None)
-            turn_for_check.pop("expected_facts_after", None)
-            # Merge llm_real_only into the check dict when running LLM-real.
-            llm_real_only = turn_def.get("llm_real_only") or {}
-            turn_for_check.update(llm_real_only)
-        else:
-            # In stub mode: strip llm_real_only assertions entirely (Composer
-            # fallback does not call suggest_visit_slots, etc.).
-            turn_for_check.pop("llm_real_only", None)
-            turn_for_check.pop("invariant_two_concrete_slots", None)
+        turn_for_check.pop("llm_real_only", None)
         violations = check_turn(
             scenario_name=name,
             turn_idx=idx,
             turn_def=turn_for_check,
             result=result,
         )
-        for v in violations:
-            errors.append(str(v))
+        inv_msgs = [str(v) for v in violations]
+        for v in inv_msgs:
+            errors.append(v)
+        trace_row["invariant_results"] = inv_msgs or ["pass"]
 
         if plan.action == Action.HANDOFF_VENDOR or plan.handoff:
             from sdr.domain.vendor_summary import build_vendor_summary
@@ -332,30 +432,59 @@ async def run_scenario_detailed(
                 vendor_summary = build_vendor_summary(result.state)
             except Exception as exc:
                 vendor_summary = f"(summary failed: {exc})"
+            stored = crm_store.persist_handoff(result.state)
+            crm_report = crm_store.verify(result.state.thread_id)
+            trace_row["crm_payload"] = stored
+            trace_row["crm_persist"] = crm_report
             if show_trace:
                 print(f"  CRM juliaSummary: {vendor_summary}")
+                print(f"  CRM persist verified: {crm_report.get('matches_payload')}")
 
         state = result.state
 
-    # Post-scenario: validate expected_final_intent (LLM-real only — stub mode
-    # uses understand_return which forces the intent, making this trivially true).
     expected_final_intent = scenario.get("expected_final_intent")
-    if expected_final_intent and llm_real and turns:
+    if expected_final_intent and turns:
         actual_intent = state.intent.value if hasattr(state.intent, "value") else str(state.intent)
         if actual_intent != expected_final_intent.lower():
             errors.append(
                 f"[{name}] expected_final_intent: expected {expected_final_intent!r}, "
-                f"got {actual_intent!r} — LLM misclassified the intent"
+                f"got {actual_intent!r}"
             )
 
-    return ScenarioRunResult(
-        ok=len(errors) == 0,
+    obtained_terminal = "INCOMPLETE"
+    if transcript:
+        last_action = (transcript[-1].get("action") or "").upper()
+        if last_action == "HANDOFF_VENDOR":
+            obtained_terminal = "HANDOFF_VENDOR"
+        elif last_action == "NO_REPLY":
+            obtained_terminal = "SILENCE"
+        else:
+            obtained_terminal = last_action
+
+    run = ScenarioRunResult(
+        ok=False,
         errors=errors,
         name=name,
         turns=transcript,
         vendor_summary=vendor_summary,
         llm_real=llm_real,
+        final_state=state,
+        obtained_terminal=obtained_terminal,
+        crm_report=crm_report,
+        fallback_count=fallback_count,
+        retry_count=0,
+        traces=traces,
+        clock_iso=clock_iso,
+        seed_version=SEED_VERSION,
+        understanding_model=understanding_model,
+        composer_model=composer_model,
     )
+    for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
+        errors.append(str(v))
+    run.errors = errors
+    run.ok = len(errors) == 0
+    run.technical_status = "TECHNICAL_PASS" if run.ok else "TECHNICAL_FAIL"
+    return run
 
 
 def format_conversation(result: ScenarioRunResult) -> str:
@@ -415,6 +544,39 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
         chunks.append(format_conversation(r))
         chunks.append("---\n")
     path.write_text("\n".join(chunks), encoding="utf-8")
+    traces_dir = _TRANSCRIPTS_DIR / "traces"
+    traces_dir.mkdir(parents=True, exist_ok=True)
+    crm_rows = []
+    for r in results:
+        (traces_dir / f"{r.name}.jsonl").write_text(
+            "\n".join(json.dumps(row, default=str, ensure_ascii=False) for row in r.traces),
+            encoding="utf-8",
+        )
+        crm_rows.append({
+            "scenario": r.name,
+            "summary_generated": bool(r.vendor_summary),
+            "persist": r.crm_report,
+            "technical_status": r.technical_status,
+            "obtained_terminal": r.obtained_terminal,
+        })
+    (_TRANSCRIPTS_DIR / "crm_persist.json").write_text(
+        json.dumps(crm_rows, indent=2, default=str, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    report = {
+        "technical_status_by_scenario": {r.name: r.technical_status for r in results},
+        "terminals": {r.name: r.obtained_terminal for r in results},
+        "fallbacks": sum(r.fallback_count for r in results),
+        "retries": sum(r.retry_count for r in results),
+        "clock": results[0].clock_iso if results else None,
+        "seed_version": results[0].seed_version if results else None,
+        "understanding_model": results[0].understanding_model if results else None,
+        "composer_model": results[0].composer_model if results else None,
+    }
+    (_TRANSCRIPTS_DIR / "round_report.json").write_text(
+        json.dumps(report, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     return path
 
 

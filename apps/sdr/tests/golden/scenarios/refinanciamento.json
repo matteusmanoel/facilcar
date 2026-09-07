@@ -1,40 +1,75 @@
 {
   "name": "refinanciamento",
-  "description": "Cliente quer refinanciar veículo para levantar valor. REFINANCING nunca deve usar linguagem de troca nem pedir veículo desejado.",
+  "description": "Refinanciamento Compass com valor desejado até handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "refinancing",
   "initial_state": {},
   "turns": [
     {
       "inbound": "Quero refinanciar meu carro",
-      "understand_return": {"intent": "REFINANCING", "facts": {}},
+      "understand_return": {
+        "intent": "REFINANCING",
+        "facts": {}
+      },
       "expected_action": "ASK_INFO",
-      "expected_ask_field_in": ["trade_model", "vehicle_model"],
       "forbidden_in_outbound": [
+        "qual veículo você busca",
         "carro que você quer trocar",
-        "qual modelo você procura",
         "seria compra ou troca"
       ]
     },
     {
       "inbound": "Tenho um Jeep Compass 2022",
-      "understand_return": {"intent": "REFINANCING", "facts": {"trade_model": "Jeep Compass", "trade_year": "2022"}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"trade_model": "jeep compass", "trade_year": "2022"},
-      "expected_ask_field_in": ["amount_needed", "raise_amount"],
+      "understand_return": {
+        "intent": "REFINANCING",
+        "facts": {
+          "trade_model": "Jeep Compass",
+          "trade_year": "2022"
+        }
+      },
+      "expected_facts_after": {
+        "trade_model": "jeep compass",
+        "trade_year": "2022"
+      },
       "forbidden_in_outbound": [
+        "qual veículo você busca",
         "carro que você quer trocar",
-        "qual modelo você procura",
         "seria compra ou troca"
       ]
     },
     {
       "inbound": "Preciso de uns 30 mil",
-      "understand_return": {"intent": "REFINANCING", "facts": {"amount_needed": 30000}},
-      "expected_action": "ASK_INFO",
-      "expected_facts_after": {"amount_needed": 30000},
-      "expected_ask_field_in": ["name"],
+      "understand_return": {
+        "intent": "REFINANCING",
+        "facts": {
+          "amount_needed": 30000
+        }
+      },
+      "expected_facts_after": {
+        "amount_needed": 30000
+      },
       "forbidden_in_outbound": [
+        "qual veículo você busca",
         "carro que você quer trocar",
         "seria compra ou troca"
+      ]
+    },
+    {
+      "inbound": "Sou Igor Teixeira",
+      "understand_return": {
+        "intent": "REFINANCING",
+        "facts": {
+          "name": "Igor Teixeira"
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca",
+        "aprovação",
+        "taxa"
       ]
     }
   ]

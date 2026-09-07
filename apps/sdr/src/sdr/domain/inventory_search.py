@@ -119,12 +119,16 @@ class InventorySearchRequest:
 
 
 def _primary_query_text(facts: dict[str, Any]) -> str | None:
+    desired = facts.get("desired_vehicle")
+    if isinstance(desired, dict):
+        for key in ("model", "text", "brand"):
+            value = desired.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     for key in (
         "desired_model",
         "desired_vehicle_text",
-        "desired_vehicle",
         "vehicle_interest",
-        "model",
         "category",
     ):
         value = facts.get(key)
@@ -143,15 +147,23 @@ def build_inventory_search_request(
     """Build search request from canonical facts + authorized scope."""
     model = facts.get("desired_model")
     if not isinstance(model, str) or not model.strip():
+        desired = facts.get("desired_vehicle")
+        if isinstance(desired, dict) and isinstance(desired.get("model"), str):
+            model = desired.get("model")
+    if not isinstance(model, str) or not model.strip():
         model = None
     else:
         model = model.strip()
 
     brand = facts.get("brand") or facts.get("desired_brand")
     if not isinstance(brand, str) or not brand.strip():
+        desired = facts.get("desired_vehicle")
+        if isinstance(desired, dict) and isinstance(desired.get("brand"), str):
+            brand = desired.get("brand")
+    if not isinstance(brand, str) or not str(brand).strip():
         brand = None
     else:
-        brand = brand.strip()
+        brand = str(brand).strip()
 
     vehicle_text = facts.get("desired_vehicle_text")
     if not isinstance(vehicle_text, str) or not vehicle_text.strip():

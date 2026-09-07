@@ -90,62 +90,66 @@ def customer_handoff_bubbles(
     state: ConversationCanonicalState,
     reason_code: str | None = None,
 ) -> list[str]:
-    """WhatsApp close: context-appropriate thanks + specialist + site link.
-
-    reason_code drives the phrasing:
-    - "visit_intent" + visit_preferred_time → appointment confirmation
-    - "triage_actionable" / "visit_invitation_pre_handoff" → neutral handoff
-    - everything else → classic "Eu quem agradeço" (explicit handoff / offer)
-    """
+    """WhatsApp close: honest about what was collected; never fake completeness."""
     es = (state.language or "").lower().startswith("es")
     name = display_first_name(state.customer.name)
     visit_time = state.visit_preferred_time
+    incomplete = not getattr(state, "profile_complete", False)
+    empty_lead = not (state.facts or {}) and not name
+    site = HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT
 
-    _VISIT_REASONS = {"visit_intent", "visit_slot_confirmed"}
-    _TRIAGE_REASONS = {"triage_actionable", "visit_invitation_pre_handoff"}
-
-    if visit_time and reason_code in _VISIT_REASONS:
-        # Customer confirmed a visit slot — split into 2 bubbles for natural cadence.
-        slot_line = f"Combinado{f', {name}' if name else ''}! Esperamos você {visit_time}."
-        specialist_line = (
-            "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
-            "Excelente dia!"
+    if reason_code == "explicit_vendor" or (
+        state.signals.explicit_handoff is True and empty_lead
+    ):
+        msg = (
+            "Claro. Vou encaminhar seu atendimento para um dos nossos vendedores continuar com você."
+            if not es
+            else "Claro. Voy a pasar tu atención a uno de nuestros vendedores para que continúe contigo."
         )
-        return [slot_line, specialist_line, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
-    elif reason_code in _TRIAGE_REASONS:
-        # Triage complete without a specific visit slot — neutral warm close.
-        if es:
+        return [msg]
+
+    if visit_time:
+        slot_line = (
+            f"Anotei sua preferência{f', {name}' if name else ''}: {visit_time}. "
+            "O vendedor confirma o horário com você."
+        )
+        specialist = (
+            "Vou encaminhar para a equipe continuar o atendimento."
+            if incomplete
+            else "Já organizei o que você me passou e vou encaminhar para a equipe."
+        )
+        return [slot_line, specialist, site]
+
+    if reason_code in {
+        "triage_complete",
+        "triage_actionable",
+        "handoff_ready",
+        "visit_invitation_pre_handoff",
+    }:
+        if incomplete:
             thanks = (
                 f"Perfeito{f', {name}' if name else ''}! "
-                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+                "Vou encaminhar para um dos nossos vendedores continuar com você."
             )
         else:
             thanks = (
                 f"Perfeito{f', {name}' if name else ''}! "
-                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+                "Já organizei as informações e vou encaminhar para nossa equipe continuar com você."
             )
-        return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
-    else:
-        # Default: explicit handoff / offer / high_purchase_intent.
-        if es:
-            thanks = (
-                f"Yo te agradezco{f', {name}' if name else ''}. Ya reuní tu información "
-                "y pronto uno de nuestros especialistas se pondrá en contacto. "
-                "Que tengas un excelente día."
-            )
-        else:
-            thanks = (
-                f"Eu quem agradeço{f', {name}' if name else ''}. Já reuni suas informações "
-                "e logo um dos nossos especialistas entrará em contato. Tenha um excelente dia."
-            )
-        return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
+        return [thanks, site]
+
+    thanks = (
+        f"Claro{f', {name}' if name else ''}. "
+        "Vou encaminhar seu atendimento para um dos nossos vendedores continuar com você."
+    )
+    return [thanks, site]
 
 
 def should_handoff_now(state: ConversationCanonicalState) -> bool:
     """True when gated signals require immediate handoff (bypass triage).
 
-    Does NOT include triage actionability — that is a separate decision path
-    that must respect inventory-first policy in the Decision Engine.
+    Visit intent without a recorded slot is not immediate handoff — Decision
+    must offer concrete times first.
     """
     if state.lifecycle.status in (
         LifecycleStatus.HANDOFF_SENT,
@@ -153,14 +157,18 @@ def should_handoff_now(state: ConversationCanonicalState) -> bool:
     ):
         return False
     sig = state.signals
-    return any(
-        (
-            sig.explicit_handoff is True,
-            sig.explicit_offer is True,
-            sig.high_purchase_intent is True,
-            sig.visit_intent is True,
-        )
-    )
+    if sig.explicit_handoff is True:
+        return True
+    if sig.explicit_offer is True:
+        return True
+    if sig.high_purchase_intent is True:
+        return True
+    if sig.visit_intent is True:
+        from sdr.domain.scheduling import is_concrete_visit_slot
+
+        if is_concrete_visit_slot(state.visit_preferred_time):
+            return True
+    return False
 
 
 def is_ai_silenced(state: ConversationCanonicalState) -> bool:

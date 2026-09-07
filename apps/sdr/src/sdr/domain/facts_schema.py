@@ -33,6 +33,7 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
     {
         # Desired vehicle (purchase interest)
         "desired_model",
+        "desired_vehicle",  # nested role object (canonical)
         "desired_vehicle_text",  # free-text when taxonomy cannot decompose
         "desired_engine_displacement_liters",  # optional; never a triage question
         "desired_engine_flexible",  # explicit extra-engine acceptance; not asked
@@ -58,6 +59,8 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "city",
         "name",
         # Own vehicle (sale / trade / refinance / consignment)
+        "customer_vehicle",  # nested role object (canonical)
+        "documents_deferred",
         "vehicle_model",
         "vehicle_year",
         "trade_model",
@@ -92,7 +95,6 @@ FACT_KEY_ALIASES: dict[str, str] = {
     "usage": "use_type",
     "use": "use_type",
     "vehicle_interest": "desired_vehicle_text",
-    "desired_vehicle": "desired_vehicle_text",
     "model": "desired_model",
     "brand_model": "desired_model",
     "engine": "desired_engine_displacement_liters",
@@ -341,6 +343,21 @@ def normalize_facts(
             continue
 
         value: Any = raw_value
+
+        if canonical in {"desired_vehicle", "customer_vehicle"} and isinstance(value, dict):
+            if canonical not in out:
+                out[canonical] = {
+                    k: v for k, v in value.items() if v is not None and v != ""
+                }
+            continue
+
+        if canonical == "documents_deferred":
+            if isinstance(value, str):
+                value = value.strip().lower() in {"true", "1", "yes", "sim"}
+            else:
+                value = bool(value)
+            if not value:
+                continue
 
         # Remap free-text vehicle_type → desired_vehicle_text.
         if canonical == "vehicle_type" and isinstance(value, str):
