@@ -11,6 +11,7 @@ import unicodedata
 from typing import Any
 
 from sdr.domain.debts import compute_debt_status, merge_checks, parse_debt_utterance
+from sdr.domain.document_status import parse_document_deferral
 from sdr.domain.facts_schema import normalize_facts, normalize_money_value
 from sdr.domain.pending_interaction import PendingResolution
 from sdr.domain.scheduling import resolve_slot_choice
@@ -97,7 +98,8 @@ _CLEAR_DEBTS = re.compile(
 )
 _DOCS_LATER = re.compile(
     r"n[aã]o\s+tenho\s+(agora|no\s+momento)|depois\s+eu\s+(envio|mando)|"
-    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)",
+    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)|"
+    r"(enviar|envio|mando|mandar|posso\s+enviar).{0,40}depois",
     re.I,
 )
 
@@ -204,10 +206,14 @@ def overlay_pending_question(
             elif _SHORT_NO.search(text) and not _FINES_ONLY.search(text):
                 extra["trade_has_debts"] = False
     elif pending == "documents":
-        if _DOCS_LATER.search(text) or _SHORT_NO.search(text):
+        parsed = parse_document_deferral(text)
+        if parsed or _DOCS_LATER.search(text) or _SHORT_NO.search(text):
             extra["documents_deferred"] = True
-            if re.search(r"\bcnh\b", text, re.I) and not re.search(r"documentos?", text, re.I):
-                extra["deferred_document"] = "cnh"
+            extra["document_status"] = parsed or {
+                "cnh": "deferred",
+                "proof_of_residence": "deferred",
+                "proof_of_income": "deferred",
+            }
     elif pending == "trade_in_owner_is_client":
         if _SHORT_YES.search(text):
             extra["trade_in_owner_is_client"] = True
@@ -281,6 +287,11 @@ def overlay_pending_question(
             extra["payment_method"] = "cash"
         elif _FINANCING.search(text):
             extra["payment_method"] = "financing"
+
+    parsed_docs = parse_document_deferral(text)
+    if parsed_docs and "document_status" not in extra:
+        extra["documents_deferred"] = True
+        extra["document_status"] = parsed_docs
 
     debt_fragment = parse_debt_utterance(text)
     prev_checks = get_customer_vehicle(state.facts).get("debt_checks")

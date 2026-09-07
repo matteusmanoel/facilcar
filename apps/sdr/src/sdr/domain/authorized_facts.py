@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sdr.domain.debts import compute_debt_status
+from sdr.domain.debts import compute_debt_status, persistable_checks
+from sdr.domain.document_status import deferred_components
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_roles import format_vehicle_label, get_customer_vehicle, get_desired_vehicle
 
@@ -32,6 +33,7 @@ class AuthorizedFacts:
     price_expectation: Any = None
     documents_received: bool = False
     documents_deferred: list[str] = field(default_factory=list)
+    document_status: dict[str, str] = field(default_factory=dict)
     visit_preferred_time: str | None = None
     visit_pending_vendor_confirm: bool = False
     missing_fields: list[str] = field(default_factory=list)
@@ -61,6 +63,7 @@ class AuthorizedFacts:
             "price_expectation": self.price_expectation,
             "documents_received": self.documents_received,
             "documents_deferred": list(self.documents_deferred),
+            "document_status": dict(self.document_status),
             "visit_preferred_time": self.visit_preferred_time,
             "visit_pending_vendor_confirm": self.visit_pending_vendor_confirm,
             "missing_fields": list(self.missing_fields),
@@ -90,31 +93,52 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
         name = None
     deferred = list(state.deferred_fields or [])
     checks = customer.get("debt_checks") if isinstance(customer.get("debt_checks"), dict) else {}
+    if checks:
+        checks = persistable_checks(checks)
+        customer["debt_checks"] = checks
     status = customer.get("debt_status") or compute_debt_status(checks)
     visit = state.visit_preferred_time
+    intent = state.intent.value
+    doc_status = facts.get("document_status") if isinstance(facts.get("document_status"), dict) else {}
+    deferred = list(state.deferred_fields or []) or deferred_components(doc_status)
+    docs_ok = intent == "purchase_financing" or (
+        intent == "trade"
+        and facts.get("payment_applies_to") == "difference"
+        and facts.get("payment_method") == "financing"
+    )
+    if intent == "purchase":
+        customer = {}
+        status = None
+        checks = {}
+    if not docs_ok:
+        deferred = []
+        doc_status = {}
+    if intent in {"sale", "consignment", "refinancing"}:
+        desired = {}
     return AuthorizedFacts(
         name=name,
-        intent=state.intent.value,
+        intent=intent,
         desired_vehicle=desired,
         customer_vehicle=customer,
         payment_method=facts.get("payment_method"),
         payment_applies_to=facts.get("payment_applies_to"),
-        down_payment=facts.get("down_payment"),
-        desired_installment=facts.get("desired_installment"),
-        financing_status=customer.get("financing_status"),
-        debt_status=status if isinstance(status, str) else None,
-        debt_checks=dict(checks or {}),
-        debt_types=customer.get("debt_types") if customer.get("debt_types") not in {"sem_multas"} else None,
-        price_expectation=customer.get("price_expectation") or facts.get("trade_price_expectation"),
-        documents_received=bool(state.document_received or facts.get("documents_received")),
-        documents_deferred=deferred,
+        down_payment=facts.get("down_payment") if intent != "purchase" or facts.get("payment_method") != "cash" else None,
+        desired_installment=facts.get("desired_installment") if intent in {"purchase_financing", "trade"} else None,
+        financing_status=customer.get("financing_status") if customer else None,
+        debt_status=status if isinstance(status, str) and customer else None,
+        debt_checks=dict(checks or {}) if customer else {},
+        debt_types=customer.get("debt_types") if customer and customer.get("debt_types") not in {"sem_multas"} else None,
+        price_expectation=customer.get("price_expectation") or facts.get("trade_price_expectation") if customer else None,
+        documents_received=bool(state.document_received or facts.get("documents_received")) if docs_ok else False,
+        documents_deferred=deferred if docs_ok else [],
+        document_status=dict(doc_status) if docs_ok else {},
         visit_preferred_time=visit,
         visit_pending_vendor_confirm=bool(visit),
         missing_fields=list(state.missing_fields or []),
-        deferred_fields=deferred,
+        deferred_fields=list(state.deferred_fields or []),
         handoff_reason=state.lifecycle.handoff_reason,
-        amount_needed=facts.get("amount_needed"),
-        leave_at_store=facts.get("leave_at_store"),
+        amount_needed=facts.get("amount_needed") if intent == "refinancing" else None,
+        leave_at_store=facts.get("leave_at_store") if intent == "consignment" else None,
         profile_complete=bool(state.profile_complete),
         handoff_ready=bool(state.handoff_ready),
     )

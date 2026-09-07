@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from sdr.domain.debts import debts_are_resolved
+from sdr.domain.document_status import (
+    DOCUMENT_COMPONENTS,
+    STATUS_DEFERRED,
+    STATUS_RECEIVED,
+    received_components,
+)
 from sdr.domain.types import (
     Actionability,
     BusinessIntent,
@@ -81,6 +87,18 @@ def _trade_financing_detail(facts: dict[str, Any]) -> bool:
     return False
 
 
+def difference_is_financed(facts: dict[str, Any]) -> bool:
+    return (
+        str(facts.get("payment_applies_to") or "") == "difference"
+        and str(facts.get("payment_method") or "").lower() == "financing"
+    )
+
+
+def _document_status_map(state: ConversationCanonicalState) -> dict[str, Any]:
+    raw = state.facts.get("document_status")
+    return raw if isinstance(raw, dict) else {}
+
+
 def _documents_collected(state: ConversationCanonicalState) -> bool:
     if state.document_received:
         return True
@@ -147,9 +165,12 @@ def is_seller_actionable(state: ConversationCanonicalState) -> bool:
         debts_answered = _debts_answered(facts)
         price_exp = customer_has(facts, "price_expectation") or _has(facts, "trade_price_expectation")
         name = _has_name(state)
+        difference_ok = True
+        if difference_is_financed(facts):
+            difference_ok = _has(facts, "desired_installment") and _documents_step_handled(state)
         return bool(
             base and color and km and financing_answered and financing_detail
-            and debts_answered and price_exp and name
+            and debts_answered and price_exp and name and difference_ok
         )
 
     if intent == BusinessIntent.SALE:
@@ -243,16 +264,33 @@ def is_handoff_ready(state: ConversationCanonicalState) -> bool:
     return False
 
 
+def field_is_applicable(state: ConversationCanonicalState, field: str) -> bool:
+    """Whether a roteiro field belongs to this intent and current payment mode."""
+    if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+        return False
+    if field in ("desired_installment", "documents", *DOCUMENT_COMPONENTS):
+        if state.intent == BusinessIntent.PURCHASE_FINANCING:
+            return True
+        if state.intent == BusinessIntent.TRADE:
+            return difference_is_financed(state.facts)
+        return False
+    return True
+
+
 def collected_fields(state: ConversationCanonicalState) -> list[str]:
     """Applicable fields that already have a value and were not deferred."""
     found: list[str] = []
     deferred = set(state.deferred_fields or [])
+    status = _document_status_map(state)
     for field in ASK_FIELD_PRIORITY.get(state.intent, []):
-        if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+        if not field_is_applicable(state, field):
             continue
         if field in deferred:
             continue
-        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
+        if field == "documents":
+            for comp in received_components(status):
+                if comp not in deferred and comp not in found:
+                    found.append(comp)
             continue
         if _field_is_filled(state, field):
             found.append(field)
@@ -260,17 +298,25 @@ def collected_fields(state: ConversationCanonicalState) -> list[str]:
 
 
 def missing_fields(state: ConversationCanonicalState) -> list[str]:
-    """Applicable fields still empty and not deferred."""
+    """Applicable fields still empty and not deferred.
+
+    Document components stay granular: deferring CNH leaves residence/income missing.
+    """
     missing: list[str] = []
     deferred = set(state.deferred_fields or [])
+    status = _document_status_map(state)
     for field in ASK_FIELD_PRIORITY.get(state.intent, []):
-        if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
+        if not field_is_applicable(state, field):
             continue
         if field in deferred:
             continue
-        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
-            continue
         if field == "intent":
+            continue
+        if field == "documents":
+            for comp in DOCUMENT_COMPONENTS:
+                if comp in deferred or status.get(comp) in {STATUS_RECEIVED, STATUS_DEFERRED}:
+                    continue
+                missing.append(comp)
             continue
         if not _field_is_filled(state, field):
             if field in ("trade_installment_value", "trade_installments_remaining"):
@@ -285,15 +331,29 @@ def missing_fields(state: ConversationCanonicalState) -> list[str]:
 def refresh_actionability(state: ConversationCanonicalState) -> ConversationCanonicalState:
     """Update actionability + completeness projection from canonical state.
 
+    Handoff ready: enough for a seller to take over (pendencies allowed).
+    Profile complete: every applicable roteiro field is collected, confirmed,
+    or classified — deferred/missing fields keep the profile incomplete.
+
+    REFINANCING MVP collects model/year/amount/name for handoff. The original
+    pre-ficha also expects personal data, vehicle finance/debts and documents.
+    RENAVAM stays out of the handoff block and out of profile_complete. Until
+    that roteiro is collected, profile_complete stays false.
+
     HANDOFF_NOW: explicit customer signal (vendor / offer / visit / close).
     ACTIONABLE: handoff_ready — vendor can take over even if the form is incomplete.
     INSUFFICIENT: still collecting the minimum for this intent.
     """
     state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
-    if state.facts.get("documents_deferred") is True and "documents" not in (
-        state.deferred_fields or []
-    ) and not (set(state.deferred_fields or []) & {"cnh", "proof_of_residence", "proof_of_income"}):
-        state.deferred_fields = list(state.deferred_fields) + ["cnh", "proof_of_residence", "proof_of_income"]
+    deferred = list(state.deferred_fields or [])
+    blob = state.facts.get("documents_deferred") is True
+    specific = set(deferred) & set(DOCUMENT_COMPONENTS)
+    if blob and "documents" not in deferred and not specific:
+        # Unspecified "documentos depois" — defer the whole pack.
+        for name in DOCUMENT_COMPONENTS:
+            if name not in deferred:
+                deferred.append(name)
+        state.deferred_fields = deferred
         state.documents_asked = True
 
     state.missing_fields = missing_fields(state)
@@ -303,19 +363,18 @@ def refresh_actionability(state: ConversationCanonicalState) -> ConversationCano
         is_seller_actionable(state)
         and not state.missing_fields
         and not state.deferred_fields
-        and _debts_answered(state.facts)
-        if state.intent in (
-            BusinessIntent.TRADE,
-            BusinessIntent.SALE,
-            BusinessIntent.CONSIGNMENT,
-        )
-        else (
-            is_seller_actionable(state)
-            and not state.missing_fields
-            and not state.deferred_fields
+        and (
+            _debts_answered(state.facts)
+            if state.intent in (
+                BusinessIntent.TRADE,
+                BusinessIntent.SALE,
+                BusinessIntent.CONSIGNMENT,
+            )
+            else True
         )
     )
-    # Partial debts must never count as a complete profile.
+    if state.intent == BusinessIntent.REFINANCING:
+        state.profile_complete = False
     cv = get_customer_vehicle(state.facts)
     if cv.get("debt_status") == "partial":
         state.profile_complete = False
@@ -398,6 +457,8 @@ ASK_FIELD_PRIORITY: dict[BusinessIntent, list[str]] = {
         "trade_has_debts",
         "trade_price_expectation",
         "payment_method",
+        "desired_installment",
+        "documents",
         "name",
     ],
     BusinessIntent.SALE: [
@@ -487,7 +548,6 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
     """Single missing field to ask next, or None if nothing useful."""
     facts = state.facts
     order = ASK_FIELD_PRIORITY.get(state.intent, ["intent"])
-    inapplicable = INAPPLICABLE_FIELDS.get(state.intent, frozenset())
     deferred = set(state.deferred_fields or [])
 
     for field in order:
@@ -495,9 +555,7 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
             if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
                 return "intent"
             continue
-        if field in inapplicable or field in deferred:
-            continue
-        if field == "documents" and deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
+        if not field_is_applicable(state, field) or field in deferred:
             continue
         if field == "documents" and _documents_step_handled(state):
             continue

@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from sdr.domain.qualifications import INAPPLICABLE_FIELDS, next_ask_field
+from sdr.domain.qualifications import (
+    INAPPLICABLE_FIELDS,
+    difference_is_financed,
+    next_ask_field,
+    refresh_actionability,
+)
 from sdr.domain.types import BusinessIntent, ConversationCanonicalState, CustomerState
 
 
@@ -181,6 +186,39 @@ def test_smalltalk_asks_intent():
     state = _state(BusinessIntent.SMALLTALK)
     first = next_ask_field(state)
     assert first == "intent", f"SMALLTALK first field should be 'intent', got {first!r}"
+
+
+def test_trade_difference_financing_asks_installment_before_name():
+    state = _state(
+        BusinessIntent.TRADE,
+        {
+            "desired_model": "HB20",
+            "trade_model": "Peugeot 2008",
+            "trade_year": "2019",
+            "trade_color": "branco",
+            "mileage": 85000,
+            "trade_has_financing": True,
+            "trade_installment_value": 850,
+            "trade_installments_remaining": 24,
+            "trade_has_debts": False,
+            "trade_price_expectation": 40000,
+            "payment_method": "financing",
+            "payment_applies_to": "difference",
+        },
+    )
+    assert difference_is_financed(state.facts)
+    assert next_ask_field(state) == "desired_installment"
+
+
+def test_refinancing_profile_complete_false_on_handoff_minimum():
+    state = _state(
+        BusinessIntent.REFINANCING,
+        {"trade_model": "Compass", "trade_year": "2022", "amount_needed": 30000, "name": "Igor"},
+    )
+    state.customer.name = "Igor"
+    refresh_actionability(state)
+    assert state.handoff_ready is True
+    assert state.profile_complete is False
 
 
 # ---------------------------------------------------------------------------

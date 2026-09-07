@@ -66,6 +66,14 @@ INVARIANT_CATALOG: list[str] = [
     "GLOBAL: debt_clear_with_unknown",
     "GLOBAL: ambiguous_trade_question",
     "GLOBAL: success_found_without_offer",
+    "GLOBAL: duplicate_vehicle_label",
+    "GLOBAL: ask_field_question_mismatch",
+    "GLOBAL: difference_financing_skips_installment",
+    "SCENARIO: cnh_deferred_not_granular",
+    "SCENARIO: refinancing_false_complete",
+    "SCENARIO: paid_off_described_as_financed",
+    "SCENARIO: expectation_as_appraisal",
+    "SCENARIO: duplicate_peugeot_label",
     "SCENARIO: honda_corolla",
     "SCENARIO: civic_color_leaked_to_corolla",
     "SCENARIO: documents_marked_collected",
@@ -353,6 +361,42 @@ def check_turn(
             if re.search(r"te enviar umas fotos", outbound_joined) and not media:
                 fail("GLOBAL: promised_photos_without_media", outbound_joined[:160])
 
+    if re.search(r"\b(\w+)\s+\1\b", outbound_joined) and re.search(
+        r"peugeot 2008 2008|2008 2008", outbound_joined
+    ):
+        fail("GLOBAL: duplicate_vehicle_label", outbound_joined[:160])
+
+    adherence = getattr(result, "question_adherence", None) or {}
+    if (
+        plan.ask_field
+        and (plan.action.value if hasattr(plan.action, "value") else str(plan.action)).upper()
+        in {"ASK_INFO", "SHOW_OFFERS"}
+        and adherence
+        and adherence.get("skipped") is False
+        and adherence.get("match") is False
+    ):
+        fail(
+            "GLOBAL: ask_field_question_mismatch",
+            f"expected={adherence.get('expected_question_field')} "
+            f"detected={adherence.get('detected_question_field')} "
+            f"q={adherence.get('outbound_question')!r}",
+        )
+
+    facts = getattr(state, "facts", None) or {}
+    if (
+        str(facts.get("payment_applies_to") or "") == "difference"
+        and str(facts.get("payment_method") or "") == "financing"
+        and getattr(state, "intent", None) is not None
+        and getattr(state.intent, "value", "") == "trade"
+        and not facts.get("desired_installment")
+        and plan.ask_field == "name"
+        and "name" not in (getattr(state, "collected_fields", None) or [])
+    ):
+        fail(
+            "GLOBAL: difference_financing_skips_installment",
+            f"ask_field={plan.ask_field} missing installment after difference financing",
+        )
+
     return violations
 
 
@@ -418,8 +462,29 @@ def check_scenario(
     if name == "compra_financiada_sem_entrada":
         if facts.get("down_payment") not in (0, 0.0, "0"):
             fail("SCENARIO: zero_down", f"down_payment={facts.get('down_payment')!r}")
+        deferred = list(getattr(state, "deferred_fields", None) or []) if state else []
+        status = facts.get("document_status") if isinstance(facts.get("document_status"), dict) else {}
+        if "cnh" not in deferred and status.get("cnh") != "deferred":
+            fail("SCENARIO: cnh_deferred_not_granular", f"deferred={deferred} status={status}")
+        if set(deferred) >= {"cnh", "proof_of_residence", "proof_of_income"}:
+            fail("SCENARIO: cnh_deferred_not_granular", f"whole pack deferred: {deferred}")
+        if getattr(state, "profile_complete", False):
+            fail("SCENARIO: cnh_deferred_not_granular", "profile_complete true with deferred CNH")
 
-    if name in {"venda_direta", "consignacao", "refinanciamento"}:
+    if name == "refinanciamento":
+        if getattr(state, "profile_complete", False):
+            fail(
+                "SCENARIO: refinancing_false_complete",
+                "MVP refinancing roteiro is handoff-minimum; profile_complete must stay false",
+            )
+        desired = facts.get("desired_vehicle") if isinstance(facts.get("desired_vehicle"), dict) else {}
+        if desired.get("model") or facts.get("desired_model"):
+            fail(
+                "SCENARIO: customer_intent_no_desired",
+                f"desired leaked into {name}: {desired or facts.get('desired_model')!r}",
+            )
+
+    if name in {"venda_direta", "consignacao"}:
         desired = facts.get("desired_vehicle") if isinstance(facts.get("desired_vehicle"), dict) else {}
         if desired.get("model") or facts.get("desired_model"):
             fail(
@@ -490,6 +555,34 @@ def check_scenario(
         summary = (result.vendor_summary or "").lower()
         if re.search(r"\btroca\b|\btrocar\b", summary):
             fail("SCENARIO: sale_summary_invented_trade", result.vendor_summary or "")
+        if re.search(r"avalia[çc][aã]o da loja|\bavaliado em\b|\bvale\s+r\$", summary):
+            fail("SCENARIO: expectation_as_appraisal", result.vendor_summary or "")
+
+    if name == "fox_peugeot_troca":
+        blob = (result.vendor_summary or "") + " " + " ".join(
+            " ".join(t.get("outbound") or []) for t in (result.turns or [])
+        )
+        if re.search(r"peugeot 2008 2008", blob, re.I):
+            fail("SCENARIO: duplicate_peugeot_label", blob[:200])
+
+    if name == "troca_com_debitos":
+        cv = facts.get("customer_vehicle") if isinstance(facts.get("customer_vehicle"), dict) else {}
+        summary = (result.vendor_summary or "").lower()
+        if cv.get("financing_status") == "paid_off" and re.search(
+            r"est[aá]\s+financiado", summary
+        ) and "quitado" not in summary:
+            fail("SCENARIO: paid_off_described_as_financed", result.vendor_summary or "")
+
+    if name == "troca_financiada":
+        if str(facts.get("payment_applies_to") or "") == "difference" and str(
+            facts.get("payment_method") or ""
+        ) == "financing":
+            if facts.get("desired_installment") in (None, ""):
+                fail("SCENARIO: difference_financing_no_installment", str(facts.get("payment_method")))
+            if getattr(state, "profile_complete", False) and (
+                getattr(state, "deferred_fields", None) or getattr(state, "missing_fields", None)
+            ):
+                fail("SCENARIO: incomplete_profile_marked_complete", str(state.missing_fields))
 
     if name == "fox_peugeot_troca":
         found_turns = [t for t in (result.turns or []) if t.get("inventory_outcome") == "SUCCESS_FOUND"]

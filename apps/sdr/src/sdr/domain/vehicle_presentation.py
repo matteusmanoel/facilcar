@@ -97,7 +97,14 @@ def _vehicle_title(data: Mapping[str, Any]) -> str:
     model = str(_field(data, "model", "modelo") or "").strip()
     version = str(_field(data, "version", "versao", "versão") or "").strip()
     parts = [p for p in (brand, model, version) if p]
-    return " ".join(parts)
+    from sdr.domain.vehicle_roles import format_vehicle_label
+
+    core = format_vehicle_label({"brand": brand, "model": model}) or " ".join(
+        p for p in (brand, model) if p
+    )
+    if version and version.lower() not in core.lower():
+        return f"{core} {version}".strip()
+    return core
 
 
 def _transmission_label(raw: Any, *, es: bool) -> str | None:

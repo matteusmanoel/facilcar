@@ -18,6 +18,10 @@ from sdr.understanding.persona_prompts import (
     HANDOFF_CONFIRMATION_PT,
     JULIA_PERSONA_SYSTEM_PROMPT,
 )
+from sdr.domain.question_adherence import (
+    evaluate_adherence,
+    replace_question_bubble,
+)
 from sdr.understanding.validator import validate_bubbles, validate_introduction_policy
 
 logger = logging.getLogger(__name__)
@@ -381,6 +385,18 @@ def _ack_followup_bubbles(
         return [text, question] if question else [text]
     if kind == "desired_installment":
         return [question] if question else None
+    if kind == "difference_financing":
+        if es:
+            text = "De acuerdo, la diferencia será financiada."
+        else:
+            text = "Certo, a diferença será financiada."
+        return [text, question] if question else [text]
+    if kind == "difference_cash":
+        if es:
+            text = "De acuerdo, la diferencia será de contado."
+        else:
+            text = "Certo, a diferença será à vista."
+        return [text, question] if question else [text]
     if kind == "document_received":
         return _document_received_bubbles(state, lang, question=question)
     return None
@@ -728,7 +744,10 @@ def compose_inventory_response(
         ctx["alternatives"] = directive.inventory_alternatives
         if outcome == InventoryOutcome.SUCCESS_FOUND and not ctx.get("offers"):
             ctx["offers"] = directive.inventory_alternatives
-    return _template_compose(state, plan, ctx)
+    bubbles = _template_compose(state, plan, ctx)
+    bubbles, meta = _enforce_ask_field_adherence(bubbles, state, plan, _language(state))
+    _LAST_COMPOSE_META.update(meta)
+    return bubbles
 
 
 def compose_photos_response(
@@ -750,6 +769,64 @@ def compose_photos_response(
     }
     ctx = dict(tool_context or {})
     return _template_compose(state, plan, ctx)
+
+
+def _enforce_ask_field_adherence(
+    bubbles: list[str],
+    state: Mapping[str, Any],
+    action_plan: Mapping[str, Any],
+    lang: str,
+) -> tuple[list[str], dict[str, Any]]:
+    expected = str(action_plan.get("ask_field") or action_plan.get("next_question") or "")
+    action = str(action_plan.get("action") or "")
+    inv = str(state.get("inventory_outcome") or "")
+    if inv in {"SUCCESS_EMPTY", "FAILED_RETRYABLE", "FAILED_TERMINAL", "SUCCESS_SOLD"}:
+        return bubbles, {
+            "expected_question_field": expected or None,
+            "detected_question_field": None,
+            "outbound_question": None,
+            "match": True,
+            "skipped": True,
+            "retries": 0,
+            "questions_rejected": 0,
+            "used_template_fallback": False,
+        }
+    report = evaluate_adherence(bubbles, expected, action=action)
+    if report.get("match"):
+        return bubbles, {**report, "retries": 0, "questions_rejected": 0, "used_template_fallback": False}
+    safe = _required_question(state, action_plan, lang)
+    fixed = replace_question_bubble(bubbles, safe)
+    report = evaluate_adherence(fixed, expected, action=action)
+    return fixed, {
+        **report,
+        "retries": 0,
+        "questions_rejected": 1,
+        "used_template_fallback": True,
+    }
+
+
+_LAST_COMPOSE_META: dict[str, Any] = {
+    "adherence": {},
+    "retries": 0,
+    "questions_rejected": 0,
+}
+
+
+def last_compose_meta() -> dict[str, Any]:
+    return dict(_LAST_COMPOSE_META)
+
+
+def reset_compose_meta() -> None:
+    _LAST_COMPOSE_META.update(
+        {
+            "adherence": {},
+            "retries": 0,
+            "questions_rejected": 0,
+            "match": True,
+            "skipped": True,
+            "used_template_fallback": False,
+        }
+    )
 
 
 async def compose_response(
@@ -810,6 +887,8 @@ async def compose_response(
             action=action,
             language=lang,
         )
+        bubbles, meta = _enforce_ask_field_adherence(bubbles, state, action_plan, lang)
+        _LAST_COMPOSE_META.update(meta)
         return bubbles
 
     model = settings.sdr_response_model
@@ -990,4 +1069,55 @@ async def compose_response(
         action=action,
         language=lang,
     )
+    retries = 0
+    questions_rejected = 0
+    report = evaluate_adherence(
+        bubbles,
+        str(action_plan.get("ask_field") or action_plan.get("next_question") or ""),
+        action=action,
+    )
+    if not report.get("match"):
+        questions_rejected = 1
+        retries = 1
+        retry_prompt = (
+            system_prompt
+            + "\nA pergunta anterior NÃO tratava do campo pedido. "
+            + f"Pergunte SOMENTE sobre: {next_q_text or action_plan.get('ask_field')}."
+        )
+        try:
+            retry_resp = await client.chat.completions.create(
+                model=model,
+                temperature=0.2,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": _COMPOSER_JSON_SCHEMA,
+                },
+                messages=[
+                    {"role": "system", "content": retry_prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(payload, ensure_ascii=False),
+                    },
+                ],
+            )
+            retry_raw = retry_resp.choices[0].message.content or "{}"
+            retry_data = json.loads(retry_raw)
+            retry_bubbles = retry_data.get("bubbles") if isinstance(retry_data, Mapping) else None
+            if isinstance(retry_bubbles, list) and retry_bubbles:
+                bubbles = validate_bubbles([str(b) for b in retry_bubbles if b][:3], language=lang)
+                bubbles, _ = validate_introduction_policy(
+                    bubbles,
+                    should_introduce=should_introduce,
+                    action=action,
+                    language=lang,
+                )
+        except Exception:
+            logger.warning("compose_response: ask_field retry failed; using template question")
+        bubbles, meta = _enforce_ask_field_adherence(bubbles, state, action_plan, lang)
+        meta["retries"] = retries
+        meta["questions_rejected"] = questions_rejected + int(meta.get("questions_rejected") or 0)
+        _LAST_COMPOSE_META.update(meta)
+        return bubbles
+
+    _LAST_COMPOSE_META.update({**report, "retries": 0, "questions_rejected": 0, "used_template_fallback": False})
     return bubbles

@@ -56,6 +56,9 @@
           "documents_deferred": true
         }
       },
+      "expected_facts_after": {
+        "document_status.cnh": "deferred"
+      },
       "forbidden_in_outbound": [
         "reservado",
         "garanto",

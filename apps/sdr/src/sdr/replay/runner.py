@@ -58,6 +58,8 @@ class ScenarioRunResult:
     crm_report: dict[str, Any] | None = None
     fallback_count: int = 0
     retry_count: int = 0
+    composer_retries: int = 0
+    questions_rejected: int = 0
     traces: list[dict[str, Any]] = field(default_factory=list)
     clock_iso: str | None = None
     seed_version: str | None = None
@@ -174,6 +176,8 @@ async def run_scenario_detailed(
     traces: list[dict[str, Any]] = []
     vendor_summary: str | None = None
     fallback_count = 0
+    composer_retries = 0
+    questions_rejected = 0
     crm_store = IsolatedCrmStore()
     crm_report: dict[str, Any] | None = None
     summary_validation: dict[str, Any] | None = None
@@ -337,6 +341,9 @@ async def run_scenario_detailed(
         fallback_used = bool(validator.get("fallback_used"))
         if fallback_used:
             fallback_count += 1
+        composer_retries += int(getattr(result, "composer_retries", 0) or 0)
+        questions_rejected += int(getattr(result, "questions_rejected", 0) or 0)
+        adherence = getattr(result, "question_adherence", None) or {}
         if not (result.outbound_texts or []) and action_val != "NO_REPLY":
             errors.append(f"[{name}] turn {idx}: empty Composer outbound")
 
@@ -377,6 +384,7 @@ async def run_scenario_detailed(
             "listing_reference_received": inv_tr.get("listing_reference_received"),
             "listing_reference_resolved": inv_tr.get("listing_reference_resolved"),
             "matched_inventory_id": inv_tr.get("matched_inventory_id"),
+            "question_adherence": adherence,
         })
         trace_row = {
             "scenario_id": name,
@@ -412,6 +420,7 @@ async def run_scenario_detailed(
                 "handoff": plan.handoff,
             },
             "ask_field": plan.ask_field,
+            "question_adherence": adherence,
             "tool_calls": plan.tool_calls,
             "tool_results": result.tool_results,
             "inventory_query": inv_tr.get("search_params"),
@@ -420,7 +429,8 @@ async def run_scenario_detailed(
             "vehicle_cards": vehicle_cards,
             "outbound_media": media_items,
             "composer_model": composer_model if llm_real else "template/stub",
-            "retry": 0,
+            "retry": int(getattr(result, "composer_retries", 0) or 0),
+            "questions_rejected": int(getattr(result, "questions_rejected", 0) or 0),
             "fallback": fallback_used,
             "validations": validator,
             "latency_ms": latency_ms,
@@ -473,6 +483,9 @@ async def run_scenario_detailed(
             trace_row["crm_payload"] = stored
             trace_row["crm_persist"] = crm_report
             trace_row["summary_validation"] = summary_validation
+            if composed is not None:
+                trace_row["summary_propositions"] = getattr(composed, "propositions", None)
+                trace_row["summary_claims"] = (summary_validation or {}).get("claims")
             if summary_validation and not summary_validation.get("pass"):
                 errors.append(
                     f"[{name}] turn {idx}: summary_validation — {summary_validation.get('violations')}"
@@ -514,7 +527,9 @@ async def run_scenario_detailed(
         obtained_terminal=obtained_terminal,
         crm_report=crm_report,
         fallback_count=fallback_count,
-        retry_count=0,
+        retry_count=composer_retries,
+        composer_retries=composer_retries,
+        questions_rejected=questions_rejected,
         traces=traces,
         clock_iso=clock_iso,
         seed_version=SEED_VERSION,
@@ -544,9 +559,19 @@ def format_conversation(result: ScenarioRunResult) -> str:
     lines.append("")
     for turn in result.turns:
         lines.append(f"**Cliente:** {turn['inbound']}")
-        for bubble in turn.get("outbound") or []:
+        outbound = list(turn.get("outbound") or [])
+        cards = list(turn.get("vehicle_cards") or [])
+        media = list(turn.get("outbound_media") or [])
+        # Match WhatsApp send order for SHOW_OFFERS: context → card/media → question.
+        if cards or media:
+            leading = outbound[:1]
+            trailing = outbound[1:]
+        else:
+            leading = outbound
+            trailing = []
+        for bubble in leading:
             lines.append(f"**Júlia:** {bubble}")
-        for card in turn.get("vehicle_cards") or []:
+        for card in cards:
             title = card.get("title") or " ".join(
                 str(card.get(k) or "") for k in ("brand", "model", "version")
             ).strip()
@@ -557,14 +582,16 @@ def format_conversation(result: ScenarioRunResult) -> str:
             )
             for url in card.get("media_urls") or []:
                 lines.append(f"**Mídia:** image {url}")
-        for media in turn.get("outbound_media") or []:
-            cap = (media.get("caption") or "").strip()
-            url = media.get("url") or ""
+        for media_item in media:
+            cap = (media_item.get("caption") or "").strip()
+            url = media_item.get("url") or ""
             if url and url not in " ".join(lines[-8:]):
-                lines.append(f"**Mídia:** {media.get('mediatype') or 'image'} {url}")
+                lines.append(f"**Mídia:** {media_item.get('mediatype') or 'image'} {url}")
             if cap:
                 lines.append(f"**Caption:** {cap}")
-        if not turn.get("outbound") and not turn.get("vehicle_cards"):
+        for bubble in trailing:
+            lines.append(f"**Júlia:** {bubble}")
+        if not outbound and not cards:
             lines.append("**Júlia:** _(sem resposta)_")
         meta = []
         if turn.get("action"):
@@ -636,7 +663,9 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
             for r in results
         },
         "fallbacks": sum(r.fallback_count for r in results),
-        "retries": sum(r.retry_count for r in results),
+        "retries": sum(r.composer_retries for r in results),
+        "composer_retries": sum(r.composer_retries for r in results),
+        "questions_rejected": sum(r.questions_rejected for r in results),
         "summaries_rejected": sum(1 for r in results if r.summary_llm_rejected),
         "summaries_deterministic_fallback": sum(1 for r in results if r.summary_used_fallback),
         "persist_verified": sum(

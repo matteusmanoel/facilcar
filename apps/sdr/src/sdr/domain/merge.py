@@ -7,6 +7,11 @@ from typing import Any
 import re
 
 from sdr.domain.budget_status import BUDGET_RESOLVED, BudgetStatus
+from sdr.domain.document_status import (
+    DOCUMENT_COMPONENTS,
+    merge_document_status,
+    parse_document_deferral,
+)
 from sdr.domain.engine_displacement import as_engine_list, engine_list_for_json
 from sdr.domain.pending_interaction import (
     AlternativeScope,
@@ -228,43 +233,34 @@ def _apply_pending_and_scope(
         return
 
 
-_DOCUMENT_COMPONENTS = ("cnh", "proof_of_residence", "proof_of_income")
-_DOCS_LATER = re.compile(
-    r"n[aã]o\s+tenho\s+(agora|no\s+momento)|depois\s+eu\s+(envio|mando)|"
-    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)",
-    re.I,
-)
-_CNH_LATER = re.compile(r"cnh", re.I)
-
-
 def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: str) -> None:
     deferred = list(state.deferred_fields or [])
+    status = merge_document_status(state.facts.get("document_status"), None)
+    parsed = parse_document_deferral(inbound_text)
 
     def _add(*names: str) -> None:
         nonlocal deferred
         for name in names:
             if name not in deferred:
                 deferred.append(name)
+            status[name] = "deferred"
 
-    if state.facts.get("documents_deferred") is True:
-        if _CNH_LATER.search(inbound_text or "") and not re.search(
-            r"documento", inbound_text or "", re.I
-        ):
-            _add("cnh")
-        else:
-            _add(*_DOCUMENT_COMPONENTS)
-    elif _DOCS_LATER.search(inbound_text or ""):
+    if parsed:
+        for name, value in parsed.items():
+            if value == "deferred":
+                _add(name)
         state.facts["documents_deferred"] = True
-        if _CNH_LATER.search(inbound_text or "") and not re.search(
-            r"documentos?", inbound_text or "", re.I
-        ):
-            _add("cnh")
-        else:
-            _add(*_DOCUMENT_COMPONENTS)
+        state.facts["document_status"] = status
+        state.documents_asked = True
+    elif state.facts.get("documents_deferred") is True:
+        # LLM flagged deferral without a parseable utterance — unspecified pack.
+        if not any(status.get(k) == "deferred" for k in DOCUMENT_COMPONENTS):
+            _add(*DOCUMENT_COMPONENTS)
+        state.facts["document_status"] = status
+        state.documents_asked = True
     state.deferred_fields = deferred
-    # Never keep the same field collected and deferred.
     collected = [c for c in (state.collected_fields or []) if c not in deferred]
-    if "documents" in deferred or any(c in deferred for c in _DOCUMENT_COMPONENTS):
+    if "documents" in deferred or any(c in deferred for c in DOCUMENT_COMPONENTS):
         collected = [c for c in collected if c != "documents"]
     state.collected_fields = collected
 

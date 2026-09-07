@@ -12,6 +12,10 @@ from datetime import date
 from typing import Any
 
 from sdr.domain.authorized_facts import build_authorized_facts
+from sdr.domain.summary_propositions import (
+    build_propositions,
+    validate_text_against_propositions,
+)
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_catalog import brands_compatible
 
@@ -74,6 +78,7 @@ class VendorSummaryResult:
     used_llm: bool = False
     used_fallback: bool = False
     llm_rejected: bool = False
+    propositions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def build_vendor_summary(state: ConversationCanonicalState) -> str:
@@ -84,6 +89,7 @@ def build_vendor_summary(state: ConversationCanonicalState) -> str:
 def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryResult:
     auth = build_authorized_facts(state)
     payload = auth.as_dict()
+    propositions = [p.as_dict() for p in build_propositions(payload)]
     deterministic = _build_vendor_summary_deterministic(state)
     if _is_empty_vendor_request(state):
         text = _empty_vendor_request_summary(state)
@@ -93,6 +99,7 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
             authorized=payload,
             validation=validation,
             used_fallback=False,
+            propositions=propositions,
         )
     llm_text = None
     if _vendor_summary_llm_allowed():
@@ -108,6 +115,7 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
                 authorized=payload,
                 validation=validation,
                 used_llm=True,
+                propositions=propositions,
             )
         fallback_val = validate_summary_against_authorized(deterministic, payload)
         return VendorSummaryResult(
@@ -117,10 +125,12 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
                 **fallback_val,
                 "llm_rejected": True,
                 "llm_violations": validation.get("violations") or [],
+                "llm_text": llm_text,
             },
             used_llm=False,
             used_fallback=True,
             llm_rejected=True,
+            propositions=propositions,
         )
     validation = validate_summary_against_authorized(deterministic, payload)
     return VendorSummaryResult(
@@ -128,6 +138,7 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
         authorized=payload,
         validation=validation,
         used_fallback=True,
+        propositions=propositions,
     )
 
 
@@ -252,17 +263,15 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     elif applies == "difference" and pay == "financing":
         payment_sentence = "Pretende financiar a diferença."
 
-    # Own vehicle
+    # Own vehicle — only for intents that have a customer vehicle.
     own_parts: list[str] = []
+    own_label = format_vehicle_label(cv)
     trade_model = cv.get("model") or facts.get("trade_model") or facts.get("sell_model")
-    trade_year = cv.get("year") or facts.get("trade_year") or facts.get("sell_year")
     trade_color = cv.get("color") or facts.get("trade_color")
     mileage = cv.get("mileage") if cv.get("mileage") is not None else (facts.get("mileage") or facts.get("km"))
-    if trade_model:
-        desc = str(trade_model)
-        if trade_year:
-            desc += f" {trade_year}"
-        if trade_color:
+    if own_label:
+        desc = own_label
+        if trade_color and str(trade_color).lower() not in desc.lower():
             desc += f" ({trade_color})"
         if mileage:
             try:
@@ -271,16 +280,17 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
                 pass
         own_parts.append(desc)
 
+    fin_status = cv.get("financing_status")
     trade_has_fin = facts.get("trade_has_financing")
-    if trade_has_fin is True:
-        inst_val = facts.get("trade_installment_value")
-        inst_rem = facts.get("trade_installments_remaining")
+    if fin_status == "financed" or trade_has_fin is True:
+        inst_val = cv.get("installment_value") or facts.get("trade_installment_value")
+        inst_rem = cv.get("installments_remaining") or facts.get("trade_installments_remaining")
         fin_desc = "com financiamento em aberto"
         if inst_val and inst_rem:
             v = _fmt_money(inst_val)
             fin_desc += f" de {v}/mês por mais {inst_rem} parcela(s)" if v else f" por {inst_rem} parcela(s)"
         own_parts.append(fin_desc)
-    elif trade_has_fin is False:
+    elif fin_status == "paid_off" or trade_has_fin is False:
         own_parts.append("quitado")
 
     trade_debts = facts.get("trade_has_debts")
@@ -303,7 +313,7 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             own_parts.append(f"expectativa de {money}")
 
     own_sentence = ""
-    if own_parts:
+    if own_parts and state.intent.value in ("trade", "sale", "consignment", "refinancing"):
         if state.intent.value in ("sale", "consignment", "refinancing"):
             rest = own_parts[1:] if trade_model else own_parts
             if rest:
@@ -311,7 +321,7 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         else:
             own_sentence = f"Veículo de entrada: {'; '.join(own_parts)}."
 
-    # Visit
+    # Visit — only when a preference was actually discussed.
     visit_sentence = ""
     if state.visit_preferred_time:
         visit_sentence = (
@@ -321,14 +331,24 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     elif state.signals.visit_intent is True:
         visit_sentence = "Cliente demonstrou interesse em visitar a loja."
 
-    pending = list(state.missing_fields or [])
-    deferred = list(state.deferred_fields or [])
     pending_sentence = ""
+    if state.intent.value == "purchase":
+        pending = []
+        deferred_show = []
+    else:
+        pending = list(state.missing_fields or [])
+        deferred_show = list(state.deferred_fields or [])
+        if state.intent.value not in {"purchase_financing", "trade"}:
+            pending = [p for p in pending if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
+            deferred_show = [p for p in deferred_show if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
+        if state.intent.value == "trade" and facts.get("payment_applies_to") != "difference":
+            pending = [p for p in pending if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents", "desired_installment"}]
+            deferred_show = [p for p in deferred_show if p not in {"cnh", "proof_of_residence", "proof_of_income", "documents"}]
     if pending:
         pending_sentence = "Ainda pendente: " + ", ".join(pending) + "."
-    if deferred:
+    if deferred_show:
         pending_sentence = (pending_sentence + " " if pending_sentence else "") + (
-            "Adiado: " + ", ".join(deferred) + "."
+            "Adiado: " + ", ".join(deferred_show) + "."
         )
 
     sentences = [
@@ -371,7 +391,14 @@ def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
         "Se debt_status não for clear, não diga sem dívidas/sem débitos.\n"
         "Se visit_pending_vendor_confirm, diga preferência registrada pendente de confirmação do vendedor — "
         "nunca que a visita foi agendada.\n"
-        "Se payment_applies_to=difference, diga que pretende pagar/financiar a diferença.\n"
+        "Se payment_applies_to=difference e method=cash, diga exatamente: pretende pagar a diferença à vista.\n"
+        "Se payment_applies_to=difference e method=financing, diga exatamente: pretende financiar a diferença.\n"
+        "NUNCA escreva 'pagar ou financiar' nem 'em dinheiro' para a diferença.\n"
+        "Expectativa de valor do cliente NÃO é avaliação da loja — nunca diga avaliado/vale/avaliação da loja.\n"
+        "Se financing_status=paid_off, NUNCA diga que o veículo está financiado.\n"
+        "Se financing_status=financed, NUNCA diga que está quitado.\n"
+        "Se intent=purchase, não mencione dívidas, documentos nem veículo próprio.\n"
+        "Se não houver visit_preferred_time, não mencione ausência de visita.\n"
         "Se não houver nome, escreva 'O cliente'."
     )
     user_prompt = (
@@ -416,28 +443,12 @@ _VISIT_BOOKED = re.compile(
 
 def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -> dict[str, Any]:
     """Return {pass, violations}. Divergence must fail the golden scenario."""
-    violations: list[str] = []
+    polar = validate_text_against_propositions(text, authorized)
+    violations: list[str] = list(polar.get("violations") or [])
     low = (text or "").lower()
     intent = str(authorized.get("intent") or "")
     desired = authorized.get("desired_vehicle") if isinstance(authorized.get("desired_vehicle"), dict) else {}
     customer = authorized.get("customer_vehicle") if isinstance(authorized.get("customer_vehicle"), dict) else {}
-
-    if intent == "sale" and re.search(r"\btroca\b|\btrocar\b|\bpermuta\b", low):
-        violations.append("sale_summary_mentions_trade")
-
-    deferred = list(authorized.get("documents_deferred") or []) or list(
-        authorized.get("deferred_fields") or []
-    )
-    if deferred and _DOC_READY.search(text or ""):
-        violations.append("deferred_documents_described_as_ready")
-
-    debt_status = authorized.get("debt_status")
-    if debt_status in {None, "partial", "unknown", "has_debts"} and _NO_DEBT.search(text or ""):
-        if debt_status != "clear":
-            violations.append("uncleared_debts_described_as_clear")
-
-    if authorized.get("visit_pending_vendor_confirm") and _VISIT_BOOKED.search(text or ""):
-        violations.append("visit_described_as_confirmed")
 
     allowed_brands = {
         str(desired.get("brand") or "").strip().lower(),
@@ -449,7 +460,6 @@ def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -
             str(desired.get("model") or "").lower(),
             str(customer.get("model") or "").lower(),
         }:
-            # Allow brand only when it is the catalog brand of an authorized model.
             model_ok = False
             for model in filter(None, (desired.get("model"), customer.get("model"))):
                 from sdr.domain.vehicle_catalog import lookup_brand_for_model
@@ -464,9 +474,6 @@ def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -
     if d_brand and d_model and not brands_compatible(str(d_brand), str(d_model)):
         violations.append("incompatible_desired_brand_model")
     if d_brand and d_model:
-        combo = f"{d_brand} {d_model}".lower()
-        if "honda" in low and "corolla" in low and "honda corolla" in combo.replace("toyota", "honda"):
-            violations.append("honda_corolla")
         if "honda" in low and "corolla" in low and str(d_model).lower() == "corolla" and str(d_brand).lower() != "honda":
             violations.append("summary_honda_corolla_mismatch")
 
@@ -474,20 +481,18 @@ def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -
     c_color = str(customer.get("color") or "").lower()
     for color in ("prata", "preto", "branco", "vermelho", "cinza", "azul"):
         if color in low and color not in {d_color, c_color} and color not in str(desired.get("model") or "").lower():
-            # Color mentioned but not in authorized vehicles.
             if intent in {"purchase", "purchase_financing"} and not c_color:
                 violations.append(f"unauthorized_color:{color}")
 
+    executed = list(polar.get("invariants_executed") or []) + [
+        "authorized_brands",
+        "compatible_desired",
+        "authorized_colors",
+    ]
     return {
         "pass": not violations,
         "violations": violations,
-        "invariants_executed": [
-            "sale_no_trade",
-            "deferred_docs_not_ready",
-            "debts_not_overclaimed",
-            "visit_not_confirmed",
-            "authorized_brands",
-            "compatible_desired",
-            "authorized_colors",
-        ],
+        "claims": polar.get("claims") or [],
+        "propositions": polar.get("propositions") or [],
+        "invariants_executed": executed,
     }

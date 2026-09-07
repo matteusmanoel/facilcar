@@ -30,6 +30,8 @@ _ACK_TO_CADENCE: dict[str, CadenceMode] = {
     "payment_cash": CadenceMode.CONFIRM_QUESTION,
     "down_payment": CadenceMode.CONFIRM_QUESTION,
     "desired_installment": CadenceMode.CONFIRM_QUESTION,
+    "difference_financing": CadenceMode.CONFIRM_QUESTION,
+    "difference_cash": CadenceMode.CONFIRM_QUESTION,
     "document_received": CadenceMode.CONFIRM_QUESTION,
     "visit_preference": CadenceMode.CONFIRM_QUESTION,
 }

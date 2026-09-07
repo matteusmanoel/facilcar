@@ -17,7 +17,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from sdr.domain.debts import compute_debt_status, merge_checks
+from sdr.domain.debts import compute_debt_status, merge_checks, persistable_checks
 from sdr.domain.types import BusinessIntent
 from sdr.domain.vehicle_catalog import enrich_vehicle, model_identity
 
@@ -161,14 +161,23 @@ def _put(target: dict[str, Any], attr: str, value: Any) -> None:
 
 
 def parse_packed_vehicle_attrs(text: str) -> dict[str, Any]:
-    """Extract year/color/mileage from a short packed description."""
+    """Extract year/color/mileage from a short packed description.
+
+    A 4-digit catalog model (e.g. Peugeot 2008) is not a year unless a
+    second year token is present ("Peugeot 2008 2019").
+    """
     if not text or not str(text).strip():
         return {}
     raw = str(text)
     out: dict[str, Any] = {}
-    year_m = _YEAR_RE.search(raw)
-    if year_m:
-        out["year"] = year_m.group(1)
+    from sdr.domain.vehicle_catalog import lookup_brand_for_model
+
+    years = _YEAR_RE.findall(raw)
+    year_tokens = [y for y in years if not lookup_brand_for_model(y)]
+    if year_tokens:
+        out["year"] = year_tokens[-1]
+    elif len(years) > 1:
+        out["year"] = years[-1]
     color_m = _COLOR_RE.search(raw)
     if color_m:
         out["color"] = color_m.group(1).lower()
@@ -180,14 +189,12 @@ def parse_packed_vehicle_attrs(text: str) -> dict[str, Any]:
         except ValueError:
             pass
     elif not km_m:
-        # "2020, prata, 50000 km" already handled; "50000 km" too.
-        # Bare 4-7 digit after color/year: treat as km when 'km' present or comma list.
         if re.search(r"\bkm\b", raw, re.I):
             pass
         else:
             nums = _KM_BARE_RE.findall(raw)
-            if year_m:
-                nums = [n for n in nums if n != year_m.group(1)]
+            skip = set(years)
+            nums = [n for n in nums if n not in skip]
             if len(nums) == 1 and int(nums[0]) >= 1000:
                 out["mileage"] = int(nums[0])
     return out
@@ -249,6 +256,7 @@ def canonicalize_vehicle_roles(
         }:
             _put(customer, "debt_status", "clear")
         if customer.get("debt_checks"):
+            customer["debt_checks"] = persistable_checks(customer.get("debt_checks"))
             customer["debt_status"] = compute_debt_status(customer.get("debt_checks"))
         debt_types = out.get("trade_debt_type")
         if debt_types and str(debt_types).strip().lower() not in {"sem_multas", "sem multa", "sem-multas"}:
@@ -294,6 +302,7 @@ def canonicalize_vehicle_roles(
     if customer:
         customer = enrich_vehicle(customer)
         if customer.get("debt_checks"):
+            customer["debt_checks"] = persistable_checks(customer.get("debt_checks"))
             customer["debt_status"] = compute_debt_status(customer.get("debt_checks"))
         out[CUSTOMER_VEHICLE_KEY] = customer
         if customer.get("model") and not out.get("trade_model"):
@@ -312,7 +321,12 @@ def merge_vehicle_dicts(prev: dict[str, Any], incoming: dict[str, Any]) -> dict[
     merged = dict(prev or {})
     for key, value in (incoming or {}).items():
         if key == "debt_checks" and isinstance(value, dict):
-            merged[key] = merge_checks(merged.get("debt_checks") if isinstance(merged.get("debt_checks"), dict) else None, value)
+            merged[key] = persistable_checks(
+                merge_checks(
+                    merged.get("debt_checks") if isinstance(merged.get("debt_checks"), dict) else None,
+                    value,
+                )
+            )
             continue
         if key == "_provenance" and isinstance(value, dict):
             prev_p = merged.get("_provenance") if isinstance(merged.get("_provenance"), dict) else {}
@@ -441,9 +455,24 @@ def apply_desired_vehicle_substitution(
 
 
 def format_vehicle_label(vehicle: dict[str, Any] | None) -> str | None:
+    """Single presentation helper — never duplicate brand/model/year tokens."""
     if not vehicle:
         return None
-    parts = [str(vehicle[k]).strip() for k in ("brand", "model", "year") if _filled(vehicle.get(k))]
-    if not parts and _filled(vehicle.get("text")):
+    brand = str(vehicle.get("brand") or "").strip()
+    model = str(vehicle.get("model") or "").strip()
+    year = str(vehicle.get("year") or "").strip()
+    if brand and model:
+        model_l = model.lower()
+        brand_l = brand.lower()
+        if model_l == brand_l or model_l.startswith(brand_l + " "):
+            core = model
+        else:
+            core = f"{brand} {model}"
+    else:
+        core = brand or model
+    year_tokens = {t.lower() for t in core.split() if t}
+    if year and year.lower() not in year_tokens and year != model:
+        core = f"{core} {year}".strip() if core else year
+    if not core and _filled(vehicle.get("text")):
         return str(vehicle["text"]).strip()
-    return " ".join(parts) if parts else None
+    return core or None

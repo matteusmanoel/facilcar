@@ -81,6 +81,9 @@ class ProcessTurnResult:
     response_directive: ResponseDirective | None = None
     outbound_media: list[OutboundMedia] = field(default_factory=list)
     outbound_location: dict[str, Any] | None = None
+    question_adherence: dict[str, Any] | None = None
+    composer_retries: int = 0
+    questions_rejected: int = 0
 
 
 def _track_engagement(
@@ -117,9 +120,15 @@ def _ack_kind_from_facts(
     pending_question: str | None,
 ) -> str | None:
     """Which field was just answered — Composer owns the wording."""
+    collected = facts.facts or {}
+    applies = collected.get("payment_applies_to")
+    method = collected.get("payment_method")
+    if applies == "difference" and method == "financing":
+        return "difference_financing"
+    if applies == "difference" and method in {"cash", "a_vista"}:
+        return "difference_cash"
     if not pending_question:
         return None
-    collected = facts.facts or {}
     if pending_question == "down_payment" and "down_payment" in collected:
         return "down_payment"
     if pending_question == "desired_installment" and "desired_installment" in collected:
@@ -537,6 +546,10 @@ async def process_turn(
     listing_ref = listing_meta.get("listing_id") or listing_meta.get("listing_url")
     state.listing_reference = str(listing_ref) if listing_ref else None
 
+    from sdr.understanding.response_composer import reset_compose_meta
+
+    reset_compose_meta()
+
     # HANDOFF_SENT / HUMAN_ACTIVE: ingest already happened upstream; never reply
     # and never call Understanding (no tokens after qualification).
     if is_ai_silenced(state):
@@ -862,6 +875,9 @@ async def process_turn(
     if outbound or outbound_media or outbound_location:
         merged.assistant_turn_count = state.assistant_turn_count + 1
 
+    from sdr.understanding.response_composer import last_compose_meta
+
+    compose_meta = last_compose_meta()
     return ProcessTurnResult(
         action_plan=plan,
         state=merged,
@@ -872,6 +888,9 @@ async def process_turn(
         response_directive=directive,
         outbound_media=outbound_media,
         outbound_location=outbound_location,
+        question_adherence=compose_meta,
+        composer_retries=int(compose_meta.get("retries") or 0),
+        questions_rejected=int(compose_meta.get("questions_rejected") or 0),
     )
 
 

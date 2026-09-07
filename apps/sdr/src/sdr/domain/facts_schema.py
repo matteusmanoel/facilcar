@@ -65,6 +65,7 @@ CANONICAL_FACT_KEYS: frozenset[str] = frozenset(
         "payment_applies_to",
         "documents_received",
         "documents_deferred",
+        "document_status",
         "vehicle_model",
         "vehicle_year",
         "trade_model",
@@ -348,7 +349,7 @@ def normalize_facts(
 
         value: Any = raw_value
 
-        if canonical in {"desired_vehicle", "customer_vehicle", "debt_checks"} and isinstance(value, dict):
+        if canonical in {"desired_vehicle", "customer_vehicle", "debt_checks", "document_status"} and isinstance(value, dict):
             if canonical not in out:
                 out[canonical] = {
                     k: v for k, v in value.items() if v is not None and v != ""

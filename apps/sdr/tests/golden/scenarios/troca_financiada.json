@@ -151,6 +151,46 @@
           "payment_method": "financing"
         }
       },
+      "expected_ask_field_in": [
+        "desired_installment"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Até 1800 de parcela",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_installment": 1800
+        }
+      },
+      "expected_facts_after": {
+        "desired_installment": 1800
+      },
+      "expected_ask_field_in": [
+        "documents"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Posso enviar os documentos depois",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "documents_deferred": true
+        }
+      },
+      "expected_ask_field_in": [
+        "name"
+      ],
       "forbidden_in_outbound": [
         "seria compra ou troca",
         "compra ou troca",

@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# Core categories participate in the aggregate debt_status.
+# `other` is extra evidence only — omit it unless the customer stated it.
+CORE_DEBT_KEYS = ("fines", "ipva", "licensing")
 DEBT_KEYS = ("fines", "ipva", "licensing", "other")
 STATUS_CLEAR = "clear"
 STATUS_HAS = "has_debt"
@@ -27,29 +30,46 @@ _HAS_DEBT = re.compile(r"\b(?:tem|tenho|possu[oi])\b.*\b(?:multa|d[eé]bito|ipva
 
 
 def empty_checks() -> dict[str, str]:
-    return {k: STATUS_UNKNOWN for k in DEBT_KEYS}
+    return {k: STATUS_UNKNOWN for k in CORE_DEBT_KEYS}
+
+
+def persistable_checks(checks: dict[str, Any] | None) -> dict[str, str]:
+    """Drop unknown `other` so clear + other=unknown never coexists."""
+    merged = merge_checks(None, checks)
+    out = {k: merged[k] for k in CORE_DEBT_KEYS}
+    extra = None
+    if isinstance(checks, dict):
+        extra = checks.get("other")
+    if extra in {STATUS_CLEAR, STATUS_HAS}:
+        out["other"] = extra
+    return out
 
 
 def merge_checks(prev: dict[str, Any] | None, incoming: dict[str, Any] | None) -> dict[str, str]:
     out = empty_checks()
+    other: str | None = None
     for src in (prev, incoming):
         if not isinstance(src, dict):
             continue
-        for key in DEBT_KEYS:
+        for key in CORE_DEBT_KEYS:
             val = src.get(key)
             if val in {STATUS_CLEAR, STATUS_HAS, STATUS_UNKNOWN}:
                 out[key] = val
+        extra = src.get("other")
+        if extra in {STATUS_CLEAR, STATUS_HAS}:
+            other = extra
+    if other:
+        out["other"] = other
     return out
 
 
 def compute_debt_status(checks: dict[str, Any] | None) -> str:
     merged = merge_checks(None, checks)
-    if any(merged[k] == STATUS_HAS for k in DEBT_KEYS):
+    if any(merged.get(k) == STATUS_HAS for k in CORE_DEBT_KEYS) or merged.get("other") == STATUS_HAS:
         return STATUS_HAS_DEBTS
-    core = ("fines", "ipva", "licensing")
-    if all(merged[k] == STATUS_CLEAR for k in core):
+    if all(merged.get(k) == STATUS_CLEAR for k in CORE_DEBT_KEYS):
         return STATUS_CLEAR
-    if any(merged[k] == STATUS_CLEAR for k in DEBT_KEYS):
+    if any(merged.get(k) == STATUS_CLEAR for k in CORE_DEBT_KEYS):
         return STATUS_PARTIAL
     return STATUS_UNKNOWN
 
@@ -83,7 +103,7 @@ def parse_debt_utterance(text: str) -> dict[str, Any]:
 
     if _CLEAR_ALL.search(raw) and not _FINES_ONLY.search(raw):
         out["all_clear"] = True
-        checks = {k: STATUS_CLEAR for k in DEBT_KEYS}
+        checks = {k: STATUS_CLEAR for k in CORE_DEBT_KEYS}
 
     if re.search(r"multa", raw, re.I) and re.search(r"atrasad|pendente|tem\s+uma", raw, re.I):
         checks["fines"] = STATUS_HAS
