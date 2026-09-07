@@ -86,7 +86,11 @@ def test_refinancing_incomplete_does_not_invent_pendency() -> None:
     assert "visita" not in low
     assert "documentos" not in low
     assert "30 mil" in result.text or "30000" in result.text
-    assert "complementado" in low
+    assert "complementado" not in low
+    assert "handoff_ready" not in low
+    assert "perfil completo" not in low
+    assert "atendimento pronto" not in low
+    assert result.origin == "deterministic"
     assert result.validation.get("pass") is True
 
 
@@ -127,6 +131,7 @@ def test_trade_financed_includes_desired_installment_and_deferred_docs() -> None
     assert "24 parcelas" in text
     assert "1.800" in text or "1800" in text
     assert "financiar a diferença" in low
+    assert "ficaram para envio posterior" in result.text
     assert "cnh" in low
     assert "comprovante de residência" in low or "comprovante de residencia" in low
     assert "envio posterior" in low
@@ -151,3 +156,203 @@ def test_visit_preference_is_pending() -> None:
     assert "marcada" not in low
     assert "agendada" not in low
     assert "pendente de confirmação" in low or "pendente de confirmacao" in low
+
+
+def test_cnh_singular_agreement() -> None:
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.PURCHASE_FINANCING,
+            {
+                "name": "Carla Nunes",
+                "desired_model": "HB20",
+                "down_payment": 10000,
+                "documents_deferred": True,
+                "document_status": {"cnh": "deferred"},
+            },
+            deferred_fields=["cnh"],
+        )
+    )
+    assert "ficou para envio posterior" in result.text
+    assert "ficaram para envio posterior" not in result.text
+    assert result.validation.get("pass") is True
+
+
+def test_gender_neutral_expectation() -> None:
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.SALE,
+            {
+                "name": "Maria Souza",
+                "trade_model": "Corolla",
+                "trade_year": "2020",
+                "trade_has_financing": False,
+                "trade_has_debts": False,
+                "trade_price_expectation": 80000,
+            },
+        )
+    )
+    low = result.text.lower()
+    assert "ele espera" not in low
+    assert "ela espera" not in low
+    assert "expectativa informada" in low
+    assert result.validation.get("pass") is True
+
+
+def test_zero_down_is_financing_without_entry() -> None:
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.PURCHASE_FINANCING,
+            {
+                "name": "Lucas Rocha",
+                "desired_model": "Onix",
+                "down_payment": 0,
+                "desired_installment": 1200,
+            },
+        )
+    )
+    low = result.text.lower()
+    assert "financiar sem entrada" in low
+    assert "entrada de r$ 0" not in low
+    assert result.validation.get("pass") is True
+
+
+def test_consignment_describes_consignment_not_appraisal() -> None:
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.CONSIGNMENT,
+            {
+                "name": "Helena Dias",
+                "trade_model": "Civic",
+                "trade_year": "2019",
+                "leave_at_store": True,
+                "trade_price_expectation": 70000,
+            },
+        )
+    )
+    low = result.text.lower()
+    assert "consignação" in low or "consignacao" in low
+    assert "loja para consignação" in low or "loja para consignacao" in low
+    assert "para avaliação" not in low and "para avaliacao" not in low
+    assert result.validation.get("pass") is True
+
+
+def test_narrative_omits_internal_operational_flags() -> None:
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.REFINANCING,
+            {
+                "name": "Igor Teixeira",
+                "trade_model": "Jeep Compass",
+                "trade_year": "2022",
+                "amount_needed": 30000,
+            },
+            handoff_ready=True,
+            profile_complete=False,
+        )
+    )
+    low = result.text.lower()
+    assert "handoff_ready" not in low
+    assert "perfil completo" not in low
+    assert "atendimento pronto" not in low
+    assert "complementado" not in low
+    assert result.validation.get("pass") is True
+
+
+def test_empty_vendor_request_is_special_deterministic_summary() -> None:
+    from sdr.domain.types import HandoffSignals
+    from sdr.domain.vendor_summary import (
+        CLAIM_POLICY_VENDOR_REQUEST,
+        ORIGIN_SPECIAL_VENDOR_REQUEST,
+    )
+
+    result = compose_vendor_summary(
+        ConversationCanonicalState(
+            thread_id="t",
+            customer=CustomerState(phone="1"),
+            intent=BusinessIntent.UNKNOWN,
+            signals=HandoffSignals(explicit_handoff=True),
+            facts={},
+        )
+    )
+    assert result.origin == ORIGIN_SPECIAL_VENDOR_REQUEST
+    assert result.validation.get("claim_policy") == CLAIM_POLICY_VENDOR_REQUEST
+    assert result.validation.get("pass") is True
+    assert "vendedor" in result.text.lower()
+    assert result.used_fallback is False
+    assert result.llm_attempted is False
+
+
+def test_summary_llm_disabled_by_default(monkeypatch) -> None:
+    from sdr.domain.vendor_summary import ORIGIN_DETERMINISTIC
+
+    monkeypatch.setattr(
+        "sdr.domain.vendor_summary._vendor_summary_llm_allowed", lambda: False
+    )
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.PURCHASE,
+            {"desired_model": "Onix Plus", "payment_method": "cash", "name": "Lucas Rocha"},
+        )
+    )
+    assert result.origin == ORIGIN_DETERMINISTIC
+    assert result.llm_attempted is False
+    assert result.used_fallback is False
+    assert result.used_llm is False
+    assert result.validation.get("pass") is True
+    assert result.validation.get("summary_origin") == ORIGIN_DETERMINISTIC
+
+
+def test_summary_llm_unavailable_does_not_block_handoff(monkeypatch) -> None:
+    from sdr.domain.vendor_summary import ORIGIN_DETERMINISTIC
+
+    monkeypatch.setattr(
+        "sdr.domain.vendor_summary._vendor_summary_llm_allowed", lambda: True
+    )
+
+    def _boom(_authorized):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr("sdr.domain.vendor_summary._build_vendor_summary_llm", _boom)
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.PURCHASE,
+            {"desired_model": "Onix Plus", "payment_method": "cash", "name": "Lucas Rocha"},
+        )
+    )
+    assert result.origin == ORIGIN_DETERMINISTIC
+    assert result.llm_attempted is True
+    assert result.used_llm is False
+    assert result.validation.get("pass") is True
+
+
+def test_summary_llm_rejected_falls_back_to_validated_deterministic(monkeypatch) -> None:
+    from sdr.domain.vendor_summary import ORIGIN_DETERMINISTIC_AFTER_LLM_REJECT
+
+    monkeypatch.setattr(
+        "sdr.domain.vendor_summary._vendor_summary_llm_allowed", lambda: True
+    )
+    monkeypatch.setattr(
+        "sdr.domain.vendor_summary._build_vendor_summary_llm",
+        lambda _auth: "Os documentos estão prontos e a visita está marcada. Perfil completo.",
+    )
+    result = compose_vendor_summary(
+        _state(
+            BusinessIntent.SALE,
+            {
+                "name": "Bruno Azevedo",
+                "trade_model": "Corolla",
+                "trade_has_financing": False,
+                "trade_has_debts": False,
+                "trade_price_expectation": 80000,
+            },
+            visit_preferred_time="terça-feira, 8/09, às 9h30",
+        )
+    )
+    assert result.origin == ORIGIN_DETERMINISTIC_AFTER_LLM_REJECT
+    assert result.used_fallback is True
+    assert result.llm_rejected is True
+    assert result.used_llm is False
+    assert result.validation.get("pass") is True
+    assert "documentos" not in result.text.lower()
+    assert "marcada" not in result.text.lower()
+    assert "perfil completo" not in result.text.lower()

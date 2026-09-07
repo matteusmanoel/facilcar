@@ -71,6 +71,8 @@ class ScenarioRunResult:
     summary_used_fallback: bool = False
     summary_llm_attempted: bool = False
     summary_empty_claims_rejected: bool = False
+    summary_origin: str = ""
+    summary_used_llm: bool = False
     dialogue_misaligned: int = 0
     invariants_executed: list[str] = field(default_factory=list)
 
@@ -188,6 +190,8 @@ async def run_scenario_detailed(
     summary_used_fallback = False
     summary_llm_attempted = False
     summary_empty_claims_rejected = False
+    summary_origin = ""
+    summary_used_llm = False
     dialogue_misaligned = 0
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
@@ -410,6 +414,9 @@ async def run_scenario_detailed(
         transcript.append({
             "idx": idx,
             "inbound": inbound_text,
+            "turn_intent": result.turn_facts.intent.value if result.turn_facts else None,
+            "canonical_intent": result.state.intent.value,
+            "conversation_intent": result.state.intent.value,
             "intent": result.turn_facts.intent.value if result.turn_facts else None,
             "facts_extracted": facts_out,
             "action": action_val,
@@ -441,7 +448,10 @@ async def run_scenario_detailed(
             "raw_facts": facts_out,
             "normalized_facts": dict(result.state.facts),
             "extracted_intent": result.turn_facts.intent.value if result.turn_facts else None,
+            "turn_intent": result.turn_facts.intent.value if result.turn_facts else None,
             "final_intent": result.state.intent.value,
+            "conversation_intent": result.state.intent.value,
+            "canonical_intent": result.state.intent.value,
             "state_before": state_before,
             "state_after": {
                 "intent": result.state.intent.value,
@@ -486,7 +496,10 @@ async def run_scenario_detailed(
             if not llm_real and idx < len(understand_stubs):
                 print(f"  Stub understand: intent={understand_stubs[idx].get('intent', 'UNKNOWN')}")
             else:
-                print(f"  Understand: intent={result.turn_facts.intent.value} facts={facts_out}")
+                print(
+                    f"  Understand: turn_intent={result.turn_facts.intent.value} "
+                    f"canonical_intent={result.state.intent.value} facts={facts_out}"
+                )
             print(f"  Action: {action_val}")
             print(f"  ask_field: {plan.ask_field}")
             print(f"  inventory_match: {result.state.last_inventory_match}")
@@ -522,11 +535,14 @@ async def run_scenario_detailed(
                 summary_empty_claims_rejected = bool(
                     getattr(composed, "empty_claims_rejected", False)
                 )
+                summary_origin = composed.origin
+                summary_used_llm = bool(composed.used_llm)
             except Exception as exc:
                 vendor_summary = f"(summary failed: {exc})"
                 summary_validation = {"pass": False, "violations": [str(exc)]}
                 summary_llm_rejected = False
                 summary_used_fallback = True
+                summary_origin = "error"
             stored = crm_store.persist_handoff(result.state, composed=composed)
             crm_report = crm_store.verify(result.state.thread_id)
             trace_row["crm_payload"] = stored
@@ -589,6 +605,8 @@ async def run_scenario_detailed(
         summary_used_fallback=summary_used_fallback,
         summary_llm_attempted=summary_llm_attempted,
         summary_empty_claims_rejected=summary_empty_claims_rejected,
+        summary_origin=summary_origin,
+        summary_used_llm=summary_used_llm,
         dialogue_misaligned=dialogue_misaligned,
         invariants_executed=list(INVARIANT_CATALOG),
     )
@@ -650,8 +668,12 @@ def format_conversation(result: ScenarioRunResult) -> str:
             meta.append(turn["action"])
         if turn.get("ask_field"):
             meta.append(f"ask={turn['ask_field']}")
-        if turn.get("intent"):
-            meta.append(f"intent={turn['intent']}")
+        turn_intent = turn.get("turn_intent") or turn.get("intent")
+        canonical = turn.get("canonical_intent") or turn.get("conversation_intent")
+        if turn_intent:
+            meta.append(f"turn_intent={turn_intent}")
+        if canonical:
+            meta.append(f"canonical_intent={canonical}")
         if meta:
             lines.append(f"_{' · '.join(meta)}_")
         lines.append("")
@@ -698,6 +720,7 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
         crm_rows.append({
             "scenario": r.name,
             "summary_generated": bool(r.vendor_summary),
+            "summary_origin": r.summary_origin,
             "persist": r.crm_report,
             "technical_status": r.technical_status,
             "obtained_terminal": r.obtained_terminal,
@@ -706,32 +729,9 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
         json.dumps(crm_rows, indent=2, default=str, ensure_ascii=False),
         encoding="utf-8",
     )
-    report = {
-        "technical_status_by_scenario": {r.name: r.technical_status for r in results},
-        "terminals": {r.name: r.obtained_terminal for r in results},
-        "failures": {r.name: r.errors for r in results if not r.ok},
-        "invariants_executed_by_scenario": {
-            r.name: list(r.invariants_executed)
-            for r in results
-        },
-        "fallbacks": sum(r.fallback_count for r in results),
-        "retries": sum(r.composer_retries for r in results),
-        "composer_retries": sum(r.composer_retries for r in results),
-        "questions_rejected": sum(r.questions_rejected for r in results),
-        "summaries_rejected": sum(1 for r in results if r.summary_llm_rejected),
-        "summaries_deterministic_fallback": sum(1 for r in results if r.summary_used_fallback),
-        "llm_summaries_attempted": sum(1 for r in results if r.summary_llm_attempted),
-        "llm_empty_claims_rejected": sum(1 for r in results if r.summary_empty_claims_rejected),
-        "dialogue_misaligned": sum(r.dialogue_misaligned for r in results),
-        "persist_verified": sum(
-            1 for r in results if (r.crm_report or {}).get("matches_payload")
-        ),
-        "clock": results[0].clock_iso if results else None,
-        "seed_version": results[0].seed_version if results else None,
-        "understanding_model": results[0].understanding_model if results else None,
-        "composer_model": results[0].composer_model if results else None,
-        "human_review": {r.name: "PENDING_HUMAN_REVIEW" for r in results},
-    }
+    from sdr.replay.round_report import build_round_report
+
+    report = build_round_report(results)
     (_TRANSCRIPTS_DIR / "round_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
         encoding="utf-8",

@@ -122,3 +122,21 @@ def test_document_name_replaces_whatsapp_placeholder() -> None:
     merged = deterministic_merge(prev, facts)
     assert merged.customer.name == "João Souza"
 
+
+def test_unknown_turn_intent_does_not_overwrite_canonical_sale() -> None:
+    prev = _state(
+        intent=BusinessIntent.SALE,
+        facts={"trade_model": "Corolla", "trade_has_financing": False},
+    )
+    facts = TurnFacts(
+        intent=BusinessIntent.UNKNOWN,
+        facts={"name": "Bruno Azevedo"},
+        signals=HandoffSignals(),
+    )
+    merged = deterministic_merge(prev, facts)
+    assert facts.intent == BusinessIntent.UNKNOWN
+    assert merged.intent == BusinessIntent.SALE
+    assert merged.facts.get("name") == "Bruno Azevedo"
+    assert merged.facts.get("trade_model") == "Corolla"
+
+

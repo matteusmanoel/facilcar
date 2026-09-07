@@ -630,9 +630,12 @@ def check_scenario(
     summary_text = result.vendor_summary or ""
     if summary_text and sv:
         from sdr.domain.summary_propositions import text_has_factual_assertions
+        from sdr.domain.vendor_summary import CLAIM_POLICY_VENDOR_REQUEST
 
-        if text_has_factual_assertions(summary_text) and not (sv.get("claims") or []):
-            fail("SCENARIO: summary_empty_claims", summary_text[:200])
+        policy = sv.get("claim_policy")
+        if policy != CLAIM_POLICY_VENDOR_REQUEST:
+            if text_has_factual_assertions(summary_text) and not (sv.get("claims") or []):
+                fail("SCENARIO: summary_empty_claims", summary_text[:200])
 
     if name == "gol_nao_encontrado":
         # The Gol lookup itself must stay empty; later alternatives may find other cars.

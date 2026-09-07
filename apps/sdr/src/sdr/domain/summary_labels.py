@@ -38,7 +38,7 @@ def join_pt(parts: list[str]) -> str:
     return f"{', '.join(items[:-1])} e {items[-1]}"
 
 
-def _as_int(value: object) -> int | None:
+def as_int(value: object) -> int | None:
     if value is None or value is True or value is False or value == "":
         return None
     if isinstance(value, int):
@@ -52,7 +52,7 @@ def _as_int(value: object) -> int | None:
 
 
 def parcelas_label(count: Any) -> str | None:
-    n = _as_int(count)
+    n = as_int(count)
     if n is None:
         return None
     if n == 1:
@@ -62,7 +62,7 @@ def parcelas_label(count: Any) -> str | None:
 
 def format_money(value: object) -> str | None:
     """Natural money: R$ 40 mil, R$ 1.800, R$ 850."""
-    n = _as_int(value)
+    n = as_int(value)
     if n is None:
         return None
     if n >= 1000 and n % 1000 == 0:
@@ -71,7 +71,7 @@ def format_money(value: object) -> str | None:
 
 
 def format_km(value: object) -> str | None:
-    n = _as_int(value)
+    n = as_int(value)
     if n is None:
         return None
     if n >= 1000 and n % 1000 == 0:
@@ -92,3 +92,30 @@ def difference_payment_label(method: str | None, applies_to: str | None) -> str 
     if pay == "financing":
         return "diferença financiada"
     return None
+
+
+def docs_deferred_sentence(fields: list[str]) -> str | None:
+    """Natural Portuguese for deferred simulation documents."""
+    keys = [k for k in fields if k]
+    if not keys:
+        return None
+    phrases = [document_phrase(k) for k in keys]
+    cap = join_pt(phrases)
+    if not cap:
+        return None
+    cap = cap[0].upper() + cap[1:]
+    verb = "ficou" if len(keys) == 1 else "ficaram"
+    return f"{cap} {verb} para envio posterior."
+
+
+def docs_received_sentence(fields: list[str]) -> str | None:
+    keys = [k for k in fields if k]
+    if not keys:
+        return None
+    phrases = [document_phrase(k) for k in keys]
+    cap = join_pt(phrases)
+    cap = cap[0].upper() + cap[1:]
+    if len(keys) == 1 and keys[0] == "cnh":
+        return f"{cap} já foi recebida."
+    verb = "foi recebido" if len(keys) == 1 else "foram recebidos"
+    return f"{cap} já {verb}."

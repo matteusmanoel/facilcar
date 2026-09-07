@@ -47,6 +47,7 @@ def build_crm_payload(state: ConversationCanonicalState, composed: Any = None) -
         "profile_complete": bool(state.profile_complete),
         "handoff_ready": bool(state.handoff_ready),
         "summary_validation": composed.validation,
+        "summary_origin": getattr(composed, "origin", None),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -581,6 +581,16 @@ def detect_claims(text: str, authorized: dict[str, Any] | None = None) -> list[d
             "span": "entrada",
         })
 
+    if auth.get("leave_at_store") not in (None, "") and re.search(
+        r"deixar o ve[ií]culo na loja para consign", low, re.I
+    ):
+        found.append({
+            "entity": "consignment",
+            "attribute": "leave_at_store",
+            "value": auth.get("leave_at_store"),
+            "span": "loja para consignação",
+        })
+
     if _DOCS_DEFERRED.search(low):
         for key, label in DOCUMENT_LABELS.items():
             if key == "documents":

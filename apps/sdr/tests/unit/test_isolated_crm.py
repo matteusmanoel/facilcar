@@ -31,3 +31,6 @@ def test_isolated_crm_persist_reread_matches_payload() -> None:
     reread = store.reread(state.thread_id)
     assert reread["intent"] == "unknown"
     assert reread["phone"] == "5541999999999"
+    assert stored["summary_origin"] == "deterministic_special_vendor_request"
+    assert stored["summary_validation"]["claim_policy"] == "commercial_claims_not_applicable"
+    assert stored["summary_validation"]["pass"] is True

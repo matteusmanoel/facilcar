@@ -13,7 +13,9 @@ from typing import Any
 
 from sdr.domain.authorized_facts import build_authorized_facts
 from sdr.domain.summary_labels import (
-    document_phrase,
+    as_int,
+    docs_deferred_sentence,
+    docs_received_sentence,
     format_km,
     format_money,
     join_pt,
@@ -77,6 +79,12 @@ def _compute_age(birth_date_str: str | None) -> int | None:
         return None
 
 
+ORIGIN_DETERMINISTIC = "deterministic"
+ORIGIN_SPECIAL_VENDOR_REQUEST = "deterministic_special_vendor_request"
+ORIGIN_LLM = "llm"
+ORIGIN_DETERMINISTIC_AFTER_LLM_REJECT = "deterministic_after_llm_reject"
+
+
 @dataclass
 class VendorSummaryResult:
     text: str
@@ -87,12 +95,30 @@ class VendorSummaryResult:
     llm_rejected: bool = False
     llm_attempted: bool = False
     empty_claims_rejected: bool = False
+    origin: str = ORIGIN_DETERMINISTIC
     propositions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def build_vendor_summary(state: ConversationCanonicalState) -> str:
     """Human-readable narrative brief for the seller (CRM and handoff confirmation)."""
     return compose_vendor_summary(state).text
+
+
+def _annotate_validation(
+    validation: dict[str, Any],
+    *,
+    origin: str,
+    claim_policy: str,
+) -> dict[str, Any]:
+    out = dict(validation or {})
+    out["summary_origin"] = origin
+    out["summary_kind"] = origin
+    out["claim_policy"] = claim_policy
+    return out
+
+
+CLAIM_POLICY_COMMERCIAL = "commercial_claims_required"
+CLAIM_POLICY_VENDOR_REQUEST = "commercial_claims_not_applicable"
 
 
 def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryResult:
@@ -102,12 +128,26 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
     deterministic = _build_vendor_summary_deterministic(state)
     if _is_empty_vendor_request(state):
         text = _empty_vendor_request_summary(state)
-        validation = validate_summary_against_authorized(text, payload)
+        origin = ORIGIN_SPECIAL_VENDOR_REQUEST
+        raw = validate_summary_against_authorized(text, payload)
+        violations = [
+            v
+            for v in (raw.get("violations") or [])
+            if v != "factual_summary_without_extracted_claims"
+        ]
+        raw["violations"] = violations
+        raw["pass"] = not violations
+        validation = _annotate_validation(
+            raw,
+            origin=origin,
+            claim_policy=CLAIM_POLICY_VENDOR_REQUEST,
+        )
         return VendorSummaryResult(
             text=text,
             authorized=payload,
             validation=validation,
             used_fallback=False,
+            origin=origin,
             propositions=propositions,
         )
     llm_text = None
@@ -124,39 +164,53 @@ def compose_vendor_summary(state: ConversationCanonicalState) -> VendorSummaryRe
             validation.get("violations") or []
         )
         if validation.get("pass"):
+            origin = ORIGIN_LLM
             return VendorSummaryResult(
                 text=llm_text,
                 authorized=payload,
-                validation=validation,
+                validation=_annotate_validation(
+                    validation, origin=origin, claim_policy=CLAIM_POLICY_COMMERCIAL
+                ),
                 used_llm=True,
                 llm_attempted=True,
+                origin=origin,
                 propositions=propositions,
             )
+        origin = ORIGIN_DETERMINISTIC_AFTER_LLM_REJECT
         fallback_val = validate_summary_against_authorized(deterministic, payload)
         return VendorSummaryResult(
             text=deterministic,
             authorized=payload,
-            validation={
-                **fallback_val,
-                "llm_rejected": True,
-                "llm_violations": validation.get("violations") or [],
-                "llm_text": llm_text,
-                "llm_claims": validation.get("claims") or [],
-            },
+            validation=_annotate_validation(
+                {
+                    **fallback_val,
+                    "llm_rejected": True,
+                    "llm_violations": validation.get("violations") or [],
+                    "llm_text": llm_text,
+                    "llm_claims": validation.get("claims") or [],
+                },
+                origin=origin,
+                claim_policy=CLAIM_POLICY_COMMERCIAL,
+            ),
             used_llm=False,
             used_fallback=True,
             llm_rejected=True,
             llm_attempted=True,
             empty_claims_rejected=empty_claims,
+            origin=origin,
             propositions=propositions,
         )
+    origin = ORIGIN_DETERMINISTIC
     validation = validate_summary_against_authorized(deterministic, payload)
     return VendorSummaryResult(
         text=deterministic,
         authorized=payload,
-        validation=validation,
-        used_fallback=True,
+        validation=_annotate_validation(
+            validation, origin=origin, claim_policy=CLAIM_POLICY_COMMERCIAL
+        ),
+        used_fallback=False,
         llm_attempted=llm_attempted,
+        origin=origin,
         propositions=propositions,
     )
 
@@ -233,7 +287,9 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         sentences.append(lead + ".")
         expect = format_money(auth.price_expectation)
         if expect:
-            sentences.append(f"Ele espera aproximadamente {expect} pelo veículo.")
+            sentences.append(
+                f"A expectativa informada é receber aproximadamente {expect} pelo veículo."
+            )
     elif intent == "consignment":
         lead = f"{who} deseja deixar em consignação seu {own}" if own else f"{who} deseja consignar o veículo"
         if auth.financing_status == "paid_off":
@@ -242,8 +298,8 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         expect = format_money(auth.price_expectation)
         if expect:
             sentences.append(f"A expectativa de valor informada é de aproximadamente {expect}.")
-        if auth.leave_at_store is True:
-            sentences.append("O cliente aceitou deixar o veículo na loja.")
+        if auth.leave_at_store is True or str(auth.leave_at_store).strip().lower() in {"true", "1", "sim"}:
+            sentences.append("O cliente aceita deixar o veículo na loja para consignação.")
     elif intent == "refinancing":
         lead = (
             f"{who} busca refinanciamento de seu {own}"
@@ -254,17 +310,12 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         if needed:
             lead += f" e informou necessidade aproximada de {needed}"
         sentences.append(lead + ".")
-        if auth.handoff_ready:
-            extra = " e o atendimento foi encaminhado ao vendedor"
-        else:
-            extra = ""
-        sentences.append("O perfil ainda precisa ser complementado" + extra + ".")
     elif intent == "trade":
         lead = f"{who} pretende trocar"
         if own:
             lead += f" seu {own}"
         if wanted:
-            lead += f" por um {wanted}"
+            lead += f", por um {wanted}" if own else f" por um {wanted}"
         sentences.append(lead + ".")
         fin_bits: list[str] = []
         if auth.financing_status == "financed":
@@ -297,12 +348,15 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             pay_clause = "pretende pagar a diferença à vista"
         if expect and pay_clause:
             sentences.append(
-                f"Ele espera receber aproximadamente {expect} pelo usado e {pay_clause}."
+                f"A expectativa informada é receber aproximadamente {expect} pelo usado. "
+                f"{pay_clause[0].upper() + pay_clause[1:]}."
             )
         elif expect:
-            sentences.append(f"Ele espera receber aproximadamente {expect} pelo usado.")
+            sentences.append(
+                f"A expectativa informada é receber aproximadamente {expect} pelo usado."
+            )
         elif pay_clause:
-            sentences.append(f"Ele {pay_clause}.")
+            sentences.append(pay_clause[0].upper() + pay_clause[1:] + ".")
     elif intent in {"purchase", "purchase_financing"}:
         verb = "pretende comprar via financiamento" if intent == "purchase_financing" else "pretende comprar"
         lead = f"{who} {verb}"
@@ -312,15 +366,22 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             lead += " à vista"
         sentences.append(lead + ".")
         if intent == "purchase_financing":
-            pay_parts: list[str] = []
-            down = format_money(auth.down_payment)
-            if down:
-                pay_parts.append(f"entrada de {down}")
+            down_n = as_int(auth.down_payment)
             inst = format_money(auth.desired_installment)
-            if inst:
-                pay_parts.append(f"parcela desejada de {inst}")
-            if pay_parts:
-                sentences.append("Informou " + join_pt(pay_parts) + ".")
+            if down_n == 0:
+                sent = "Pretende financiar sem entrada"
+                if inst:
+                    sent += f", com parcela desejada de {inst}"
+                sentences.append(sent + ".")
+            else:
+                pay_parts: list[str] = []
+                down = format_money(auth.down_payment)
+                if down:
+                    pay_parts.append(f"entrada de {down}")
+                if inst:
+                    pay_parts.append(f"parcela desejada de {inst}")
+                if pay_parts:
+                    sentences.append("Informou " + join_pt(pay_parts) + ".")
     else:
         intro = f"Cliente {name}" if name else "Cliente"
         sentences.append(f"{intro} está buscando atendimento.")
@@ -338,15 +399,13 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             if f in {"cnh", "proof_of_residence", "proof_of_income", "documents"}
         ]
         if received and not deferred:
-            phrases = [document_phrase(k) for k in received]
-            cap = join_pt(phrases)
-            sentences.append(cap[0].upper() + cap[1:] + " já " + ("foi recebida" if len(phrases) == 1 and received[0] == "cnh" else "foram recebidos") + ".")
+            received_sent = docs_received_sentence(received)
+            if received_sent:
+                sentences.append(received_sent)
         if deferred:
-            phrases = [document_phrase(k) for k in deferred]
-            cap = join_pt(phrases)
-            sentences.append(
-                cap[0].upper() + cap[1:] + " ficaram para envio posterior."
-            )
+            deferred_sent = docs_deferred_sentence(deferred)
+            if deferred_sent:
+                sentences.append(deferred_sent)
         elif missing_docs and not received:
             sentences.append("Os documentos da simulação ainda precisam ser fornecidos.")
 
@@ -372,14 +431,17 @@ def _financing_clause(customer: dict[str, Any]) -> str:
 
 
 def _vendor_summary_llm_allowed() -> bool:
-    """LLM drafting is for live/replay runs, not the pytest process."""
+    """Optional style pass. Default off: persist the validated deterministic text."""
     import os
 
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return False
     from sdr.config import get_settings
 
-    return bool((get_settings().openai_api_key or "").strip())
+    settings = get_settings()
+    if not bool(getattr(settings, "sdr_summary_llm", False)):
+        return False
+    return bool((settings.openai_api_key or "").strip())
 
 
 def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
@@ -400,8 +462,13 @@ def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
         "Use SOMENTE os fatos autorizados abaixo. Não invente intenção, visita, documento ou débito.\n"
         "Se intent=sale, não mencione troca nem documentos.\n"
         "Se documents_applicable=false, não mencione documentos nem ausência de documentos.\n"
-        "Se documents_deferred não estiver vazio, diga que ficaram para envio posterior — nunca que estão prontos.\n"
+        "Se documents_deferred tiver um único documento, use o verbo no singular (ficou para envio posterior).\n"
+        "Se houver mais de um documento adiado, use o plural (ficaram para envio posterior). Nunca diga que estão prontos.\n"
         "Use CNH, comprovante de residência e comprovante de renda — nunca nomes internos de campo.\n"
+        "Não infira gênero: nunca escreva 'Ele espera' ou 'Ela espera'. Use 'A expectativa informada é receber...'.\n"
+        "Se down_payment for 0, diga que pretende financiar sem entrada — nunca 'entrada de R$ 0'.\n"
+        "Se leave_at_store for true em consignação, diga que aceita deixar o veículo na loja para consignação — não reduza a 'avaliação'.\n"
+        "Não escreva flags internas: perfil completo, atendimento pronto, handoff_ready, perfil precisa ser complementado.\n"
         "Se debt_status não for clear, não diga sem dívidas/sem débitos.\n"
         "Se visit_pending_vendor_confirm, diga preferência registrada pendente de confirmação do vendedor — "
         "nunca que a visita está marcada, agendada, confirmada ou garantida.\n"
@@ -414,7 +481,6 @@ def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
         "Se financing_status=financed, NUNCA diga que está quitado.\n"
         "Se intent=purchase, não mencione dívidas, documentos nem veículo próprio.\n"
         "Se intent=refinancing, não mencione visita nem 'sem pendências' de documentos.\n"
-        "Se o perfil não estiver completo, diga que ainda precisa ser complementado.\n"
         "Se não houver visit_preferred_time, não mencione visita nem ausência de visita.\n"
         "Se não houver nome, escreva 'O cliente'."
     )
@@ -456,6 +522,11 @@ _VISIT_BOOKED = re.compile(
     r"visita\s+foi\s+agendada|agendou\s+(uma\s+)?visita|agendou\s+sua\s+visita",
     re.I,
 )
+_INTERNAL_NARRATIVE = re.compile(
+    r"\bhandoff_ready\b|profile_complete|perfil completo|atendimento pronto|"
+    r"perfil ainda precisa ser complementado",
+    re.I,
+)
 
 
 def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -> dict[str, Any]:
@@ -463,6 +534,8 @@ def validate_summary_against_authorized(text: str, authorized: dict[str, Any]) -
     polar = validate_text_against_propositions(text, authorized)
     violations: list[str] = list(polar.get("violations") or [])
     low = (text or "").lower()
+    if _INTERNAL_NARRATIVE.search(text or ""):
+        violations.append("internal_operational_flag_in_narrative")
     intent = str(authorized.get("intent") or "")
     desired = authorized.get("desired_vehicle") if isinstance(authorized.get("desired_vehicle"), dict) else {}
     customer = authorized.get("customer_vehicle") if isinstance(authorized.get("customer_vehicle"), dict) else {}

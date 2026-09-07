@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     sdr_understanding_model: str = "gpt-4.1-mini"
     sdr_response_model: str = "gpt-4.1-mini"
+    # CRM vendor summary is the deterministic formatter by default.
+    # LLM drafting is optional style variation and must still pass the validator.
+    sdr_summary_llm: bool = False
     sdr_vision_model: str = "gpt-4o"
     # sandbox: may include failure_code in customer-facing recovery.
     # production: tool/media failures stay silent so a human can take over.
