@@ -1,0 +1,64 @@
+{
+  "name": "g5_cnh_resto_na_loja",
+  "description": "CNH this turn plus remaining documents brought to the store.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 4,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Bruno Azevedo"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Segue minha CNH. O restante eu levo na loja.",
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Bruno Azevedo"
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "Segue minha CNH. O restante eu levo na loja.",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Bruno Azevedo"
+          },
+          "delay_ms": 0,
+          "message_id": "p9r-cnh-store-1"
+        }
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}
