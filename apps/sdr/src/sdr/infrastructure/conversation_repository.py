@@ -37,6 +37,9 @@ from sdr.domain.inbound_batch import BATCH_JSON_KEY, InboundBatch, BatchStatus, 
 
 SCHEMA = "facilcar"
 
+# Distinguishes "column omitted" (JSON-only load) from SQL NULL (authoritative).
+_COLUMN_ABSENT = object()
+
 
 def _new_id() -> str:
     return str(uuid.uuid4())
@@ -70,8 +73,26 @@ def _iso_to_naive(value: Any) -> datetime | None:
 
 
 def _overlay(column: Any, json_value: Any) -> Any:
-    """Postgres columns win over canonicalStateJson when a column is present."""
-    return json_value if column is None else column
+    """Postgres columns win over canonicalStateJson, including SQL NULL.
+
+    Operational source of truth is ``Conversation.botStatus`` +
+    ``ownershipRevision``. JSON may lag (web assume/resume historically
+    patched columns only) and is observability, not authorization.
+
+    Reconciliation — column always wins:
+    - column ``HUMAN_ACTIVE`` + stale JSON ``BOT_ACTIVE``/``HANDOFF_SENT``
+      → load as ``HUMAN_ACTIVE`` (worker must silence)
+    - column ``HANDOFF_SENT``/``AI_RESUMED`` + stale JSON ``HUMAN_ACTIVE``
+      → load as the column (AI may talk; never send based on JSON)
+    - column NULL + JSON owner/status → NULL/column default (arbitrary
+      payload cannot flip owner or status)
+
+    JSON is consulted only when the caller omitted the column argument
+    (``_COLUMN_ABSENT``), e.g. a JSON-only replay load.
+    """
+    if column is _COLUMN_ABSENT:
+        return json_value
+    return column
 
 
 def _row_get(row: Any, key: str) -> Any:
@@ -204,15 +225,15 @@ def canonical_state_from_json(
     *,
     thread_id: str,
     phone: str,
-    bot_status: str | None = None,
+    bot_status: Any = _COLUMN_ABSENT,
     active_lead_ids: list[str] | None = None,
-    ownership_revision: int | None = None,
-    assumed_by_user_id: str | None = None,
-    assumed_at: Any = None,
-    resumed_by_user_id: str | None = None,
-    resumed_at: Any = None,
-    resume_reason: str | None = None,
-    handoff_at: Any = None,
+    ownership_revision: Any = _COLUMN_ABSENT,
+    assumed_by_user_id: Any = _COLUMN_ABSENT,
+    assumed_at: Any = _COLUMN_ABSENT,
+    resumed_by_user_id: Any = _COLUMN_ABSENT,
+    resumed_at: Any = _COLUMN_ABSENT,
+    resume_reason: Any = _COLUMN_ABSENT,
+    handoff_at: Any = _COLUMN_ABSENT,
 ) -> ConversationCanonicalState:
     data: dict[str, Any]
     if raw is None:
@@ -425,6 +446,10 @@ class ConversationRepository:
         must not be ``HUMAN_ACTIVE``. A concurrent Assumir increments the
         revision and sets ``HUMAN_ACTIVE``; this UPDATE then matches zero
         rows so the worker cannot restore AI lifecycle and send.
+
+        ``SET "ownershipRevision" = $7`` with ``WHERE "ownershipRevision" = $7``
+        cannot decrement: a higher live revision fails the predicate
+        (``UPDATE 0``). Do not weaken these predicates.
         """
         now = _now()
         expected_revision = int(state.ownership_revision or 0)

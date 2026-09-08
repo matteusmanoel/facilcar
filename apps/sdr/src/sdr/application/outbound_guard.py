@@ -1,8 +1,10 @@
 """Live ownership checks so HUMAN_ACTIVE wins races against the worker.
 
-Canonical source of truth is Conversation.botStatus (re-read from DB), never
-a stale worker seed. Already-confirmed outbound (Evolution send +
-insert_bot_outbound) stays valid; remaining unsent bubbles are discarded.
+Canonical source of truth is Conversation.botStatus + ownershipRevision
+(re-read from the persisted column), never canonicalStateJson lifecycle.
+JSON may mirror for dumps/observability; it must not authorize outbound.
+Already-confirmed outbound (Evolution send + insert_bot_outbound) stays
+valid; remaining unsent bubbles are discarded.
 
 Follow-up scheduler is Phase 11. ``cancel_pending_automation`` is the no-op
 seam to cancel pending automation after assume — do not create a scheduler here.
@@ -25,6 +27,14 @@ def ownership_revision_from_row(row: Any) -> int:
         return int(row["ownershipRevision"] or 0)
     except Exception:
         return 0
+
+
+def column_authorizes_outbound(bot_status: str | None) -> bool:
+    """Send is allowed only when the persisted column is not HUMAN_ACTIVE.
+
+    JSON lifecycle is ignored here on purpose.
+    """
+    return bot_status != LifecycleStatus.HUMAN_ACTIVE.value
 
 
 async def read_live_ownership(
@@ -57,7 +67,7 @@ async def human_assumed_live(
     conversations: Any, conversation_id: str
 ) -> tuple[bool, int]:
     status, revision = await read_live_ownership(conversations, conversation_id)
-    return status == LifecycleStatus.HUMAN_ACTIVE.value, revision
+    return not column_authorizes_outbound(status), revision
 
 
 async def cancel_pending_automation(_conversation_id: str) -> None:

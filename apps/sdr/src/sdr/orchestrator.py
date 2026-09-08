@@ -24,6 +24,7 @@ from sdr.application.document_storage import DocumentStorageService, StoreDocume
 from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
 from sdr.application.outbound_guard import (
     cancel_pending_automation,
+    column_authorizes_outbound,
     human_assumed_live,
     ownership_revision_from_row,
     suppression_batch_result,
@@ -62,7 +63,6 @@ from sdr.domain.types import (
     BusinessIntent,
     ConversationCanonicalState,
     CustomerState,
-    LifecycleStatus,
     TurnFacts,
 )
 from sdr.infrastructure.conversation_repository import (
@@ -253,7 +253,11 @@ class Orchestrator:
         self._inbound_image_bytes: dict[str, bytes] = {}
 
     async def _human_assumed(self, conversation_id: str) -> tuple[bool, int]:
-        """Re-read Conversation.botStatus from DB — never a stale seed."""
+        """Re-read Conversation.botStatus from the persisted column.
+
+        Never use canonicalStateJson.lifecycle to authorize or suppress send.
+        Overlay already reconciles loaded state; live re-read is the gate.
+        """
         return await human_assumed_live(self.conversations, conversation_id)
 
     async def _save_canonical_state(
@@ -712,7 +716,9 @@ class Orchestrator:
                 },
             )
             return None
-        if bot_status == LifecycleStatus.HUMAN_ACTIVE.value:
+        if not column_authorizes_outbound(
+            str(bot_status) if bot_status is not None else None
+        ):
             await self._record_human_active_skip(
                 batch,
                 ownership_revision=ownership_revision_from_row(conv_row),
@@ -1065,8 +1071,10 @@ class Orchestrator:
             ):
                 state.customer.name = existing_name
 
+        # Live column only. Overlay already applied column over JSON on load;
+        # stale JSON HUMAN_ACTIVE must not silence when the column is AI.
         assumed, revision = await self._human_assumed(conversation_id)
-        if assumed or state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
+        if assumed:
             return await self._silenced_turn(
                 batch,
                 state=state,

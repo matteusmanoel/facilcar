@@ -1,7 +1,10 @@
 """Conversation ownership — human assume / AI resume.
 
 Handoff is an idempotent commercial event, not automation shutdown.
-Canonical source of truth: Conversation.botStatus + ownershipRevision.
+Canonical source of truth: Conversation.botStatus + ownershipRevision
+(Postgres columns). canonicalStateJson.lifecycle may mirror for
+observability; it must never authorize outbound or flip owner/status
+on load (column overlay in conversation_repository).
 Lead.status is never mutated here.
 """
 

@@ -35,7 +35,49 @@ const CONVERSATION_SELECT = {
   ownershipRevision: true,
   assumedByUserId: true,
   resumedByUserId: true,
+  canonicalStateJson: true,
 } as const;
+
+type OwnershipMirrorPatch = {
+  status: string;
+  ownershipRevision: number;
+  assumedByUserId?: string;
+  assumedAt?: Date;
+  resumedByUserId?: string;
+  resumedAt?: Date;
+  resumeReason?: string;
+};
+
+/**
+ * Mirror column ownership into canonicalStateJson so dumps are not stale.
+ * Columns remain the operational source of truth; JSON never authorizes send.
+ * Assume/resume SQL is still the single writer of botStatus/ownershipRevision.
+ */
+function mirrorOwnershipInCanonicalJson(
+  raw: unknown,
+  patch: OwnershipMirrorPatch,
+): Record<string, unknown> {
+  const base =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const prevLifecycle =
+    base.lifecycle && typeof base.lifecycle === "object" && !Array.isArray(base.lifecycle)
+      ? { ...(base.lifecycle as Record<string, unknown>) }
+      : {};
+  base.lifecycle = { ...prevLifecycle, status: patch.status };
+  base.ownership_revision = patch.ownershipRevision;
+  if (patch.assumedByUserId !== undefined) {
+    base.assumed_by_user_id = patch.assumedByUserId;
+    base.assumed_at = patch.assumedAt?.toISOString() ?? null;
+  }
+  if (patch.resumedByUserId !== undefined) {
+    base.resumed_by_user_id = patch.resumedByUserId;
+    base.resumed_at = patch.resumedAt?.toISOString() ?? null;
+    base.resume_reason = patch.resumeReason ?? null;
+  }
+  return base;
+}
 
 /**
  * Explicit Assumir. Owner is always the session user — extra client args are ignored.
@@ -93,6 +135,12 @@ export async function claimLeadAction(leadId: string, _clientOwnerId?: unknown) 
           assumedByUserId: userId,
           assumedAt: now,
           ownershipRevision: { increment: 1 },
+          canonicalStateJson: mirrorOwnershipInCanonicalJson(conversation.canonicalStateJson, {
+            status: "HUMAN_ACTIVE",
+            ownershipRevision: conversation.ownershipRevision + 1,
+            assumedByUserId: userId,
+            assumedAt: now,
+          }),
         },
       });
       const claimed = interpretClaimCount(cas.count);
@@ -184,6 +232,13 @@ export async function resumeConversationAction(leadId: string, reason?: string) 
         resumedAt: now,
         resumeReason,
         ownershipRevision: { increment: 1 },
+        canonicalStateJson: mirrorOwnershipInCanonicalJson(conversation.canonicalStateJson, {
+          status: "AI_RESUMED",
+          ownershipRevision: conversation.ownershipRevision + 1,
+          resumedByUserId: userId,
+          resumedAt: now,
+          resumeReason,
+        }),
       },
     });
     const claimed = interpretClaimCount(cas.count);

@@ -70,6 +70,10 @@ function handedOffLead(overrides?: {
             ownershipRevision: 0,
             assumedByUserId: null,
             resumedByUserId: null,
+            canonicalStateJson: {
+              lifecycle: { status: "HANDOFF_SENT" },
+              facts: { keep: true },
+            },
           },
   };
 }
@@ -102,6 +106,12 @@ describe("claimLeadAction / resumeConversationAction", () => {
         assumedByUserId: SESSION_USER.id,
         assumedAt: expect.any(Date),
         ownershipRevision: { increment: 1 },
+        canonicalStateJson: expect.objectContaining({
+          lifecycle: expect.objectContaining({ status: "HUMAN_ACTIVE" }),
+          ownership_revision: 1,
+          assumed_by_user_id: SESSION_USER.id,
+          facts: { keep: true },
+        }),
       },
     });
     expect(prisma.lead.update).toHaveBeenCalledWith({
@@ -140,6 +150,7 @@ describe("claimLeadAction / resumeConversationAction", () => {
           ownershipRevision: 1,
           assumedByUserId: SESSION_USER.id,
           resumedByUserId: null,
+          canonicalStateJson: { lifecycle: { status: "HUMAN_ACTIVE" } },
         },
       }),
     );
@@ -164,6 +175,7 @@ describe("claimLeadAction / resumeConversationAction", () => {
           ownershipRevision: 1,
           assumedByUserId: "user-alice",
           resumedByUserId: null,
+          canonicalStateJson: { lifecycle: { status: "HUMAN_ACTIVE" } },
         },
       }),
     );
@@ -186,6 +198,7 @@ describe("claimLeadAction / resumeConversationAction", () => {
           ownershipRevision: 1,
           assumedByUserId: SESSION_USER.id,
           resumedByUserId: null,
+          canonicalStateJson: { lifecycle: { status: "HUMAN_ACTIVE" } },
         },
       }),
     );
@@ -206,6 +219,11 @@ describe("claimLeadAction / resumeConversationAction", () => {
         resumedAt: expect.any(Date),
         resumeReason: "vendedor devolveu para a Júlia",
         ownershipRevision: { increment: 1 },
+        canonicalStateJson: expect.objectContaining({
+          lifecycle: expect.objectContaining({ status: "AI_RESUMED" }),
+          ownership_revision: 2,
+          resumed_by_user_id: SESSION_USER.id,
+        }),
       },
     });
   });
@@ -220,6 +238,7 @@ describe("claimLeadAction / resumeConversationAction", () => {
           ownershipRevision: 1,
           assumedByUserId: SESSION_USER.id,
           resumedByUserId: null,
+          canonicalStateJson: { lifecycle: { status: "HUMAN_ACTIVE" } },
         },
       }),
     );
@@ -253,6 +272,7 @@ describe("claimLeadAction / resumeConversationAction", () => {
           ownershipRevision: 1,
           assumedByUserId: SESSION_USER.id,
           resumedByUserId: null,
+          canonicalStateJson: { lifecycle: { status: "HUMAN_ACTIVE" } },
         },
       }),
     );
