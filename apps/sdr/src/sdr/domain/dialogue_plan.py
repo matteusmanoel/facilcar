@@ -44,6 +44,7 @@ class DirectQuestionKind(str, Enum):
     BUY_MY_CAR = "buy_my_car"
     SATURDAY_HOURS = "saturday_hours"
     STORE_LOCATION = "store_location"
+    VISIT_SCHEDULING = "visit_scheduling"
     WELLBEING = "wellbeing"
     UNKNOWN = "unknown"
 
@@ -69,6 +70,35 @@ _WELLBEING = re.compile(
     re.I,
 )
 _INTENT_MENU_TERMS = ("comprar", "trocar", "vender", "consignar", "refinanciar")
+
+# Scheduling requests are the visit path, not catalog-uncertainty questions.
+_VISIT_SCHEDULING = re.compile(
+    r"(?:marcar|agendar)\s+(?:uma\s+)?visita|"
+    r"visita.{0,40}(?:s[aá]bado|domingo|segunda|ter[cç]a|quarta|quinta|sexta)|"
+    r"seria\s+poss[ií]vel\s+(?:no\s+)?s[aá]bado|"
+    r"d[aá]\s+para\s+(?:ir|visitar|passar)|"
+    r"quando\s+(?:posso|d[aá]\s+para|consegue)\s+(?:ir|visitar|passar)|"
+    r"posso\s+(?:ir|visitar|passar)\s+(?:a[ií]|na\s+loja)",
+    re.I,
+)
+# Leftover intent/calendar particles after a visit-scheduling stem is removed.
+_SCHEDULING_FILLER = re.compile(
+    r"\b(?:quero|gostaria(?:\s+de)?|queria|podemos|posso|seria|poss[ií]vel|"
+    r"s[aá]bado|domingo|segunda(?:-feira)?|ter[cç]a(?:-feira)?|"
+    r"quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|"
+    r"manh[aã]|tarde|noite|hor[aá]rio|visita|"
+    r"a[ií]|loja|na|no|de|para|uma|um|o|a|e|ir|passar|marcar|agendar)\b",
+    re.I,
+)
+
+# Kinds fulfilled by visit/location/hours actions — not unanswered catalog facts.
+_ACTION_PATH_QUESTION_KINDS = frozenset({
+    DirectQuestionKind.WELLBEING,
+    DirectQuestionKind.SATURDAY_HOURS,
+    DirectQuestionKind.STORE_LOCATION,
+    DirectQuestionKind.DOCUMENTS_LATER,
+    DirectQuestionKind.VISIT_SCHEDULING,
+})
 
 # Commercial question stems — protocol categories, not product vocabulary.
 _QUESTION_STEMS: tuple[tuple[DirectQuestionKind, re.Pattern[str]], ...] = (
@@ -118,6 +148,10 @@ _QUESTION_STEMS: tuple[tuple[DirectQuestionKind, re.Pattern[str]], ...] = (
     (
         DirectQuestionKind.STORE_LOCATION,
         re.compile(r"onde\s+fica|endere[cç]o(?:\s+da\s+loja)?|localiza[cç][aã]o\s+da\s+loja", re.I),
+    ),
+    (
+        DirectQuestionKind.VISIT_SCHEDULING,
+        _VISIT_SCHEDULING,
     ),
 )
 
@@ -297,6 +331,16 @@ def _has_residual_commercial_question(text: str) -> bool:
     return any(token not in _WELLBEING_PARTICLES for token in tokens)
 
 
+def _is_scheduling_residue(text: str) -> bool:
+    """True when leftover tokens are only visit-scheduling particles."""
+    remainder = _VISIT_SCHEDULING.sub(" ", text or "")
+    remainder = _WELLBEING.sub(" ", remainder)
+    remainder = _GREETING.sub(" ", remainder)
+    remainder = _SCHEDULING_FILLER.sub(" ", remainder)
+    tokens = re.findall(r"[^\W\d_]+", remainder.lower(), flags=re.UNICODE)
+    return not tokens
+
+
 _SUBJECT_AFTER_TEM = re.compile(
     r"\btem\s+(?:ele\s+)?(.+?)\s*\?\s*$",
     re.I | re.S,
@@ -416,10 +460,12 @@ def unanswered_questions_for_turn(
         inbound_text=inbound_text,
         facts_context=facts,
     )
+    # Scheduling/location questions are fulfilled by visit/location actions.
+    # They must not divert Decision into a catalog-uncertainty reply.
     return [
         _question_as_payload(question)
         for question in questions
-        if question.kind != DirectQuestionKind.WELLBEING
+        if question.kind not in _ACTION_PATH_QUESTION_KINDS
     ]
 
 
@@ -440,19 +486,29 @@ def classify_direct_questions(inbound_text: str) -> list[DirectQuestion]:
     for kind, pattern in _QUESTION_STEMS:
         if pattern.search(text):
             found.append(_question_for_kind(kind, text, subject=subject))
-    if "?" in text and not any(q.kind != DirectQuestionKind.WELLBEING for q in found):
-        if found and not _has_residual_commercial_question(text):
+    informational = [q for q in found if q.kind not in _ACTION_PATH_QUESTION_KINDS]
+    if "?" in text and not informational:
+        remainder = _VISIT_SCHEDULING.sub(" ", text)
+        remainder = _WELLBEING.sub(" ", remainder)
+        for kind, pattern in _QUESTION_STEMS:
+            if kind in _ACTION_PATH_QUESTION_KINDS:
+                remainder = pattern.sub(" ", remainder)
+        if found and (_is_scheduling_residue(text) or not _has_residual_commercial_question(remainder)):
             return found
-        found.append(
-            DirectQuestion(
-                kind=DirectQuestionKind.UNKNOWN,
-                answerable=False,
-                allowed_answer=_uncertainty_allowed_answer(subject),
-                inbound_span=text[:160],
-                subject=subject,
-                certainty=QuestionCertainty.UNKNOWN.value,
+        if (
+            _has_residual_commercial_question(remainder)
+            and not _is_scheduling_residue(text)
+        ) or not found:
+            found.append(
+                DirectQuestion(
+                    kind=DirectQuestionKind.UNKNOWN,
+                    answerable=False,
+                    allowed_answer=_uncertainty_allowed_answer(subject),
+                    inbound_span=text[:160],
+                    subject=subject,
+                    certainty=QuestionCertainty.UNKNOWN.value,
+                )
             )
-        )
     return found
 
 
@@ -501,6 +557,10 @@ def _question_for_kind(
         DirectQuestionKind.STORE_LOCATION: (
             True,
             "A localização vai no pin quando planejado. Não invente endereço. Convide a visita se útil.",
+        ),
+        DirectQuestionKind.VISIT_SCHEDULING: (
+            True,
+            "Trate como pedido de visita. Ofereça horários concretos; não responda como fato de catálogo.",
         ),
     }
     answerable, allowed = answers[kind]
@@ -607,7 +667,25 @@ def build_dialogue_plan(
     vehicle_ctx = _has_vehicle_context(state, facts)
     known_intent = _intent_known(intent_val)
     wellbeing = any(q.kind == DirectQuestionKind.WELLBEING for q in questions)
-    commercial_qs = [q for q in questions if q.kind != DirectQuestionKind.WELLBEING]
+    commercial_qs = [
+        q
+        for q in questions
+        if q.kind not in {
+            DirectQuestionKind.WELLBEING,
+            DirectQuestionKind.VISIT_SCHEDULING,
+        }
+    ]
+    if action_val in (Action.REGISTER_VISIT_INTEREST.value, Action.SEND_LOCATION.value):
+        commercial_qs = [
+            q
+            for q in commercial_qs
+            if q.kind
+            not in {
+                DirectQuestionKind.SATURDAY_HOURS,
+                DirectQuestionKind.STORE_LOCATION,
+                DirectQuestionKind.DOCUMENTS_LATER,
+            }
+        ]
     needs_uncertainty = any(
         q.certainty in (QuestionCertainty.UNKNOWN.value, QuestionCertainty.UNCONFIRMED.value)
         for q in commercial_qs

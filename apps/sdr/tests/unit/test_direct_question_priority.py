@@ -240,6 +240,35 @@ async def test_b5_process_turn_does_not_invite_visit_while_question_open() -> No
     assert any(token in joined for token in ("não tenho", "não confirmo", "vendedor", "equipe"))
 
 
+@pytest.mark.parametrize(
+    "inbound",
+    [
+        "Quero marcar uma visita, seria possível no sábado?",
+        "Dá para ir aí na terça de manhã?",
+    ],
+)
+def test_visit_scheduling_question_does_not_block_visit_invite(inbound: str) -> None:
+    """A visit-scheduling question is the visit path, not an unanswered catalog fact."""
+    blocking = unanswered_questions_for_turn(inbound)
+    assert blocking == []
+    state = _handoff_ready(signals=HandoffSignals(visit_intent=True))
+    state.unanswered_questions = blocking
+    plan = decide(state)
+    assert plan.action in {Action.REGISTER_VISIT_INTEREST, Action.HANDOFF_VENDOR}
+    assert plan.primary_action != PRIMARY_ANSWER_QUESTION
+
+
+def test_equipment_question_still_blocks_visit_when_visit_is_also_mentioned() -> None:
+    inbound = "Esse carro tem teto solar panorâmico de série? Quero marcar uma visita."
+    blocking = unanswered_questions_for_turn(inbound)
+    assert blocking
+    assert any(item.get("kind") == DirectQuestionKind.UNKNOWN.value for item in blocking)
+    state = _attach_questions(_handoff_ready(signals=HandoffSignals(visit_intent=True)), inbound)
+    plan = decide(state)
+    assert plan.action != Action.REGISTER_VISIT_INTEREST
+    assert plan.primary_action == PRIMARY_ANSWER_QUESTION
+
+
 # ---------------------------------------------------------------------------
 # B6  direct question precedes remaining-documents ask
 # ---------------------------------------------------------------------------
