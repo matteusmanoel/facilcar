@@ -153,6 +153,19 @@ def _required_question(
                     prefer_saturday=prefer_sat,
                 )
             return format_slot_suggestion(offered, lang=lang if lang else "pt")
+        if key == "documents":
+            plan = state.get("dialogue_plan") or {}
+            remaining = plan.get("remaining_documents") or []
+            if remaining and "cnh" not in remaining:
+                if lang == "es":
+                    return (
+                        "Si puedes, envíame también los comprobantes de ingresos y domicilio "
+                        "para completar la simulación."
+                    )
+                return (
+                    "Se conseguir, pode me enviar também os comprovantes de renda e residência "
+                    "para completar a simulação."
+                )
         if key == "alternatives_ok" and action_plan.get("reason_code") == "installment_tight":
             if lang == "es":
                 return (
@@ -252,23 +265,28 @@ def _document_received_bubbles(
     name = _first_name(state)
     kind = str(state.get("document_kind") or "").upper()
     es = lang == "es"
-    if kind == "CNH":
+    plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), dict) else {}
+    remaining = list((plan or {}).get("remaining_documents") or [])
+    ask_remaining = (plan or {}).get("primary_action") == "ask_remaining_documents" or (
+        remaining and "cnh" not in remaining
+    )
+    if kind == "CNH" or ask_remaining:
         if es:
             ack = f"Recibí tu CNH, {name}." if name else "Recibí tu CNH."
             extra = (
-                "Si tienes comprobante de ingresos, domicilio o acta de matrimonio, "
-                "también puedes enviármelos. Cuanta más información tenermos, "
-                "mejor margen tenemos para negociar una tasa menor para ti."
+                "Si puedes, envíame también los comprobantes de ingresos y domicilio "
+                "para completar la simulación."
             )
         else:
             ack = f"Recebi sua CNH, {name}." if name else "Recebi sua CNH."
-            extra = "Se tiver comprovante de renda ou residência, pode me enviar também."
-        # Split into separate bubbles for natural cadence. Limit to 3 total so the
-        # caller (register_visit_interest) can append the visit question as bubble 3.
-        bubbles = [ack, extra]
-        if question:
-            bubbles.append(question)
-        return bubbles[:3]
+            extra = (
+                "Se conseguir, pode me enviar também os comprovantes de renda e residência "
+                "para completar a simulação."
+            )
+        bubbles = [ack]
+        if ask_remaining:
+            bubbles.append(extra)
+        return bubbles[:2]
     if es:
         ack = f"Recibí tu documento, {name}." if name else "Recibí tu documento."
     else:
@@ -376,10 +394,22 @@ def _ack_followup_bubbles(
                 text = "Certo, anotei a entrada."
         return [text, question] if question else [text]
     if kind == "desired_installment":
+        from sdr.domain.vehicle_presentation import format_price_brl
+
+        amount = (state.get("facts") or {}).get("desired_installment")
+        formatted = format_price_brl(amount)
         if es:
-            text = "Perfecto, anoté la cuota."
+            text = (
+                f"Entendido, buscas una cuota cerca de {formatted}."
+                if formatted
+                else "Anoté la cuota deseada."
+            )
         else:
-            text = "Perfeito, anotei a parcela."
+            text = (
+                f"Entendi, você busca uma parcela por volta de {formatted}."
+                if formatted
+                else "Anotei uma parcela desejada."
+            )
         return [text, question] if question else [text]
     if kind == "difference_financing":
         if es:
@@ -506,7 +536,7 @@ def _first_contact_opener(state: Mapping[str, Any], lang: str) -> str:
         if model:
             return (
                 f"¡Hola! ¿Cómo va? Soy Júlia de FacilCar. "
-                f"El {model} es una excelente opción. Déjame enviarte unas fotos"
+                f"Tenemos {model} en stock. Déjame enviarte las opciones."
             )
         return "¡Hola! ¿Cómo va? Soy Júlia de FacilCar."
     if model:
@@ -514,11 +544,11 @@ def _first_contact_opener(state: Mapping[str, Any], lang: str) -> str:
         if media_planned:
             return (
                 f"Olá! Como vai? Eu sou a Júlia aqui da FacilCar. "
-                f"O {model} é uma excelente opção. Deixa eu te enviar umas fotos"
+                f"Temos {model} no estoque. Deixa eu te enviar as opções."
             )
         return (
             f"Olá! Como vai? Eu sou a Júlia aqui da FacilCar. "
-            f"O {model} é uma excelente opção."
+            f"Vou te mostrar as opções de {model} que encontrei."
         )
     return "Olá! Como vai? Eu sou a Júlia aqui da FacilCar."
 
@@ -745,9 +775,14 @@ def _template_compose(
 
     if action == "register_visit_interest":
         visit = _visit_cta_bubbles(state, lang)
+        plan = state.get("dialogue_plan") or {}
+        if plan.get("primary_action") == "ask_remaining_documents":
+            return _document_received_bubbles(state, lang, question=None)[:2]
         if state.get("ack_kind") == "document_received":
             docs = _document_received_bubbles(state, lang)
-            return [*docs, visit[0]][:3]
+            # Acknowledgment only — visit is the primary action, do not re-ask remaining docs.
+            ack = docs[0] if docs else None
+            return [ack, visit[0]][:2] if ack else visit[:1]
         ack = _ack_followup_bubbles(state, {"action": "ask_info"}, lang)
         if ack:
             ack_text = ack[0]

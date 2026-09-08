@@ -591,9 +591,14 @@ def detect_claims(text: str, authorized: dict[str, Any] | None = None) -> list[d
             "span": "loja para consignação",
         })
 
+    received_keys = {
+        str(k)
+        for k, v in (auth.get("document_status") or {}).items()
+        if v == "received"
+    }
     if _DOCS_DEFERRED.search(low):
         for key, label in DOCUMENT_LABELS.items():
-            if key == "documents":
+            if key == "documents" or key in received_keys:
                 continue
             if label.lower() in low.lower() or key in low:
                 found.append({

@@ -557,6 +557,29 @@ def _record_shown_vehicles(
                 merged.primary_vehicle_id = None
                 merged.primary_vehicle_chosen_at = None
         if vehicles:
+            from sdr.domain.vehicle_catalog import register_catalog_vehicles
+
+            catalog: dict[str, dict[str, Any]] = dict(getattr(merged, "presented_vehicle_catalog", None) or {})
+            snapshots: list[dict[str, Any]] = []
+            for item in vehicles:
+                if not isinstance(item, dict):
+                    continue
+                vid = str(item.get("id") or "").strip()
+                if not vid:
+                    continue
+                snap = {
+                    "id": vid,
+                    "brand": item.get("brand") or item.get("brand_name") or item.get("brandName"),
+                    "model": item.get("model"),
+                    "version": item.get("version"),
+                    "year": item.get("year") or item.get("year_model") or item.get("yearModel"),
+                    "title": item.get("title"),
+                }
+                catalog[vid] = snap
+                snapshots.append(snap)
+            merged.presented_vehicle_catalog = catalog
+            if snapshots:
+                register_catalog_vehicles(snapshots)
             first = vehicles[0] if isinstance(vehicles[0], dict) else {}
             price = first.get("priceCash") if isinstance(first, dict) else None
             if price is None and isinstance(first, dict):
@@ -862,11 +885,22 @@ async def process_turn(
     ):
         merged.signals.visit_intent = True
 
-    from sdr.domain.dialogue_plan import is_courtesy_only
+    from sdr.domain.dialogue_plan import DirectQuestionKind, classify_direct_questions, is_courtesy_only
+    from sdr.domain.qualification_policy import annotate_action_plan
 
     merged.courtesy_only = is_courtesy_only(inbound.effective_text, facts)
 
     plan = decide(merged)
+    commercial_questions = [
+        q
+        for q in classify_direct_questions(inbound.effective_text or "")
+        if q.kind != DirectQuestionKind.WELLBEING
+    ]
+    annotate_action_plan(
+        plan,
+        merged,
+        inbound_has_direct_question=bool(commercial_questions),
+    )
 
     # After deciding, persist the field being asked so the next turn can resolve
     # short confirmations ("sim", "exato") against the right context.

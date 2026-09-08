@@ -396,6 +396,32 @@ def validate_dialogue_plan(
         _fail("ignored_direct_question")
     if parsed.skip_generic_intent_menu and looks_like_intent_menu(joined):
         _fail("generic_menu_when_intent_known")
+    if parsed.skip_generic_intent_menu and re.search(r"excelente op[cç][aã]o", joined, re.I):
+        _fail("empty_vehicle_praise")
+    if re.search(
+        r"como posso (?:te )?ajudar voc[eê] com (?:o )?seu ve[ií]culo|"
+        r"ajudar voc[eê] com seu ve[ií]culo|"
+        r"como posso te ajudar com (?:o |esse )?ve[ií]culo",
+        joined,
+        re.I,
+    ):
+        _fail("assumed_customer_vehicle")
+    if "desired_installment" in parsed.facts_to_acknowledge:
+        if re.search(r"legal sobre a parcela|legal,?\s+j[aá]\s+anotei|legal que", joined, re.I):
+            _fail("artificial_acknowledgment")
+    if parsed.primary_action == "ask_remaining_documents":
+        asks_remaining = bool(re.search(r"renda|resid[eê]ncia|holerite|comprovante", joined, re.I))
+        asks_visit = bool(
+            re.search(
+                r"\b(?:visita|amanh[ãa]|9h30|hor[aá]rio|passar na loja|conhecer o)\b",
+                joined,
+                re.I,
+            )
+        )
+        if asks_remaining and asks_visit:
+            _fail("concurrent_actions")
+        if DialogueAct.INVITE_VISIT.value in parsed.acts:
+            _fail("concurrent_actions")
     if parsed.skip_reintroduce and is_first_contact_reopen(cleaned):
         _fail("unnecessary_reintroduction")
     if contains_internal_leak(joined):

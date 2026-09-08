@@ -203,8 +203,9 @@ async def test_register_visit_interest_sets_pending_question() -> None:
     This tests the other side of the guard: the state must carry pending_question='visit'
     into the next turn so that decide() can apply the guard.
 
-    We trigger REGISTER_VISIT_INTEREST by sending a DOCUMENT inbound when the roteiro
-    is complete (all fields answered, documents not yet asked for a visit).
+    We trigger REGISTER_VISIT_INTEREST by sending a DOCUMENT inbound when the
+    financing pack is complete (CNH + income + residence received) and remaining
+    fields are already answered. A single CNH no longer invites a visit.
     """
     from sdr.domain.decision import inventory_search_key
     from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
@@ -218,6 +219,11 @@ async def test_register_visit_interest_sets_pending_question() -> None:
         "desired_installment": 2000,
         "name": "João Silva",
         "document_type": "CNH",
+        "document_status": {
+            "cnh": "received",
+            "proof_of_income": "received",
+            "proof_of_residence": "received",
+        },
     }
 
     state = ConversationCanonicalState(

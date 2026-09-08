@@ -201,6 +201,12 @@ class ConversationCanonicalState:
     visit_preferred_time: str | None = None
     # Documents (CNH / holerite) already requested or received this thread.
     documents_asked: bool = False
+    # Remaining financing components (income/residence) already requested once.
+    remaining_documents_asked: bool = False
+    # Optional asks after the lead became handoff_ready. Capped by policy.
+    enrichment_ask_count: int = 0
+    # Cadastral snapshots for vehicles presented this thread (id → record).
+    presented_vehicle_catalog: dict[str, Any] = field(default_factory=dict)
     # Desired monthly installment already asked (nice-to-have; does not block).
     installment_asked: bool = False
     # Installment-vs-price mismatch already offered this thread.
@@ -319,6 +325,10 @@ class ActionPlan:
     next_question: str | None = None
     reason_code: str | None = None
     reason: str | None = None
+    primary_action: str | None = None
+    supporting_acts: list[str] = field(default_factory=list)
+    forbidden_concurrent_actions: list[str] = field(default_factory=list)
+    qualification_trace: dict[str, Any] = field(default_factory=dict)
 
 
 INTENT_TO_BUSINESS_TYPE: dict[BusinessIntent, BusinessType] = {

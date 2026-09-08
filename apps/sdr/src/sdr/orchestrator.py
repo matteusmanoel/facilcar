@@ -1158,6 +1158,57 @@ class Orchestrator:
                 tool_calls=result.action_plan.tool_calls,
                 ask_field=result.action_plan.ask_field,
                 inventory_search_key=result.state.last_inventory_search_key,
+                primary_action=getattr(result.action_plan, "primary_action", None),
+                supporting_acts=list(getattr(result.action_plan, "supporting_acts", None) or []),
+                forbidden_concurrent_actions=list(
+                    getattr(result.action_plan, "forbidden_concurrent_actions", None) or []
+                ),
+                handoff_ready=bool(result.state.handoff_ready),
+                profile_complete=bool(result.state.profile_complete),
+                primary_vehicle_id=result.state.primary_vehicle_id,
+                remaining_documents_asked=bool(
+                    getattr(result.state, "remaining_documents_asked", False)
+                ),
+                enrichment_ask_count=int(getattr(result.state, "enrichment_ask_count", 0) or 0),
+                primary_vehicle_label=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "primary_vehicle_label"
+                    )
+                ),
+                vehicle_label_source=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "vehicle_label_source"
+                    )
+                ),
+                documents_received=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_received"
+                    )
+                    or []
+                ),
+                documents_missing=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_missing"
+                    )
+                    or []
+                ),
+                documents_deferred=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_deferred"
+                    )
+                    or []
+                ),
+                direct_question_detected=bool(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "direct_question_detected"
+                    )
+                ),
+                next_question=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "next_question"
+                    )
+                    or result.action_plan.ask_field
+                ),
             )
             tracer.tools_executed(result.tool_results)
             if result.response_directive is not None:

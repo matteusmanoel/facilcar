@@ -1,0 +1,54 @@
+{
+  "name": "p9_04_financiamento_burst",
+  "description": "Two-message financing burst after a known vehicle: answer 100% without promising a rate.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {
+    "intent": "purchase",
+    "assistant_turn_count": 2,
+    "last_shown_vehicle_ids": [
+      "VH-FOX-2014-001"
+    ],
+    "primary_vehicle_id": "VH-FOX-2014-001",
+    "facts": {
+      "desired_model": "Fox",
+      "desired_vehicle_text": "Fox",
+      "deal_type": "purchase"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Compra financiada.\nFinancia 100%?",
+      "events": [
+        {
+          "content_type": "TEXT",
+          "text": "Compra financiada.",
+          "delay_ms": 0,
+          "message_id": "p9-burst-1"
+        },
+        {
+          "content_type": "TEXT",
+          "text": "Financia 100%?",
+          "delay_ms": 1800,
+          "message_id": "p9-burst-2"
+        }
+      ],
+      "batch_id": "p9-fin-burst",
+      "response_mode": "voluntary_fact",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ],
+      "forbidden_action": "SHOW_OFFERS"
+    }
+  ]
+}

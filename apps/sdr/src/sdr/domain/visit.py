@@ -439,6 +439,17 @@ def customer_copy_leaks_process(text: str) -> bool:
 
 def _vehicle_label(state: Any) -> str:
     facts = getattr(state, "facts", None)
+    primary = getattr(state, "primary_vehicle_id", None)
+    if primary:
+        from sdr.domain.vehicle_catalog import conversational_label_for_id
+
+        presented = getattr(state, "presented_vehicle_catalog", None)
+        label = conversational_label_for_id(
+            primary,
+            presented=presented if isinstance(presented, dict) else None,
+        )
+        if label:
+            return label
     if not isinstance(facts, dict):
         return "o veículo"
     vehicle = facts.get("desired_model") or facts.get("desired_vehicle_text")

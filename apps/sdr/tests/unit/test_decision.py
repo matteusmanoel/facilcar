@@ -194,13 +194,15 @@ def test_document_received_acks_instead_of_visit() -> None:
     assert plan.ask_field == "desired_installment"
 
 
-def test_document_received_invites_visit_when_roteiro_complete() -> None:
+def test_document_received_asks_remaining_docs_not_visit() -> None:
+    """Partial CNH is one documentary action — visit is a concurrent action (Phase 9)."""
     facts = {
         "desired_model": "Civic",
         "deal_type": "purchase",
         "down_payment": 20000,
         "desired_installment": 2000,
         "name": "Mateus",
+        "document_status": {"cnh": "received"},
     }
     state = _state(
         intent=BusinessIntent.PURCHASE_FINANCING,
@@ -211,8 +213,36 @@ def test_document_received_invites_visit_when_roteiro_complete() -> None:
         document_received=True,
     )
     plan = decide(state)
+    assert plan.action == Action.ASK_INFO
+    assert plan.ask_field == "documents"
+    assert plan.reason_code == "remaining_documents"
+    assert plan.handoff is False
+
+
+def test_document_pack_complete_may_invite_visit() -> None:
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "down_payment": 20000,
+        "desired_installment": 2000,
+        "name": "Mateus",
+        "document_status": {
+            "cnh": "received",
+            "proof_of_income": "received",
+            "proof_of_residence": "received",
+        },
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        remaining_documents_asked=True,
+        installment_asked=True,
+        document_received=True,
+    )
+    plan = decide(state)
     assert plan.action == Action.REGISTER_VISIT_INTEREST
-    assert plan.reason_code == "document_received_visit"
 
 
 def test_installment_tight_offers_alternatives_once() -> None:

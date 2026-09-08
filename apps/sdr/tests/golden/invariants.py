@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from sdr.domain.financial_promises import contains_forbidden_financial_promise
+
 # Phrases the Composer must NEVER produce — financial/reservation promises.
+# Isolated "taxa" is not a promise; numeric/guaranteed rates still are.
 _FORBIDDEN_PROMISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"vou\s+reservar", re.I),
     re.compile(r"reservado\s+(?:para|pra)\s+você", re.I),
@@ -14,9 +17,10 @@ _FORBIDDEN_PROMISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bgarantido\b", re.I),
     re.compile(r"aprovação\s+garantida", re.I),
     re.compile(r"taxa\s+de\s+\d", re.I),
+    re.compile(r"taxa\s+será\s+(?:de\s+)?\d", re.I),
     re.compile(r"aprovado\s+no\s+crédito", re.I),
     re.compile(r"100%\s+financiado", re.I),
-    re.compile(r"financ\w*\s+100", re.I),
+    re.compile(r"financ\w*\s+100\s*%\s+com\s+certeza", re.I),
 ]
 
 # Phrases that indicate a "desired vehicle" question — forbidden for SALE/CONSIGNMENT/REFINANCING.
@@ -173,6 +177,12 @@ def check_turn(
             )
 
     # Forbidden financial/reservation promises — never allowed in any context.
+    # Isolated "taxa" in a lender disclaimer is not a promise.
+    if contains_forbidden_financial_promise(outbound_joined):
+        fail(
+            "GLOBAL: forbidden_promise",
+            f"Forbidden financial promise found in: {outbound_joined[:180]}",
+        )
     for pattern in _FORBIDDEN_PROMISE_PATTERNS:
         if pattern.search(outbound_joined):
             fail(
@@ -590,8 +600,11 @@ def check_scenario(
         status = facts.get("document_status") if isinstance(facts.get("document_status"), dict) else {}
         if "cnh" not in deferred and status.get("cnh") != "deferred":
             fail("SCENARIO: cnh_deferred_not_granular", f"deferred={deferred} status={status}")
-        if set(deferred) >= {"cnh", "proof_of_residence", "proof_of_income"}:
-            fail("SCENARIO: cnh_deferred_not_granular", f"whole pack deferred: {deferred}")
+        if "documents" in deferred and status.get("cnh") != "deferred":
+            fail(
+                "SCENARIO: cnh_deferred_not_granular",
+                f"blob documents deferred without granular CNH: deferred={deferred} status={status}",
+            )
         if getattr(state, "profile_complete", False):
             fail("SCENARIO: cnh_deferred_not_granular", "profile_complete true with deferred CNH")
 

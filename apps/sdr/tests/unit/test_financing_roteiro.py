@@ -584,7 +584,7 @@ def test_after_installment_asks_documents() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_after_installment_invites_visit() -> None:
+async def test_document_after_installment_asks_remaining_docs() -> None:
     from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
 
     facts = {
@@ -617,13 +617,12 @@ async def test_document_after_installment_invites_visit() -> None:
         media_status=MediaStatus.OK,
     )
     result = await process_turn(state=state, inbound=inbound, understand=understand)
-    assert result.action_plan.action == Action.REGISTER_VISIT_INTEREST
+    assert result.action_plan.action == Action.ASK_INFO
+    assert result.action_plan.ask_field == "documents"
     joined = " ".join(result.outbound_texts).lower()
-    assert "documento" in joined or "ficha" in joined or "cnh" in joined
+    assert "cnh" in joined
+    assert "renda" in joined or "resid" in joined
     assert "encaminhar" not in joined
-    assert "manhã ou tarde" not in joined
+    assert "9h30" not in joined
     assert "quantos meses" not in joined
-    assert "sem compromisso" not in joined
-    # New scheduling gives concrete slots like "segunda-feira, 7/09, de manhã"
-    assert any(w in joined for w in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "manhã", "tarde", "que tal"])
 

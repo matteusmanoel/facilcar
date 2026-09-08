@@ -9,6 +9,7 @@ import re
 from sdr.domain.budget_status import BUDGET_RESOLVED, BudgetStatus
 from sdr.domain.document_status import (
     DOCUMENT_COMPONENTS,
+    STATUS_RECEIVED,
     merge_document_status,
     parse_document_deferral,
 )
@@ -241,6 +242,8 @@ def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: st
     def _add(*names: str) -> None:
         nonlocal deferred
         for name in names:
+            if status.get(name) == STATUS_RECEIVED:
+                continue
             if name not in deferred:
                 deferred.append(name)
             status[name] = "deferred"
@@ -357,6 +360,9 @@ def deterministic_merge(
         courtesy_only=False,
         visual_applied_this_turn=False,
         documents_asked=prev.documents_asked,
+        remaining_documents_asked=bool(getattr(prev, "remaining_documents_asked", False)),
+        enrichment_ask_count=int(getattr(prev, "enrichment_ask_count", 0) or 0),
+        presented_vehicle_catalog=dict(getattr(prev, "presented_vehicle_catalog", None) or {}),
         installment_asked=prev.installment_asked,
         installment_mismatch_offered=prev.installment_mismatch_offered,
         installment_capacity=prev.installment_capacity,

@@ -24,8 +24,13 @@ _DEFER_UTTERANCE = re.compile(
     r"(enviar|envio|mando|mandar|posso\s+enviar).{0,40}depois|"
     r"depois.{0,24}(enviar|envio|mando|mandar)|"
     r"n[aã]o\s+tenho\s+(agora|no\s+momento)|"
+    r"n[aã]o\s+estou\s+com\s+(os\s+)?documentos|"
     r"n[aã]o\s+tenho\s+(os\s+)?documentos|"
-    r"n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|comprovante)",
+    r"n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|comprovante)|"
+    r"levo\s+(?:o\s+)?(?:resto|restante).{0,24}loja|"
+    r"levo\s+(?:o\s+)?resto|"
+    r"levo\s+na\s+loja|"
+    r"mando\s+depois",
     re.I,
 )
 
@@ -51,17 +56,27 @@ def parse_document_deferral(text: str) -> dict[str, str]:
     return {name: STATUS_DEFERRED for name in DOCUMENT_COMPONENTS}
 
 
+_STATUS_RANK = {
+    STATUS_MISSING: 0,
+    STATUS_DEFERRED: 1,
+    STATUS_RECEIVED: 2,
+}
+
+
 def merge_document_status(
     prev: dict[str, Any] | None,
     incoming: dict[str, Any] | None,
 ) -> dict[str, str]:
+    """Merge component status. Received never regresses to deferred/missing."""
     out = empty_document_status()
     for src in (prev, incoming):
         if not isinstance(src, dict):
             continue
         for key in DOCUMENT_COMPONENTS:
             val = src.get(key)
-            if val in {STATUS_RECEIVED, STATUS_DEFERRED, STATUS_MISSING}:
+            if val not in {STATUS_RECEIVED, STATUS_DEFERRED, STATUS_MISSING}:
+                continue
+            if _STATUS_RANK[val] >= _STATUS_RANK.get(out.get(key, STATUS_MISSING), 0):
                 out[key] = val
     return out
 

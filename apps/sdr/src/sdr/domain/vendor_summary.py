@@ -270,6 +270,16 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     wanted = format_vehicle_label(desired) or (
         facts.get("desired_vehicle_text") or facts.get("desired_model") or facts.get("vehicle_interest")
     )
+    if state.primary_vehicle_id:
+        from sdr.domain.vehicle_catalog import catalog_summary_label, conversational_label_for_id
+
+        presented = getattr(state, "presented_vehicle_catalog", None)
+        presented_map = presented if isinstance(presented, dict) else None
+        catalog_wanted = catalog_summary_label(state.primary_vehicle_id, presented=presented_map) or (
+            conversational_label_for_id(state.primary_vehicle_id, presented=presented_map)
+        )
+        if catalog_wanted:
+            wanted = catalog_wanted
 
     sentences: list[str] = []
 

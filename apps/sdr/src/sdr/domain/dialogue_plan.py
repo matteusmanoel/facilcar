@@ -121,7 +121,7 @@ _VENDOR_CONFIRM = re.compile(
     re.I,
 )
 _APPROVAL_CLAIM = re.compile(
-    r"financiamento\s+aprovado|j[aá]\s+est[aá]\s+aprovad|"
+    r"financiamento\s+(?:est[aá]\s+)?aprovado|j[aá]\s+est[aá]\s+aprovad|"
     r"vamos\s+financiar\s+(?:o\s+valor\s+)?(?:todo|tudo)|"
     r"financiaremos\s+el\s+valor\s+total|"
     r"100\s*%\s*garantid|taxa\s+garantida|aprova(?:[cç][aã]o|do)\s+garantid|"
@@ -154,6 +154,11 @@ class DialoguePlan:
     forbid_reask_fields: list[str] = field(default_factory=list)
     restrictions: list[str] = field(default_factory=list)
     proven_vehicle_label: str | None = None
+    vehicle_label_source: str | None = None
+    primary_action: str | None = None
+    supporting_acts: list[str] = field(default_factory=list)
+    forbidden_concurrent_actions: list[str] = field(default_factory=list)
+    remaining_documents: list[str] = field(default_factory=list)
     max_text_bubbles: int = 3
     max_questions: int = 1
     availability_status: str | None = None
@@ -171,6 +176,11 @@ class DialoguePlan:
             "wellbeing_reciprocity": self.wellbeing_reciprocity,
             "forbid_reask_fields": list(self.forbid_reask_fields),
             "proven_vehicle_label": self.proven_vehicle_label,
+            "vehicle_label_source": self.vehicle_label_source,
+            "primary_action": self.primary_action,
+            "supporting_acts": list(self.supporting_acts),
+            "forbidden_concurrent_actions": list(self.forbidden_concurrent_actions),
+            "remaining_documents": list(self.remaining_documents),
             "max_text_bubbles": self.max_text_bubbles,
             "max_questions": self.max_questions,
             "availability_status": self.availability_status,
@@ -196,6 +206,15 @@ class DialoguePlan:
             proven_vehicle_label=(
                 str(raw["proven_vehicle_label"]) if raw.get("proven_vehicle_label") else None
             ),
+            vehicle_label_source=(
+                str(raw["vehicle_label_source"]) if raw.get("vehicle_label_source") else None
+            ),
+            primary_action=(str(raw["primary_action"]) if raw.get("primary_action") else None),
+            supporting_acts=[str(a) for a in (raw.get("supporting_acts") or [])],
+            forbidden_concurrent_actions=[
+                str(a) for a in (raw.get("forbidden_concurrent_actions") or [])
+            ],
+            remaining_documents=[str(a) for a in (raw.get("remaining_documents") or [])],
             max_text_bubbles=int(raw.get("max_text_bubbles") or 3),
             max_questions=int(raw.get("max_questions") or 1),
             availability_status=(
@@ -348,21 +367,25 @@ def _filled_fields(facts: Mapping[str, Any]) -> list[str]:
 def _proven_vehicle_label(
     state: ConversationCanonicalState | None,
     facts_context: Mapping[str, Any] | None,
-) -> str | None:
+) -> tuple[str | None, str]:
     facts = dict(facts_context or {})
     if state is not None:
         facts = {**dict(state.facts or {}), **facts}
-        match = state.last_inventory_match if isinstance(state.last_inventory_match, dict) else {}
-        title = match.get("matched_title") or match.get("title")
-        if isinstance(title, str) and title.strip() and state.primary_vehicle_id:
-            matched_id = str(match.get("matched_inventory_id") or "")
-            if not matched_id or matched_id == state.primary_vehicle_id:
-                return title.strip()
+        from sdr.domain.vehicle_catalog import conversational_label_for_id
+
+        presented = getattr(state, "presented_vehicle_catalog", None)
+        if state.primary_vehicle_id:
+            label = conversational_label_for_id(
+                state.primary_vehicle_id,
+                presented=presented if isinstance(presented, dict) else None,
+            )
+            if label:
+                return label, "catalog"
     for key in ("desired_vehicle_text", "desired_model"):
         raw = facts.get(key)
         if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-    return None
+            return raw.strip(), "stated_model"
+    return None, "none"
 
 
 def build_dialogue_plan(
@@ -487,6 +510,22 @@ def build_dialogue_plan(
         acts.append(DialogueAct.ASK_NEXT_FIELD.value)
 
     skip_menu = known_intent or vehicle_ctx or bool(commercial_qs)
+    if skip_menu:
+        restrictions.append(
+            "NÃO apresente o menu genérico comprar/trocar/vender/consignar/refinanciar."
+        )
+    if skip_menu and action_val == Action.SHOW_OFFERS.value:
+        restrictions.append(
+            "Não elogie o modelo de forma genérica (excelente opção) sem fato de estoque."
+        )
+    if "desired_installment" in new_fact_keys:
+        restrictions.append(
+            "Reconheça a parcela de forma factual, em reais (R$), sem celebração artificial."
+        )
+    if should_introduce and action_val == Action.SMALLTALK.value:
+        restrictions.append(
+            "Convite aberto e natural. Não presuma que o cliente possui um veículo."
+        )
     skip_reintro = (not should_introduce) or assistant_turn_count > 0 or lifecycle in (
         "HANDOFF_SENT",
         "HUMAN_ACTIVE",
@@ -503,7 +542,42 @@ def build_dialogue_plan(
     max_bubbles = 2
     if action_val in (Action.SHOW_OFFERS.value, Action.SEND_PHOTOS.value):
         max_bubbles = 3
-    if inbound_content_type.upper() == "DOCUMENT":
+    remaining_docs: list[str] = []
+    primary_action = None
+    supporting_acts: list[str] = []
+    forbidden_concurrent: list[str] = []
+    if state is not None:
+        from sdr.domain.qualification_policy import (
+            ACT_HANDOFF,
+            ACT_INVITE_VISIT,
+            PRIMARY_ASK_REMAINING_DOCUMENTS,
+            remaining_document_components,
+        )
+
+        remaining_docs = remaining_document_components(state)
+        remaining_this_turn = (
+            action_val == Action.ASK_INFO.value
+            and ask == "documents"
+            and bool(remaining_docs)
+            and (
+                state.document_received
+                or any(status == "received" for status in (state.facts.get("document_status") or {}).values())
+            )
+        )
+        if remaining_this_turn:
+            primary_action = PRIMARY_ASK_REMAINING_DOCUMENTS
+            supporting_acts = ["acknowledge_document"]
+            forbidden_concurrent = [ACT_INVITE_VISIT, ACT_HANDOFF]
+            max_bubbles = 2
+            restrictions.append(
+                "Peça só os comprovantes restantes. Não convide visita nem encaminhe neste turno."
+            )
+            acts = [a for a in acts if a != DialogueAct.INVITE_VISIT.value]
+        elif action_val == Action.REGISTER_VISIT_INTEREST.value:
+            primary_action = "invite_visit"
+            forbidden_concurrent = ["ask_remaining_documents"]
+
+    if inbound_content_type.upper() == "DOCUMENT" and primary_action != "ask_remaining_documents":
         max_bubbles = 3
     if courtesy:
         max_bubbles = 2
@@ -516,6 +590,8 @@ def build_dialogue_plan(
         if act not in seen:
             seen.add(act)
             ordered_acts.append(act)
+
+    label, label_source = _proven_vehicle_label(state, facts)
 
     return DialoguePlan(
         acts=ordered_acts,
@@ -537,7 +613,12 @@ def build_dialogue_plan(
         wellbeing_reciprocity=wellbeing,
         forbid_reask_fields=forbid_reask,
         restrictions=restrictions,
-        proven_vehicle_label=_proven_vehicle_label(state, facts),
+        proven_vehicle_label=label,
+        vehicle_label_source=label_source,
+        primary_action=primary_action,
+        supporting_acts=supporting_acts,
+        forbidden_concurrent_actions=forbidden_concurrent,
+        remaining_documents=remaining_docs,
         max_text_bubbles=max_bubbles,
         max_questions=0 if courtesy or action_val == Action.HANDOFF_VENDOR.value else 1,
         availability_status=availability_status,
@@ -828,7 +909,11 @@ def fallback_bubbles(
         else:
             bubbles.append("Boa escolha." if not es else "Buena elección.")
     if DialogueAct.ACKNOWLEDGE_FACT.value in plan.acts and "desired_installment" in plan.facts_to_acknowledge:
-        bubbles.append("Perfeito, anotei a parcela." if not es else "Perfecto, anoté la cuota.")
+        bubbles.append(
+            "Anotei uma parcela desejada, em reais."
+            if not es
+            else "Anoté una cuota deseada."
+        )
     elif DialogueAct.ACKNOWLEDGE_FACT.value in plan.acts and "payment_method" in plan.facts_to_acknowledge:
         if "down_payment" not in kinds and DirectQuestionKind.FINANCING_100.value not in kinds:
             bubbles.append("Certo." if not es else "De acuerdo.")
@@ -844,17 +929,17 @@ def fallback_bubbles(
         bubbles.append(next_question)
     elif should_introduce and not plan.skip_generic_intent_menu and not plan.canonical_question:
         invite = (
-            "Como posso te ajudar com o veículo?"
+            "Como posso te ajudar?"
             if not es
-            else "¿Cómo puedo ayudarte con el vehículo?"
+            else "¿Cómo puedo ayudarte?"
         )
         if invite not in bubbles:
             bubbles.append(invite)
     elif should_introduce and plan.skip_generic_intent_menu and not any("?" in b for b in bubbles):
         invite = (
-            "Como posso te ajudar com esse veículo?"
+            "Como posso te ajudar?"
             if not es
-            else "¿Cómo puedo ayudarte con este vehículo?"
+            else "¿Cómo puedo ayudarte?"
         )
         bubbles.append(invite)
 

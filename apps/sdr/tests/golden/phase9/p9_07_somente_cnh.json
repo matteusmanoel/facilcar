@@ -1,0 +1,76 @@
+{
+  "name": "p9_07_somente_cnh",
+  "description": "Partial CNH must produce a single remaining-documents action, no visit.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 4,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Bruno Azevedo"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Segue minha CNH",
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Bruno Azevedo"
+      },
+      "storage_simulated": {
+        "status": "retryable_failure",
+        "bucket_kind": "private",
+        "public": false
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "Segue minha CNH",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Bruno Azevedo"
+          },
+          "delay_ms": 0,
+          "message_id": "p9-cnh-1"
+        }
+      ],
+      "expected_docs_not_received": [
+        "proof_of_income",
+        "proof_of_residence"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem",
+        "amanhã",
+        "9h30",
+        "visita"
+      ]
+    }
+  ]
+}

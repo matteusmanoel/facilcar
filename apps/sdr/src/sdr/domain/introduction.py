@@ -67,8 +67,8 @@ def response_objective_for(*, action: Action | str, should_introduce: bool) -> s
             return (
                 "Primeiro contato: apresente-se brevemente como Júlia da FacilCar. "
                 "Se o cliente perguntou se você está bem, responda com reciprocidade. "
-                "Convide a pessoa a dizer como pode ajudar com o veículo. "
-                "Não use um menu rígido de comprar/trocar/vender/consignar/refinanciar."
+        "Convide a pessoa a dizer como pode ajudar, sem presumir que ela já possui um veículo. "
+        "Não use um menu rígido de comprar/trocar/vender/consignar/refinanciar."
             )
         return (
             "Primeira mensagem da Júlia nesta conversa: pode se apresentar "
@@ -118,9 +118,9 @@ def introduction_smalltalk_bubbles(
         else:
             greeting = "¡Hola! Soy Júlia de FacilCar."
         invite = (
-            "¿Cómo puedo ayudarte con este vehículo?"
+            "¿Cómo puedo ayudarte?"
             if skip_intent_menu
-            else "¿Cómo puedo ayudarte con el vehículo?"
+            else "¿Cómo puedo ayudarte?"
         )
         return [greeting, invite]
     if wellbeing:
@@ -132,11 +132,7 @@ def introduction_smalltalk_bubbles(
         greeting = f"Oi, {first_name}! Sou a Júlia da FacilCar."
     else:
         greeting = "Oi! Sou a Júlia da FacilCar."
-    invite = (
-        "Como posso te ajudar com esse veículo?"
-        if skip_intent_menu
-        else "Como posso te ajudar com o veículo?"
-    )
+    invite = "Como posso te ajudar?"
     return [greeting, invite]
 
 

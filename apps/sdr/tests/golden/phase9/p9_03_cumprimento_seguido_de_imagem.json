@@ -1,0 +1,53 @@
+{
+  "name": "p9_03_cumprimento_seguido_de_imagem",
+  "description": "Greeting then Fox image with caption; vision uses the isolated seed fixture.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Tudo bem?",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem",
+        "seu veículo",
+        "com o veículo"
+      ]
+    },
+    {
+      "inbound": "Esse Fox ainda tem?",
+      "content_type": "IMAGE",
+      "image_fixture": "synthetic_fox",
+      "mime_type": "image/png",
+      "events": [
+        {
+          "content_type": "IMAGE",
+          "caption": "Esse Fox ainda tem?",
+          "image_fixture": "synthetic_fox",
+          "mime_type": "image/png",
+          "delay_ms": 0,
+          "message_id": "p9-fox-img-1"
+        }
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

@@ -612,7 +612,13 @@ async def run_scenario_detailed(
                 "action": action_val,
                 "reason_code": plan.reason_code,
                 "handoff": plan.handoff,
+                "primary_action": getattr(plan, "primary_action", None),
+                "supporting_acts": list(getattr(plan, "supporting_acts", None) or []),
+                "forbidden_concurrent_actions": list(
+                    getattr(plan, "forbidden_concurrent_actions", None) or []
+                ),
             },
+            "qualification_trace": dict(getattr(plan, "qualification_trace", None) or {}),
             "ask_field": plan.ask_field,
             "question_adherence": adherence,
             "dialogue_alignment": alignment,

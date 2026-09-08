@@ -100,6 +100,33 @@ def _state_search_key(state: ConversationCanonicalState) -> str:
     )
 
 
+def _defer_remaining_if_path_changed(state: ConversationCanonicalState) -> None:
+    """Visit/vendor path: remaining components become deferred, never received."""
+    from sdr.domain.document_status import STATUS_DEFERRED, merge_document_status
+    from sdr.domain.qualification_policy import remaining_document_components
+
+    remaining = remaining_document_components(state)
+    if not remaining:
+        return
+    deferred = list(state.deferred_fields or [])
+    patch = {name: STATUS_DEFERRED for name in remaining}
+    for name in remaining:
+        if name not in deferred:
+            deferred.append(name)
+    state.deferred_fields = deferred
+    state.facts["document_status"] = merge_document_status(state.facts.get("document_status"), patch)
+    state.facts["documents_deferred"] = True
+    state.remaining_documents_asked = True
+
+
+def _mark_enrichment_ask(state: ConversationCanonicalState, *, remaining: bool) -> None:
+    if remaining:
+        state.remaining_documents_asked = True
+        state.documents_asked = True
+    if state.handoff_ready:
+        state.enrichment_ask_count = int(getattr(state, "enrichment_ask_count", 0) or 0) + 1
+
+
 def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
     if state.intent not in (
         BusinessIntent.PURCHASE,
@@ -151,22 +178,33 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     refresh_actionability(state)
     status = state.lifecycle.status
 
+    from sdr.domain.qualification_policy import (
+        annotate_action_plan,
+        remaining_document_components,
+        should_ask_remaining_documents,
+        vendor_signal_this_turn,
+        visit_signal_this_turn,
+    )
+
+    def _finish(plan: ActionPlan) -> ActionPlan:
+        return annotate_action_plan(plan, state)
+
     if status in (LifecycleStatus.HUMAN_ACTIVE, LifecycleStatus.HANDOFF_SENT):
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.NO_REPLY,
             handoff=False,
             reason_code="human_or_handoff_silence",
             reason="Conversation already with human or handoff confirmation sent",
-        )
+        ))
 
     if status == LifecycleStatus.HUMAN_CLOSED:
         if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.NO_REPLY,
                 handoff=False,
                 reason_code="human_closed",
                 reason="Thread closed; no new commercial intent",
-            )
+            ))
 
     # Desired vehicle unavailable in a TRADE: do not continue the evaluation
     # roteiro as if that specific swap can still close. If the preference
@@ -179,27 +217,27 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         and not state.last_shown_vehicle_ids
         and not _needs_inventory_search(state)
     ):
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.ASK_INFO,
             handoff=False,
             ask_field="alternatives_ok",
             next_question="alternatives_ok",
             reason_code="desired_unavailable_clarify",
             reason="Desired vehicle is unavailable; clarify alternatives before continuing",
-        )
+        ))
     if state.pending_interaction == PendingInteraction.OFFER_ALTERNATIVES:
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.ASK_INFO,
             handoff=False,
             ask_field="alternatives_ok",
             next_question="alternatives_ok",
             reason_code="pending_alternatives_clarify",
             reason="Customer reply to alternatives offer was ambiguous or missing",
-        )
+        ))
 
     # Store location is a capability request — execute before visit/handoff.
     if state.location_request:
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.SEND_LOCATION,
             handoff=False,
             tool_calls=[{"tool": "send_location"}],
@@ -207,39 +245,13 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             next_question="visit",
             reason_code="explicit_location_request",
             reason="Send store pin and invite a visit",
-        )
+        ))
 
-    # A received document this turn is acknowledged before visit/handoff.
-    if state.document_received:
-        ask = next_ask_field(state)
-        if ask and ask not in (None, "intent"):
-            return ActionPlan(
-                action=Action.ASK_INFO,
-                handoff=False,
-                ask_field=ask,
-                next_question=ask,
-                reason_code="document_received_ack",
-                reason="Acknowledge extracted document; continue roteiro",
-            )
-        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
-            state.visit_invited = True
-            return ActionPlan(
-                action=Action.REGISTER_VISIT_INTEREST,
-                handoff=False,
-                tool_calls=[{"tool": "register_visit_interest"}],
-                reason_code="document_received_visit",
-                reason="Acknowledge document and invite a visit",
-            )
-        return ActionPlan(
-            action=Action.ASK_INFO,
-            handoff=False,
-            reason_code="document_received_ack",
-            reason="Acknowledge extracted document; do not invent a question",
-        )
-
-    # Irreversible handoff only from gated explicit signals — never from budget alone.
+    # Irreversible handoff from gated explicit signals — vendor beats documents.
     if should_handoff_now(state):
         reason = _handoff_reason(state)
+        if vendor_signal_this_turn(state) or visit_signal_this_turn(state):
+            _defer_remaining_if_path_changed(state)
         state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
         state.lifecycle.handoff_reason = reason
         state.business.actionability = Actionability.HANDOFF_NOW
@@ -251,25 +263,89 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
             if should_send_store_location(state):
                 tool_calls.append({"tool": "send_location"})
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.HANDOFF_VENDOR,
             handoff=True,
             tool_calls=tool_calls,
             reason_code=reason,
             reason=HANDOFF_CONFIRMATION_PT_BR,
-        )
+        ))
+
+    # Visit during documentary collection is an alternative path, not a concurrent ask.
+    if visit_signal_this_turn(state) and remaining_document_components(state):
+        _defer_remaining_if_path_changed(state)
+        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
+            state.visit_invited = True
+            return _finish(ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code="visit_prevails_over_documents",
+                reason="Visit manifestation replaces remaining document collection",
+            ))
+
+    # A received document this turn is acknowledged before visit/handoff.
+    if state.document_received:
+        ask = next_ask_field(state)
+        if ask and ask not in (None, "intent", "documents"):
+            _mark_enrichment_ask(state, remaining=False)
+            return _finish(ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                ask_field=ask,
+                next_question=ask,
+                reason_code="document_received_ack",
+                reason="Acknowledge extracted document; continue roteiro",
+            ))
+        if should_ask_remaining_documents(state):
+            _mark_enrichment_ask(state, remaining=True)
+            return _finish(ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                ask_field="documents",
+                next_question="documents",
+                reason_code="remaining_documents",
+                reason="Acknowledge received document and ask remaining pack once",
+            ))
+        if ask == "documents":
+            _mark_enrichment_ask(state, remaining=False)
+            return _finish(ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                ask_field="documents",
+                next_question="documents",
+                reason_code="document_received_ack",
+                reason="Acknowledge extracted document; continue roteiro",
+            ))
+        if (
+            state.intent in _VISIT_ELIGIBLE_INTENTS
+            and not state.visit_invited
+        ):
+            state.visit_invited = True
+            return _finish(ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code=(
+                    "document_pack_complete_visit"
+                    if not remaining_document_components(state)
+                    else "document_received_visit_after_docs"
+                ),
+                reason="Acknowledge document without a concurrent remaining-doc ask",
+            ))
+        # Fall through to visit/handoff close path.
 
     # Courtesy-only inbound must not reopen qualification questions.
     # If nothing useful remains to ask, keep the visit/handoff close path.
     if getattr(state, "courtesy_only", False) and not state.document_received:
         remaining = next_ask_field(state)
         if remaining and remaining not in (None, "intent"):
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.SMALLTALK,
                 handoff=False,
                 reason_code="courtesy",
                 reason="Acknowledge thanks without reopening the roteiro",
-            )
+            ))
 
     from sdr.domain.visual_resolution import visual_search_override
 
@@ -277,21 +353,21 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     if visual_override is not None:
         _block, ask, reason = visual_override
         if _block:
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.ASK_INFO,
                 handoff=False,
                 ask_field=ask,
                 next_question=ask,
                 reason_code=reason,
                 reason="Visual identification is not a unique inventory match",
-            )
+            ))
 
     # Inventory BEFORE triage handoff — respect preference and widened scope.
     if _needs_inventory_search(state):
         key = _state_search_key(state)
         ask = next_ask_field(state)
         follow = ask if ask and ask not in (None, "intent", "desired_model") else None
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.SHOW_OFFERS,
             handoff=False,
             tool_calls=[{"tool": "inventory_search", "_search_key": key}],
@@ -303,22 +379,26 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 else "model_known_inventory_lookup"
             ),
             reason="Show published inventory for current authorized search scope",
-        )
+        ))
 
     # Explicit photo request of a vehicle already presented — execute, don't ask permission.
+    # Never pick the first presented vehicle when primary is missing and several remain.
     if state.photo_request and state.last_shown_vehicle_ids:
-        vehicle_id = state.primary_vehicle_id or state.last_shown_vehicle_ids[0]
-        ask = next_ask_field(state)
-        follow = ask if ask and ask not in (None, "intent") else None
-        return ActionPlan(
-            action=Action.SEND_PHOTOS,
-            handoff=False,
-            tool_calls=[{"tool": "send_photos", "vehicle_id": vehicle_id}],
-            ask_field=follow,
-            next_question=follow,
-            reason_code="explicit_photo_request",
-            reason="Send listing photos of the last presented vehicle",
-        )
+        vehicle_id = state.primary_vehicle_id
+        if not vehicle_id and len(state.last_shown_vehicle_ids) == 1:
+            vehicle_id = state.last_shown_vehicle_ids[0]
+        if vehicle_id:
+            ask = next_ask_field(state)
+            follow = ask if ask and ask not in (None, "intent") else None
+            return _finish(ActionPlan(
+                action=Action.SEND_PHOTOS,
+                handoff=False,
+                tool_calls=[{"tool": "send_photos", "vehicle_id": vehicle_id}],
+                ask_field=follow,
+                next_question=follow,
+                reason_code="explicit_photo_request",
+                reason="Send listing photos of the last presented vehicle",
+            ))
 
     # Desired installment vs published price — offer cheaper options once.
     if (
@@ -337,14 +417,14 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         state.installment_mismatch_offered = True
         state.installment_capacity = capacity
         state.pending_interaction = PendingInteraction.OFFER_ALTERNATIVES
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.ASK_INFO,
             handoff=False,
             ask_field="alternatives_ok",
             next_question="alternatives_ok",
             reason_code="installment_tight",
             reason="Desired installment is tight vs published cash price",
-        )
+        ))
 
     # Budget known but no vehicle preference yet → alternatives by budget.
     if (
@@ -355,13 +435,13 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     ):
         key = _state_search_key(state)
         if key != state.last_inventory_search_key:
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.SHOW_OFFERS,
                 handoff=False,
                 tool_calls=[{"tool": "inventory_search", "_search_key": key}],
                 reason_code="budget_without_model",
                 reason="Show published alternatives for known budget",
-            )
+            ))
 
     # Collect applicable fields before closing. Incomplete leads still hand off
     # on explicit signals (handled above) or once the minimum roteiro is done.
@@ -369,27 +449,29 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     if ask and ask != "intent":
         if state.lifecycle.status == LifecycleStatus.BOT_ACTIVE:
             state.lifecycle.status = LifecycleStatus.QUALIFYING
-        return ActionPlan(
+        remaining_ask = ask == "documents" and should_ask_remaining_documents(state)
+        _mark_enrichment_ask(state, remaining=remaining_ask)
+        return _finish(ActionPlan(
             action=Action.ASK_INFO,
             handoff=False,
             ask_field=ask,
             next_question=ask,
             reason_code="need_field",
             reason=f"Ask one field: {ask}",
-        )
+        ))
 
     if is_handoff_ready(state) or is_seller_actionable(state):
         from sdr.domain.visit import has_visit_preference, should_send_store_location
 
         if getattr(state, "needs_visit_slot_offer", False):
             state.visit_invited = True
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.REGISTER_VISIT_INTEREST,
                 handoff=False,
                 tool_calls=[{"tool": "register_visit_interest"}],
                 reason_code="visit_invitation_pre_handoff",
                 reason="Offer visit times that match the customer's day request",
-            )
+            ))
 
         already_scheduled = (
             has_visit_preference(state)
@@ -402,13 +484,13 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             and not already_scheduled
         ):
             state.visit_invited = True
-            return ActionPlan(
+            return _finish(ActionPlan(
                 action=Action.REGISTER_VISIT_INTEREST,
                 handoff=False,
                 tool_calls=[{"tool": "register_visit_interest"}],
                 reason_code="visit_invitation_pre_handoff",
                 reason="Invite customer to visit store before handoff",
-            )
+            ))
         reason = "triage_actionable" if is_seller_actionable(state) else "handoff_ready"
         state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
         state.lifecycle.handoff_reason = reason
@@ -423,23 +505,23 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             tool_calls.append({"tool": "register_visit_interest"})
         if should_send_store_location(state):
             tool_calls.append({"tool": "send_location"})
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.HANDOFF_VENDOR,
             handoff=True,
             tool_calls=tool_calls,
             reason_code=reason,
             reason=HANDOFF_CONFIRMATION_PT_BR,
-        )
+        ))
 
     if state.intent == BusinessIntent.SMALLTALK:
-        return ActionPlan(
+        return _finish(ActionPlan(
             action=Action.SMALLTALK,
             handoff=False,
             reason_code="greeting_or_chitchat",
             reason="Recognized as greeting or chitchat",
-        )
+        ))
 
-    return ActionPlan(
+    return _finish(ActionPlan(
         action=Action.COMMERCIAL_UNKNOWN,
         handoff=False,
         reason_code="unresolved_intent",
@@ -447,7 +529,7 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             "Intent could not be resolved. "
             "Ask a focused clarifying question to progress without restarting."
         ),
-    )
+    ))
 
 
 def _handoff_reason(state: ConversationCanonicalState) -> str:

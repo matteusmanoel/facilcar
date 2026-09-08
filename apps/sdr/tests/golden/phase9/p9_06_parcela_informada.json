@@ -1,0 +1,43 @@
+{
+  "name": "p9_06_parcela_informada",
+  "description": "Installment acknowledgment must be proportional and formatted in BRL.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 3,
+    "installment_asked": true,
+    "pending_question": "desired_installment",
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Parcela de uns 1500",
+      "response_mode": "voluntary_fact",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem",
+        "legal sobre a parcela"
+      ]
+    }
+  ]
+}

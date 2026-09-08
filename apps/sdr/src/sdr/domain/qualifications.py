@@ -100,23 +100,43 @@ def _document_status_map(state: ConversationCanonicalState) -> dict[str, Any]:
 
 
 def _documents_collected(state: ConversationCanonicalState) -> bool:
-    if state.document_received:
-        return True
-    if state.facts.get("documents_received") is True:
-        return True
+    from sdr.domain.qualification_policy import documents_pack_complete, remaining_document_components
+
+    if not remaining_document_components(state):
+        if state.facts.get("documents_received") is True:
+            return True
+        status = _document_status_map(state)
+        if received_components(status) or documents_pack_complete(state):
+            return documents_pack_complete(state)
     return False
 
 
 def _documents_step_handled(state: ConversationCanonicalState) -> bool:
-    """True when the documents step was asked, deferred, or actually received."""
-    if _documents_collected(state):
+    """True when the documents step was asked, deferred, or the pack is complete.
+
+    Receiving only CNH is not the whole pack. Remaining components are asked
+    once after a partial receipt; the initial pack ask does not skip that.
+    """
+    from sdr.domain.qualification_policy import (
+        any_document_received,
+        remaining_document_components,
+        should_ask_remaining_documents,
+    )
+
+    if not remaining_document_components(state):
+        return True
+    if should_ask_remaining_documents(state):
+        return False
+    if getattr(state, "remaining_documents_asked", False):
         return True
     deferred = set(state.deferred_fields or [])
     if deferred & {"documents", "cnh", "proof_of_residence", "proof_of_income"}:
         return True
     if state.facts.get("documents_deferred") is True:
         return True
-    return bool(state.documents_asked)
+    if state.documents_asked and not any_document_received(state):
+        return True
+    return False
 
 
 def _debts_answered(facts: dict[str, Any]) -> bool:
@@ -269,11 +289,17 @@ def field_is_applicable(state: ConversationCanonicalState, field: str) -> bool:
     if field in INAPPLICABLE_FIELDS.get(state.intent, frozenset()):
         return False
     if field in ("desired_installment", "documents", *DOCUMENT_COMPONENTS):
-        if state.intent == BusinessIntent.PURCHASE_FINANCING:
-            return True
-        if state.intent == BusinessIntent.TRADE:
-            return difference_is_financed(state.facts)
-        return False
+        from sdr.domain.qualification_policy import financing_documents_applicable
+
+        if field == "desired_installment":
+            if state.intent == BusinessIntent.PURCHASE_FINANCING:
+                from sdr.domain.qualification_policy import _payment_is_cash
+
+                return not _payment_is_cash(state.facts)
+            if state.intent == BusinessIntent.TRADE:
+                return difference_is_financed(state.facts)
+            return False
+        return financing_documents_applicable(state)
     return True
 
 
@@ -557,8 +583,20 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
             continue
         if not field_is_applicable(state, field) or field in deferred:
             continue
-        if field == "documents" and _documents_step_handled(state):
-            continue
+        if field == "documents":
+            from sdr.domain.qualification_policy import (
+                any_document_received,
+                enrichment_cap_reached,
+                should_ask_remaining_documents,
+            )
+
+            if should_ask_remaining_documents(state) and not enrichment_cap_reached(state):
+                return "documents"
+            if any_document_received(state) or getattr(state, "remaining_documents_asked", False):
+                continue
+            if _documents_step_handled(state):
+                continue
+            return "documents"
         if field == "budget":
             continue
         if field == "deal_type":

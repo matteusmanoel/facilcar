@@ -58,6 +58,9 @@ _BRAND_CANON = {
     "toyota": "Toyota",
 }
 
+# Cadastral snapshot by inventory id — never inferred from list position.
+_VEHICLES_BY_ID: dict[str, dict[str, Any]] = {}
+
 
 def _fold(text: str) -> str:
     raw = unicodedata.normalize("NFKD", (text or "").strip().lower())
@@ -68,11 +71,103 @@ def _norm_key(text: str) -> str:
     return re.sub(r"\s+", " ", _fold(text)).strip()
 
 
+def _cadastral_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    vid = str(row.get("id") or "").strip()
+    brand = str(row.get("brand") or row.get("brand_name") or "").strip()
+    model = str(row.get("model") or "").strip()
+    version = str(row.get("version") or "").strip()
+    year = row.get("year") if row.get("year") not in (None, "") else (
+        row.get("yearModel") if row.get("yearModel") not in (None, "") else row.get("year_model")
+    )
+    title = str(row.get("title") or "").strip()
+    snapshot = {
+        "id": vid,
+        "brand": brand or None,
+        "model": model or None,
+        "version": version or None,
+        "year": year,
+        "title": title or None,
+    }
+    return snapshot
+
+
+def conversational_label_from_record(row: dict[str, Any] | None) -> str | None:
+    """Model + version + year from a catalog record. Never invent missing fields."""
+    if not row:
+        return None
+    model = str(row.get("model") or "").strip()
+    version = str(row.get("version") or "").strip()
+    year_raw = row.get("year") if row.get("year") not in (None, "") else (
+        row.get("yearModel") if row.get("yearModel") not in (None, "") else row.get("year_model")
+    )
+    year = ""
+    if year_raw not in (None, ""):
+        try:
+            year = str(int(year_raw))
+        except (TypeError, ValueError):
+            year = str(year_raw).strip()
+    parts: list[str] = []
+    if model:
+        parts.append(model)
+    if version:
+        existing = " ".join(parts).lower()
+        if version.lower() not in existing:
+            parts.append(version)
+    if year:
+        existing = " ".join(parts)
+        if year not in existing:
+            parts.append(year)
+    return " ".join(parts) or None
+
+
+def catalog_summary_label(vehicle_id: str | None, *, presented: dict[str, Any] | None = None) -> str | None:
+    """Brand + model + version + year from the cadastral record when present."""
+    row = catalog_vehicle(vehicle_id, presented=presented)
+    if not row:
+        return None
+    brand = str(row.get("brand") or "").strip()
+    conversational = conversational_label_from_record(row)
+    if brand and conversational and brand.lower() not in conversational.lower():
+        return f"{brand} {conversational}".strip()
+    return conversational or brand or None
+
+
+def catalog_vehicle(
+    vehicle_id: str | None,
+    *,
+    presented: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if not vehicle_id:
+        return None
+    row = _VEHICLES_BY_ID.get(str(vehicle_id))
+    if row:
+        return row
+    if isinstance(presented, dict):
+        extra = presented.get(str(vehicle_id))
+        if isinstance(extra, dict):
+            return extra
+    return None
+
+
+def conversational_label_for_id(
+    vehicle_id: str | None,
+    *,
+    presented: dict[str, Any] | None = None,
+) -> str | None:
+    return conversational_label_from_record(catalog_vehicle(vehicle_id, presented=presented))
+
+
 def register_catalog_vehicles(vehicles: list[dict[str, Any]]) -> None:
     """Merge published/sold seed vehicles into the enrichment index."""
     for row in vehicles or []:
+        if not isinstance(row, dict):
+            continue
+        snapshot = _cadastral_snapshot(row)
+        vid = snapshot.get("id")
+        if vid:
+            _VEHICLES_BY_ID[str(vid)] = snapshot
         model = _norm_key(str(row.get("model") or ""))
-        brand = str(row.get("brand") or "").strip()
+        brand = str(row.get("brand") or row.get("brand_name") or "").strip()
         if model and brand:
             _MODEL_TO_BRAND.setdefault(model, brand)
             combined = _norm_key(f"{brand} {model}")
