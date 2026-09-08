@@ -17,6 +17,7 @@ from sdr.domain.dialogue_plan import (
     DirectQuestionKind,
     contains_financing_approval_claim,
     contains_internal_leak,
+    contains_repeated_handoff_confirmation,
     contains_vendor_confirmation,
     fallback_bubbles,
     infer_realized_acts,
@@ -456,6 +457,11 @@ def validate_dialogue_plan(
         _fail("internal_process_leak")
     if contains_vendor_confirmation(joined):
         _fail("visit_vendor_confirmation")
+    if (
+        DialogueAct.HANDOFF_MESSAGE.value not in parsed.acts
+        and contains_repeated_handoff_confirmation(joined)
+    ):
+        _fail("repeated_handoff_confirmation")
     if contains_financing_approval_claim(joined) or contains_forbidden_financial_promise(joined):
         _fail("financing_as_approved")
     if DialogueAct.SAFETY_DISCLAIMER.value in parsed.acts:

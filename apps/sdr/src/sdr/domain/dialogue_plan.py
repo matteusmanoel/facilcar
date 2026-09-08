@@ -168,6 +168,13 @@ _VENDOR_CONFIRM = re.compile(
     r"vou\s+confirmar\s+com\s+o\s+vendedor",
     re.I,
 )
+_REPEATED_HANDOFF_CONFIRM = re.compile(
+    r"vou\s+encaminhar|"
+    r"j[aá]\s+organizei\s+as\s+informa|"
+    r"j[aá]\s+reuni\s+as\s+informa",
+    re.I,
+)
+_POST_HANDOFF_LIFECYCLES = frozenset({"HANDOFF_SENT", "AI_RESUMED"})
 
 
 @dataclass(slots=True)
@@ -761,8 +768,11 @@ def build_dialogue_plan(
     if any(q.kind == DirectQuestionKind.FINANCING_100 for q in commercial_qs) or (
         not commercial_qs
         and facts.get("down_payment") in (0, "0")
-        and "payment_method" in (new_fact_keys + known_fields)
         and facts.get("payment_method") == "financing"
+        and (
+            "down_payment" in new_fact_keys
+            or "payment_method" in new_fact_keys
+        )
     ):
         acts.append(DialogueAct.SAFETY_DISCLAIMER.value)
         restrictions.append(
@@ -781,7 +791,8 @@ def build_dialogue_plan(
             acts.append(DialogueAct.INVITE_VISIT.value)
     if action_val == Action.SEND_LOCATION.value and not commercial_qs:
         acts.append(DialogueAct.INVITE_VISIT.value)
-    if action_val == Action.HANDOFF_VENDOR.value and not commercial_qs:
+    vendor_notified = lifecycle in _POST_HANDOFF_LIFECYCLES
+    if action_val == Action.HANDOFF_VENDOR.value and not commercial_qs and not vendor_notified:
         acts.append(DialogueAct.HANDOFF_MESSAGE.value)
     if action_val == Action.COMMERCIAL_UNKNOWN.value:
         acts.append(DialogueAct.CLARIFY.value)
@@ -825,6 +836,19 @@ def build_dialogue_plan(
         "HUMAN_ACTIVE",
         "AI_RESUMED",
     )
+    if vendor_notified:
+        restrictions.append(
+            "O vendedor já foi notificado. NÃO diga que vai encaminhar, "
+            "já organizou as informações, ou repita a confirmação de handoff."
+        )
+        from sdr.domain.visit import is_visit_calendar_utterance, parse_visit_utterance
+
+        parsed_visit = parse_visit_utterance(inbound_text)
+        visit_update = is_visit_calendar_utterance(inbound_text) or bool(
+            parsed_visit.time or parsed_visit.date or parsed_visit.period
+        )
+        if visit_update and not commercial_qs:
+            acts.append(DialogueAct.CONFIRM_VISIT.value)
 
     use_name = bool(
         should_introduce
@@ -856,6 +880,7 @@ def build_dialogue_plan(
             action_val == Action.ASK_INFO.value
             and ask == "documents"
             and bool(remaining_docs)
+            and not vendor_notified
             and (
                 state.document_received
                 or any(status == "received" for status in (state.facts.get("document_status") or {}).values())
@@ -1068,6 +1093,11 @@ def contains_vendor_confirmation(text: str) -> bool:
     return bool(_VENDOR_CONFIRM.search(text or ""))
 
 
+def contains_repeated_handoff_confirmation(text: str) -> bool:
+    """True when copy repeats the first-handoff confirmation after the vendor was notified."""
+    return bool(_REPEATED_HANDOFF_CONFIRM.search(text or ""))
+
+
 def contains_financing_approval_claim(text: str) -> bool:
     return financing_approval_claim(text)
 
@@ -1271,6 +1301,8 @@ def fallback_bubbles(
             if not es
             else "Anoté una cuota deseada."
         )
+    elif DialogueAct.ACKNOWLEDGE_FACT.value in plan.acts and "down_payment" in plan.facts_to_acknowledge:
+        bubbles.append("Certo, anotei a entrada." if not es else "De acuerdo, anoté la entrada.")
     elif DialogueAct.ACKNOWLEDGE_FACT.value in plan.acts and "payment_method" in plan.facts_to_acknowledge:
         if "down_payment" not in kinds and DirectQuestionKind.FINANCING_100.value not in kinds:
             bubbles.append("Certo." if not es else "De acuerdo.")

@@ -583,6 +583,28 @@ def _template_compose(
     if action == "no_reply":
         return []
 
+    lifecycle = str(state.get("lifecycle_status") or "")
+    post_handoff = lifecycle in ("HANDOFF_SENT", "AI_RESUMED")
+    if post_handoff and action != "handoff_vendor" and not handoff:
+        if action == "ask_info" and state.get("ack_kind"):
+            ack_bubbles = _ask_info_bubbles(state, action_plan)
+            if ack_bubbles:
+                return ack_bubbles[:3]
+        from sdr.domain.dialogue_plan import DialoguePlan, fallback_bubbles
+
+        parsed = DialoguePlan.from_mapping(plan)
+        question = _required_question(state, action_plan, lang) if parsed.canonical_question else None
+        bubbles = fallback_bubbles(
+            parsed,
+            language=lang,
+            customer_name=state.get("customer_name") if isinstance(state.get("customer_name"), str) else None,
+            next_question=question,
+            document_kind=str(state.get("document_kind") or "") or None,
+            should_introduce=bool(state.get("should_introduce")),
+        )
+        if bubbles:
+            return bubbles[: parsed.max_text_bubbles or 3]
+
     if (plan or {}).get("primary_action") == "answer_direct_question" and action in (
         "ask_info",
         "register_visit_interest",
@@ -602,7 +624,7 @@ def _template_compose(
         if bubbles:
             return bubbles[: parsed.max_text_bubbles or 3]
 
-    if action == "handoff_vendor" or handoff:
+    if action == "handoff_vendor" or (handoff and not post_handoff):
         msg = HANDOFF_CONFIRMATION_ES if lang == "es" else HANDOFF_CONFIRMATION_PT
         return [msg]
 

@@ -787,12 +787,19 @@ async def process_turn(
     )
 
     # Structured visit preference from this inbound — date-only is valid.
+    from sdr.domain.ownership import vendor_already_notified
     from sdr.domain.scheduling import suggest_visit_slots
-    from sdr.domain.visit import apply_visit_from_inbound
+    from sdr.domain.visit import apply_visit_from_inbound, apply_visit_utterance, parse_visit_utterance
 
     inbound_low = (inbound.effective_text or "").lower()
     saturday_ask = "sábado" in inbound_low or "sabado" in inbound_low
-    parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
+    if vendor_already_notified(merged):
+        # After the vendor was notified, a time change is a new preference —
+        # do not rematch the previously offered slot labels ("em vez de 9h30").
+        parsed_visit = parse_visit_utterance(inbound.effective_text, [])
+        apply_visit_utterance(merged, parsed_visit)
+    else:
+        parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
     saturday_slots_already = all(
         "sábado" in str(s).lower() or "sabado" in str(s).lower()
         for s in (merged.offered_visit_slots or [])
@@ -838,6 +845,24 @@ async def process_turn(
         merged,
         inbound_has_direct_question=bool(merged.unanswered_questions),
     )
+    from sdr.domain.visit import should_send_store_location
+
+    if not should_send_store_location(merged):
+        plan.tool_calls = [
+            tc for tc in (plan.tool_calls or []) if tc.get("tool") != "send_location"
+        ]
+        if plan.action == Action.SEND_LOCATION:
+            plan = ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                reason_code="post_handoff_continue" if vendor_already_notified(merged) else plan.reason_code,
+                reason="Store location already sent; continue without a second pin",
+            )
+            annotate_action_plan(
+                plan,
+                merged,
+                inbound_has_direct_question=bool(merged.unanswered_questions),
+            )
 
     # After deciding, persist the field being asked so the next turn can resolve
     # short confirmations ("sim", "exato") against the right context.

@@ -253,15 +253,18 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
     # Store location is a capability request — execute before visit/handoff.
     if state.location_request:
-        return _finish(ActionPlan(
-            action=Action.SEND_LOCATION,
-            handoff=False,
-            tool_calls=[{"tool": "send_location"}],
-            ask_field="visit",
-            next_question="visit",
-            reason_code="explicit_location_request",
-            reason="Send store pin and invite a visit",
-        ))
+        from sdr.domain.visit import should_send_store_location
+
+        if should_send_store_location(state):
+            return _finish(ActionPlan(
+                action=Action.SEND_LOCATION,
+                handoff=False,
+                tool_calls=[{"tool": "send_location"}],
+                ask_field="visit",
+                next_question="visit",
+                reason_code="explicit_location_request",
+                reason="Send store pin and invite a visit",
+            ))
 
     # Irreversible handoff from gated explicit signals — vendor beats documents.
     # A commercial question is not a vendor emergency; explicit_handoff may still win.
@@ -309,54 +312,55 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     if state.document_received:
         if _has_unanswered_question():
             return _answer_unanswered_question()
-        ask = next_ask_field(state)
-        if ask and ask not in (None, "intent", "documents"):
-            _mark_enrichment_ask(state, remaining=False)
-            return _finish(ActionPlan(
-                action=Action.ASK_INFO,
-                handoff=False,
-                ask_field=ask,
-                next_question=ask,
-                reason_code="document_received_ack",
-                reason="Acknowledge extracted document; continue roteiro",
-            ))
-        if should_ask_remaining_documents(state):
-            _mark_enrichment_ask(state, remaining=True)
-            return _finish(ActionPlan(
-                action=Action.ASK_INFO,
-                handoff=False,
-                ask_field="documents",
-                next_question="documents",
-                reason_code="remaining_documents",
-                reason="Acknowledge received document and ask remaining pack once",
-            ))
-        if ask == "documents":
-            _mark_enrichment_ask(state, remaining=False)
-            return _finish(ActionPlan(
-                action=Action.ASK_INFO,
-                handoff=False,
-                ask_field="documents",
-                next_question="documents",
-                reason_code="document_received_ack",
-                reason="Acknowledge extracted document; continue roteiro",
-            ))
-        if (
-            state.intent in _VISIT_ELIGIBLE_INTENTS
-            and not state.visit_invited
-        ):
-            state.visit_invited = True
-            return _finish(ActionPlan(
-                action=Action.REGISTER_VISIT_INTEREST,
-                handoff=False,
-                tool_calls=[{"tool": "register_visit_interest"}],
-                reason_code=(
-                    "document_pack_complete_visit"
-                    if not remaining_document_components(state)
-                    else "document_received_visit_after_docs"
-                ),
-                reason="Acknowledge document without a concurrent remaining-doc ask",
-            ))
-        # Fall through to visit/handoff close path.
+        if not vendor_already_notified(state):
+            ask = next_ask_field(state)
+            if ask and ask not in (None, "intent", "documents"):
+                _mark_enrichment_ask(state, remaining=False)
+                return _finish(ActionPlan(
+                    action=Action.ASK_INFO,
+                    handoff=False,
+                    ask_field=ask,
+                    next_question=ask,
+                    reason_code="document_received_ack",
+                    reason="Acknowledge extracted document; continue roteiro",
+                ))
+            if should_ask_remaining_documents(state):
+                _mark_enrichment_ask(state, remaining=True)
+                return _finish(ActionPlan(
+                    action=Action.ASK_INFO,
+                    handoff=False,
+                    ask_field="documents",
+                    next_question="documents",
+                    reason_code="remaining_documents",
+                    reason="Acknowledge received document and ask remaining pack once",
+                ))
+            if ask == "documents":
+                _mark_enrichment_ask(state, remaining=False)
+                return _finish(ActionPlan(
+                    action=Action.ASK_INFO,
+                    handoff=False,
+                    ask_field="documents",
+                    next_question="documents",
+                    reason_code="document_received_ack",
+                    reason="Acknowledge extracted document; continue roteiro",
+                ))
+            if (
+                state.intent in _VISIT_ELIGIBLE_INTENTS
+                and not state.visit_invited
+            ):
+                state.visit_invited = True
+                return _finish(ActionPlan(
+                    action=Action.REGISTER_VISIT_INTEREST,
+                    handoff=False,
+                    tool_calls=[{"tool": "register_visit_interest"}],
+                    reason_code=(
+                        "document_pack_complete_visit"
+                        if not remaining_document_components(state)
+                        else "document_received_visit_after_docs"
+                    ),
+                    reason="Acknowledge document without a concurrent remaining-doc ask",
+                ))
+        # After vendor notified: ack only. Fall through to visit/handoff close path.
 
     # Courtesy-only inbound must not reopen qualification questions.
     # If nothing useful remains to ask, keep the visit/handoff close path.
@@ -469,6 +473,8 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     # Collect applicable fields before closing. Incomplete leads still hand off
     # on explicit signals (handled above) or once the minimum roteiro is done.
     ask = next_ask_field(state)
+    if vendor_already_notified(state) and ask == "documents":
+        ask = None
     if ask and ask != "intent":
         remaining_ask = ask == "documents" and should_ask_remaining_documents(state)
         if _has_unanswered_question() and (remaining_ask or ask == "documents"):
@@ -520,7 +526,7 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             ))
         if vendor_already_notified(state):
             return _finish(ActionPlan(
-                action=Action.SMALLTALK,
+                action=Action.ASK_INFO,
                 handoff=False,
                 reason_code="post_handoff_continue",
                 reason="Vendor already notified; continue without a second handoff",
