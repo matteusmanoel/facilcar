@@ -8,6 +8,7 @@ import {
   requireAdminRole,
 } from "@/features/auth/server/rbac";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { interpretClaimCount } from "./claim-result";
 
 const NOT_DELETED = { deletedAt: null } as const;
@@ -56,7 +57,7 @@ type OwnershipMirrorPatch = {
 function mirrorOwnershipInCanonicalJson(
   raw: unknown,
   patch: OwnershipMirrorPatch,
-): Record<string, unknown> {
+): Prisma.InputJsonValue {
   const base =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
@@ -76,7 +77,7 @@ function mirrorOwnershipInCanonicalJson(
     base.resumed_at = patch.resumedAt?.toISOString() ?? null;
     base.resume_reason = patch.resumeReason ?? null;
   }
-  return base;
+  return base as Prisma.InputJsonObject;
 }
 
 /**

@@ -157,7 +157,7 @@ class IsolatedCrmStore:
         """Stamp vendor notify once. QUALIFIED status is not confirmation."""
         key = vendor_notify_idempotency_key(state)
         existing_ts = rec.get("vendorNotifiedAt") or self._notify_at.get(key)
-        already = key in self._notify_keys or bool(state.vendor_notified_at) or bool(existing_ts)
+        already = key in self._notify_keys or bool(existing_ts)
         if already:
             self._notify_keys.add(key)
             ts = state.vendor_notified_at or existing_ts

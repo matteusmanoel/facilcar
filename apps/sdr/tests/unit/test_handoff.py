@@ -52,6 +52,7 @@ def test_mark_handoff_sent_keeps_ai_active() -> None:
     )
     mark_handoff_sent(state, "triage_actionable")
     assert state.lifecycle.status == LifecycleStatus.HANDOFF_SENT
+    assert state.vendor_notified_at is not None
     assert is_ai_silenced(state) is False
     plan = decide(state)
     assert plan.action != Action.NO_REPLY

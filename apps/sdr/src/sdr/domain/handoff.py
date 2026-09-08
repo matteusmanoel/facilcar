@@ -181,7 +181,11 @@ def is_ai_silenced(state: ConversationCanonicalState) -> bool:
 
 
 def mark_handoff_sent(state: ConversationCanonicalState, reason: str | None = None) -> None:
-    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (vendor notified, AI still active)."""
+    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (vendor notified, AI still active).
+
+    Stamps ``vendor_notified_at`` once. Manual status mutation is not dispatch
+    evidence; this action is.
+    """
     if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
         return
     state.lifecycle.status = LifecycleStatus.HANDOFF_SENT
@@ -191,6 +195,9 @@ def mark_handoff_sent(state: ConversationCanonicalState, reason: str | None = No
         from sdr.domain.clock import now_brt
 
         state.handoff_at = now_brt().isoformat()
+    from sdr.domain.ownership import confirm_vendor_dispatch
+
+    confirm_vendor_dispatch(state)
 
 
 def mark_human_active(state: ConversationCanonicalState) -> None:
