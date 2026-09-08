@@ -1,6 +1,7 @@
 import type { MessageContentType, Prisma } from "@prisma/client";
 import { extractInboundMessages } from "@/features/catalog-import/server/evolution-parse";
 import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
+import { humanFromMeOwnershipCas } from "./human-from-me-cas";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
 import { extractSdrQuotedContext } from "./quoted-context";
@@ -141,18 +142,17 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     let isHumanSent = false;
     if (msg.fromMe) {
       isHumanSent = true;
-      // Never auto-humanize if thread already past handoff confirmation only —
-      // still mark HUMAN_ACTIVE so Julia stays silent on seller typing.
-      if (
-        conversation.botStatus !== "HUMAN_ACTIVE" &&
-        conversation.botStatus !== "HUMAN_CLOSED"
-      ) {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            botStatus: "HUMAN_ACTIVE",
-            handoffAt: conversation.handoffAt ?? lastAt,
-          },
+      const cas = humanFromMeOwnershipCas({
+        conversationId: conversation.id,
+        ownershipRevision: conversation.ownershipRevision,
+        botStatus: conversation.botStatus,
+        handoffAt: conversation.handoffAt,
+        lastAt,
+      });
+      if (cas) {
+        await prisma.conversation.updateMany({
+          where: cas.where,
+          data: cas.data,
         });
       }
     }

@@ -3,10 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
+import type { ConversationBotStatus } from "@prisma/client";
 import {
   claimLeadAction,
+  resumeConversationAction,
   updateLeadAssignmentAction,
 } from "@/features/lead/server/mutations";
+import {
+  canAssumeConversation,
+  canResumeConversation,
+} from "@/features/lead/lib/bot-status-label";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -23,6 +29,7 @@ type Props = {
   currentAssignedToUserId: string | null;
   currentUserId: string;
   sellers: Seller[];
+  botStatus: ConversationBotStatus | null;
 };
 
 export function AssignLeadForm({
@@ -30,10 +37,12 @@ export function AssignLeadForm({
   currentAssignedToUserId,
   currentUserId,
   sellers,
+  botStatus,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const canClaim = currentAssignedToUserId == null;
+  const canClaim = canAssumeConversation(botStatus, currentAssignedToUserId != null);
+  const canResume = canResumeConversation(botStatus);
 
   return (
     <div className="flex flex-col gap-2">
@@ -64,6 +73,33 @@ export function AssignLeadForm({
           }}
         >
           Assumir
+        </Button>
+      ) : null}
+
+      {canResume ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isPending}
+          className="w-full"
+          onClick={() => {
+            startTransition(async () => {
+              try {
+                const result = await resumeConversationAction(leadId);
+                if (!result.ok) {
+                  toast.error(result.error ?? "Não foi possível devolver para a Júlia.");
+                  router.refresh();
+                  return;
+                }
+                router.refresh();
+                toast.success("Conversa devolvida para a Júlia.");
+              } catch {
+                toast.error("Erro ao devolver a conversa. Tente novamente.");
+              }
+            });
+          }}
+        >
+          Devolver para a Júlia
         </Button>
       ) : null}
 

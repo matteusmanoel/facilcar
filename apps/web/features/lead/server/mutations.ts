@@ -19,8 +19,9 @@ import {
   parseOptionalInt,
   parseOptionalNumber,
 } from "@/features/lead/lib/edit-values";
-import { interpretClaimCount } from "./claim-result";
 import { nextPrimaryVehicleId } from "@/features/lead/lib/vehicle-label";
+
+export { claimLeadAction, resumeConversationAction } from "./conversation-ownership";
 
 const NOT_DELETED = { deletedAt: null } as const;
 
@@ -112,6 +113,7 @@ export async function updateLeadNoteAction(leadId: string, note: string) {
   revalidatePath(`/admin/leads/${leadId}`);
 }
 
+/** CRM dropdown assignment only. Must not set Conversation HUMAN_ACTIVE. */
 export async function updateLeadAssignmentAction(leadId: string, assignedToUserId: string | null) {
   await requireLeadManager();
 
@@ -132,39 +134,6 @@ export async function updateLeadAssignmentAction(leadId: string, assignedToUserI
 
   revalidatePath(`/admin/leads/${leadId}`);
   revalidatePath("/admin/leads");
-}
-
-/**
- * Atomic claim: only succeeds when lead is unassigned and not deleted.
- * First writer wins under concurrent Assumir clicks.
- */
-export async function claimLeadAction(leadId: string) {
-  let userId: string;
-  try {
-    const { user } = await requireLeadManager();
-    userId = user.id;
-  } catch (e) {
-    return handleAuthError(e);
-  }
-
-  const result = await prisma.lead.updateMany({
-    where: {
-      id: leadId,
-      assignedToUserId: null,
-      deletedAt: null,
-    },
-    data: { assignedToUserId: userId },
-  });
-
-  const interpreted = interpretClaimCount(result.count);
-  if (!interpreted.ok) return interpreted;
-
-  revalidatePath(`/admin/leads/${leadId}`);
-  revalidatePath("/admin/leads");
-  revalidatePath("/admin/crm");
-  revalidatePath("/admin");
-
-  return { ok: true as const };
 }
 
 export async function createManualLeadAction(input: unknown) {

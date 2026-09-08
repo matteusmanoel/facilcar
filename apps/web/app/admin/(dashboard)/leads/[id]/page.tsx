@@ -19,6 +19,7 @@ import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
 import { originalCustomerMessage } from "@/features/lead/lib/original-message";
 import { ageFromBirthDate } from "@/features/lead/lib/age-from-birth";
 import { documentCrmView } from "@/features/lead/lib/document-crm";
+import { botStatusLabel } from "@/features/lead/lib/bot-status-label";
 
 const SOURCE_LABELS: Record<string, string> = {
   HOME: "Página inicial",
@@ -107,6 +108,13 @@ export default async function AdminLeadDetailPage({
         visitInterests: { orderBy: { createdAt: "desc" }, take: 1 },
         sdrDocuments: { orderBy: { createdAt: "asc" } },
         assignedToUser: { select: { id: true, name: true } },
+        conversation: {
+          select: {
+            botStatus: true,
+            assumedAt: true,
+            resumedAt: true,
+          },
+        },
       },
     }),
     prisma.user.findMany({
@@ -218,6 +226,11 @@ export default async function AdminLeadDetailPage({
               className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${TEMPERATURE_CLASSES[lead.temperature] ?? "bg-zinc-100 text-zinc-600"}`}
             >
               {TEMPERATURE_LABELS[lead.temperature] ?? lead.temperature}
+            </span>
+          ) : null}
+          {botStatusLabel(lead.conversation?.botStatus) ? (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+              {botStatusLabel(lead.conversation?.botStatus)}
             </span>
           ) : null}
         </div>
@@ -467,9 +480,20 @@ export default async function AdminLeadDetailPage({
                   currentAssignedToUserId={lead.assignedToUserId}
                   currentUserId={currentUser.id}
                   sellers={sellers}
+                  botStatus={lead.conversation?.botStatus ?? null}
                 />
                 {lead.assignedToUser ? (
                   <p className="mt-1 text-xs text-facil-muted">Atual: {lead.assignedToUser.name}</p>
+                ) : null}
+                {lead.conversation?.assumedAt ? (
+                  <p className="mt-1 text-xs text-facil-muted">
+                    Assumido em {new Date(lead.conversation.assumedAt).toLocaleString("pt-BR")}
+                  </p>
+                ) : null}
+                {lead.conversation?.resumedAt && lead.conversation.botStatus === "AI_RESUMED" ? (
+                  <p className="mt-1 text-xs text-facil-muted">
+                    Reativado em {new Date(lead.conversation.resumedAt).toLocaleString("pt-BR")}
+                  </p>
                 ) : null}
               </div>
               <div>
