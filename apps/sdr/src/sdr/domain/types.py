@@ -127,6 +127,12 @@ class TurnFacts:
     photo_request: bool | None = None
     # Protocol: customer asked for the store location this turn.
     location_request: bool | None = None
+    # Pause / follow-up suggestions — LLM may fill these; code decides wait-state.
+    # None means omitted: merge must not clear previously known values.
+    pause_reason: str | None = None
+    temporal_commitment: Any = None
+    consent_level: str | None = None
+    pause_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -264,6 +270,11 @@ class ConversationCanonicalState:
     handoff_at: str | None = None
     # Dispatch evidence — set only after HANDOFF_VENDOR persist is confirmed.
     vendor_notified_at: str | None = None
+    # Follow-up wait-state — separate from lifecycle.botStatus ownership.
+    # Values: FollowUpWaitState; LLM omission must not clear this.
+    wait_state: str = "ACTIVE_QUALIFICATION"
+    # FollowUpRecord (sdr.domain.followup) — pause, consent, schedule, attempts.
+    followup: Any = None
 
 
 @dataclass(slots=True)

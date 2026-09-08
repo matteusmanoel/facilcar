@@ -14,6 +14,11 @@ from sdr.domain.document_status import (
     parse_document_deferral,
 )
 from sdr.domain.engine_displacement import as_engine_list, engine_list_for_json
+from sdr.domain.followup import (
+    FollowUpWaitState,
+    copy_followup_record,
+    overlay_followup_suggestions,
+)
 from sdr.domain.pending_interaction import (
     AlternativeScope,
     PendingInteraction,
@@ -385,6 +390,8 @@ def deterministic_merge(
         resume_reason=getattr(prev, "resume_reason", None),
         handoff_at=getattr(prev, "handoff_at", None),
         vendor_notified_at=getattr(prev, "vendor_notified_at", None),
+        wait_state=getattr(prev, "wait_state", None) or FollowUpWaitState.ACTIVE_QUALIFICATION.value,
+        followup=copy_followup_record(prev),
         handoff_ready=prev.handoff_ready,
         profile_complete=prev.profile_complete,
         missing_fields=list(prev.missing_fields),
@@ -484,6 +491,18 @@ def deterministic_merge(
         state.photo_request = True
     if facts.location_request is True:
         state.location_request = True
+
+    # Follow-up suggestions overlay known pause facts; omission never clears wait-state.
+    overlay_followup_suggestions(state.followup, facts)
+    if int(state.assistant_turn_count or 0) >= 1 and (
+        state.intent not in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK)
+        or state.facts.get("desired_model")
+        or state.facts.get("desired_vehicle")
+        or state.facts.get("desired_vehicle_text")
+    ):
+        state.followup.significant_commercial_exchange = True
+    if state.pending_question:
+        state.followup.last_bot_had_actionable_question = True
 
     _apply_pending_and_scope(state, facts)
     _bump_lifecycle(state)
