@@ -239,7 +239,8 @@ async def test_smalltalk_first_turn_template_may_introduce() -> None:
     )
     joined = " ".join(bubbles).lower()
     assert "júlia" in joined or "julia" in joined
-    assert "compra" in joined
+    assert "ajudar" in joined or "veículo" in joined
+    assert not ("comprar" in joined and "trocar" in joined and "refinanc" in joined)
 
 
 @pytest.mark.asyncio

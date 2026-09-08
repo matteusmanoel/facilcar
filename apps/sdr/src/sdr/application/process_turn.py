@@ -121,8 +121,26 @@ def _ack_kind_from_facts(
         return "difference_financing"
     if applies == "difference" and method in {"cash", "a_vista"}:
         return "difference_cash"
-    if not pending_question:
+
+    def _from_collected() -> str | None:
+        if "desired_installment" in collected:
+            return "desired_installment"
+        if "down_payment" in collected:
+            return "down_payment"
+        payment = collected.get("payment_method")
+        if payment == "financing":
+            return "payment_financing"
+        if payment in {"cash", "a_vista"}:
+            return "payment_cash"
+        deal = collected.get("deal_type")
+        if deal == "purchase":
+            return "deal_purchase"
+        if deal == "trade":
+            return "deal_trade"
         return None
+
+    if not pending_question:
+        return _from_collected()
     if pending_question == "down_payment" and "down_payment" in collected:
         return "down_payment"
     if pending_question == "desired_installment" and "desired_installment" in collected:
@@ -141,7 +159,7 @@ def _ack_kind_from_facts(
         if deal == "trade":
             return "deal_trade"
         return None
-    return None
+    return _from_collected()
 
 
 def _visit_cta_style(merged: ConversationCanonicalState) -> str:
@@ -195,6 +213,7 @@ def _build_response_directive(
     turn_facts: TurnFacts | None = None,
     prev_pending_question: str | None = None,
     inbound: InboundTurn | None = None,
+    prev_primary_vehicle_id: str | None = None,
 ) -> ResponseDirective:
     """Build ResponseDirective — single source of truth for Composer inputs."""
     should_introduce = merged.assistant_turn_count == 0
@@ -289,6 +308,7 @@ def _build_response_directive(
     )
 
     from sdr.domain.cadence import cadence_for
+    from sdr.domain.dialogue_plan import build_dialogue_plan, dialogue_objective_suffix
 
     cadence_mode = cadence_for(
         action=plan.action,
@@ -301,6 +321,31 @@ def _build_response_directive(
         affordance = PendingInteraction.OFFER_ALTERNATIVES
         if "ask_if_alternatives_acceptable" not in allowed:
             allowed = [*allowed, "ask_if_alternatives_acceptable"]
+
+    dialogue = build_dialogue_plan(
+        inbound_text=inbound_text,
+        action=plan.action,
+        ask_field=plan.ask_field or plan.next_question,
+        intent=merged.intent,
+        should_introduce=should_introduce,
+        assistant_turn_count=merged.assistant_turn_count,
+        ack_kind=ack_kind,
+        inbound_content_type=inbound_content_type,
+        facts_context=facts_context,
+        turn_facts=turn_facts,
+        state=merged,
+        reason_code=plan.reason_code,
+        visit_cta_style=visit_cta,
+        document_kind=document_kind,
+        lifecycle_status=merged.lifecycle.status.value,
+        vehicle_chosen_this_turn=bool(
+            merged.primary_vehicle_id
+            and merged.primary_vehicle_id != prev_primary_vehicle_id
+        ),
+    )
+    suffix = dialogue_objective_suffix(dialogue)
+    if suffix:
+        objective = f"{objective} {suffix}".strip()
 
     return ResponseDirective(
         action=plan.action,
@@ -339,6 +384,7 @@ def _build_response_directive(
         visit_cta_style=visit_cta,
         document_kind=document_kind,
         expose_errors=_is_sandbox(),
+        dialogue_plan=dialogue.to_dict(),
     )
 
 
@@ -357,6 +403,7 @@ def _directive_to_state_and_plan_maps(
         "visit_cta_style": directive.visit_cta_style,
         "document_kind": directive.document_kind,
         "inbound_text": directive.inbound_text,
+        "dialogue_plan": dict(directive.dialogue_plan or {}),
         "response_objective": directive.response_objective,
         "intent": directive.intent.value,
         "customer_name": directive.customer_name,
@@ -699,6 +746,7 @@ async def process_turn(
             facts.facts = {**facts.facts, **identity_patch}
 
     prev_pending = state.pending_question
+    prev_primary = state.primary_vehicle_id
     merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
     apply_commercial_document_receipt(merged, inbound)
 
@@ -757,6 +805,10 @@ async def process_turn(
         )
     ):
         merged.signals.visit_intent = True
+
+    from sdr.domain.dialogue_plan import is_courtesy_only
+
+    merged.courtesy_only = is_courtesy_only(inbound.effective_text, facts)
 
     plan = decide(merged)
 
@@ -856,6 +908,7 @@ async def process_turn(
             facts,
             prev_pending,
             inbound,
+            prev_primary,
         )
         state_map, plan_map, tool_ctx = _directive_to_state_and_plan_maps(directive, plan)
         state_map["offered_visit_slots"] = list(merged.offered_visit_slots or [])
@@ -990,13 +1043,47 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
         return inventory_fallback_bubbles(
             directive.inventory_outcome, language=directive.language
         )
+    from sdr.domain.dialogue_plan import DialoguePlan, fallback_bubbles
+    from sdr.understanding.response_composer import _required_question
+
+    parsed = DialoguePlan.from_mapping(directive.dialogue_plan)
+    question = None
+    if plan.ask_field or plan.next_question:
+        question = _required_question(
+            {
+                "language": directive.language,
+                "facts": directive.facts_context,
+                "intent": directive.intent.value,
+            },
+            {"ask_field": plan.ask_field, "next_question": plan.next_question, "action": plan.action.value},
+            directive.language or "pt-BR",
+        )
+    bubbles = fallback_bubbles(
+        parsed,
+        language=directive.language,
+        customer_name=directive.customer_name,
+        next_question=question,
+        document_kind=directive.document_kind,
+        should_introduce=directive.should_introduce,
+    )
+    if bubbles:
+        return bubbles
     action = plan.action
     if action == Action.ASK_INFO and plan.next_question:
         return [plan.next_question]
     if action == Action.SMALLTALK:
         if directive.should_introduce:
-            return introduction_smalltalk_bubbles(directive.language)
-        return continuation_smalltalk_bubbles(directive.language)
+            return introduction_smalltalk_bubbles(
+                directive.language,
+                customer_name=directive.customer_name,
+                inbound_text=directive.inbound_text,
+                skip_intent_menu=parsed.skip_generic_intent_menu,
+            )
+        return continuation_smalltalk_bubbles(
+            directive.language,
+            inbound_text=directive.inbound_text,
+            courtesy=parsed.courtesy_only,
+        )
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
     if action == Action.REGISTER_VISIT_INTEREST:

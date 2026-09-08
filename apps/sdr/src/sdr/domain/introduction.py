@@ -65,8 +65,10 @@ def response_objective_for(*, action: Action | str, should_introduce: bool) -> s
     if should_introduce:
         if action_val == Action.SMALLTALK.value:
             return (
-                "Primeiro contato: apresente-se brevemente como Júlia da FacilCar "
-                "e pergunte se o cliente busca comprar, trocar, vender, consignar ou refinanciar."
+                "Primeiro contato: apresente-se brevemente como Júlia da FacilCar. "
+                "Se o cliente perguntou se você está bem, responda com reciprocidade. "
+                "Convide a pessoa a dizer como pode ajudar com o veículo. "
+                "Não use um menu rígido de comprar/trocar/vender/consignar/refinanciar."
             )
         return (
             "Primeira mensagem da Júlia nesta conversa: pode se apresentar "
@@ -76,8 +78,8 @@ def response_objective_for(*, action: Action | str, should_introduce: bool) -> s
         return (
             "Continuação: responda ao que o cliente acabou de dizer. "
             "Não cumprimente como primeiro contato. Não abra com Oi, Olá ou Hola. "
-            "Não se apresente. Se for reciprocidade social, responda brevemente "
-            "e convide a seguir para o que a pessoa busca."
+            "Não se apresente. Se for reciprocidade social, responda brevemente. "
+            "Se for só agradecimento, retribua sem reabrir o roteiro."
         )
     return (
         "Continuação: a Júlia já está nesta conversa. Não se apresente e não "
@@ -93,45 +95,69 @@ def display_first_name(full_name: str | None) -> str | None:
     return first.capitalize() if first else None
 
 
-def introduction_smalltalk_bubbles(language: str, customer_name: str | None = None) -> list[str]:
+def introduction_smalltalk_bubbles(
+    language: str,
+    customer_name: str | None = None,
+    inbound_text: str = "",
+    *,
+    skip_intent_menu: bool = False,
+) -> list[str]:
+    from sdr.domain.dialogue_plan import has_wellbeing_question
+
     first_name = display_first_name(customer_name)
-    if (language or "").lower().startswith("es"):
+    wellbeing = has_wellbeing_question(inbound_text)
+    es = (language or "").lower().startswith("es")
+    if es:
+        if wellbeing:
+            greeting = (
+                f"Hola{f', {first_name}' if first_name else ''}! Todo bien sí, ¿y tú? "
+                "Soy Júlia de FacilCar."
+            )
+        elif first_name:
+            greeting = f"Hola, {first_name}. Soy Júlia de FacilCar."
+        else:
+            greeting = "¡Hola! Soy Júlia de FacilCar."
+        invite = (
+            "¿Cómo puedo ayudarte con este vehículo?"
+            if skip_intent_menu
+            else "¿Cómo puedo ayudarte con el vehículo?"
+        )
+        return [greeting, invite]
+    if wellbeing:
         greeting = (
-            f"Oi {first_name}, aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
-            if first_name
-            else "¡Hola! Soy Júlia de FacilCar. ¡Estamos felices de que nos hayas contactado!"
+            f"Oi{f', {first_name}' if first_name else ''}! Tudo bem sim, e com você? "
+            "Sou a Júlia da FacilCar."
         )
-        menu = (
-            "Cuéntame, ¿estás pensando en:\n"
-            "- Comprar\n"
-            "- Permutar\n"
-            "- Vender\n"
-            "- Consignar\n"
-            "- Refinanciar\n\n"
-            "un vehículo?"
-        )
-        return [greeting, menu]
-    greeting = (
-        f"Oi {first_name}! Aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
-        if first_name
-        else "Oi! Aqui é a Júlia da FacilCar. Estamos felizes pelo seu contato!"
+    elif first_name:
+        greeting = f"Oi, {first_name}! Sou a Júlia da FacilCar."
+    else:
+        greeting = "Oi! Sou a Júlia da FacilCar."
+    invite = (
+        "Como posso te ajudar com esse veículo?"
+        if skip_intent_menu
+        else "Como posso te ajudar com o veículo?"
     )
-    menu = (
-        "Me conta, você está pensando em:\n"
-        "- Comprar\n"
-        "- Trocar\n"
-        "- Vender\n"
-        "- Consignar\n"
-        "- Refinanciar\n\n"
-        "um veículo?"
-    )
-    return [greeting, menu]
+    return [greeting, invite]
 
 
-def continuation_smalltalk_bubbles(language: str) -> list[str]:
-    if (language or "").lower().startswith("es"):
-        return ["Todo bien por acá. Cuéntame qué estás buscando."]
-    return ["Tudo certo por aqui! Me conta o que você está procurando."]
+def continuation_smalltalk_bubbles(
+    language: str,
+    inbound_text: str = "",
+    *,
+    courtesy: bool = False,
+) -> list[str]:
+    from sdr.domain.dialogue_plan import has_wellbeing_question
+
+    es = (language or "").lower().startswith("es")
+    if courtesy:
+        return ["¡De nada! Cualquier cosa, me avisas."] if es else ["Por nada! Qualquer coisa é só chamar."]
+    if has_wellbeing_question(inbound_text):
+        if es:
+            return ["Todo bien sí, ¿y tú? Cuéntame cómo puedo ayudarte."]
+        return ["Tudo bem sim, e com você? Me conta como posso te ajudar."]
+    if es:
+        return ["Cuéntame qué necesitas que te ayudo."]
+    return ["Me conta o que você precisa que eu te ajudo."]
 
 
 def _contains_reopen_phrase(text: str) -> bool:

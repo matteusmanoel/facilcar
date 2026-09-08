@@ -218,6 +218,13 @@ class TurnTracer:
         conversational_affordance: str | None = None,
         budget_status: str | None = None,
         alternative_scope: str | None = None,
+        dialogue_acts: list[str] | None = None,
+        canonical_question: str | None = None,
+        facts_to_acknowledge: list[str] | None = None,
+        realized_acts: list[str] | None = None,
+        dialogue_violations: list[str] | None = None,
+        used_template_fallback: bool | None = None,
+        retries: int | None = None,
     ) -> None:
         self._record(
             "COMPOSER_INPUT",
@@ -228,6 +235,13 @@ class TurnTracer:
             conversational_affordance=conversational_affordance,
             budget_status=budget_status,
             alternative_scope=alternative_scope,
+            dialogue_acts=dialogue_acts or [],
+            canonical_question=canonical_question,
+            facts_to_acknowledge=facts_to_acknowledge or [],
+            realized_acts=realized_acts or [],
+            dialogue_violations=dialogue_violations or [],
+            used_template_fallback=bool(used_template_fallback),
+            retries=int(retries or 0),
         )
 
     def outbound(self, bubbles: list[str]) -> None:

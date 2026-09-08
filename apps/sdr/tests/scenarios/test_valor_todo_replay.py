@@ -105,11 +105,12 @@ async def test_valor_todo_sets_down_payment_zero_and_advances() -> None:
 
     joined = " ".join(result.outbound_texts)
 
-    # Template must acknowledge zero-entry without implying an "entrada"
-    assert "valor todo" in joined.lower() or "valor total" in joined.lower(), (
-        f"Response must confirm zero-entry with 'valor todo' or 'valor total' phrasing. "
-        f"Got: {result.outbound_texts}"
+    # Must acknowledge zero-entry without implying an "entrada" or promising approval
+    assert "sem entrada" in joined.lower() or "simula" in joined.lower(), (
+        f"Response must confirm zero-entry simulation. Got: {result.outbound_texts}"
     )
+    assert "vamos financiar" not in joined.lower()
+    assert "anotei a entrada" not in joined.lower()
 
     # Must NOT echo specific amounts (e.g., "100 mil", "30 mil")
     import re
@@ -150,9 +151,10 @@ async def test_sem_entrada_same_as_valor_todo() -> None:
     assert result.action_plan.ask_field == "desired_installment"
 
     joined = " ".join(result.outbound_texts).lower()
-    assert "valor todo" in joined or "valor total" in joined, (
-        f"Response for 'Sem entrada' must also use zero-entry phrasing. Got: {result.outbound_texts}"
+    assert "sem entrada" in joined or "simula" in joined, (
+        f"Response for 'Sem entrada' must acknowledge zero-entry. Got: {result.outbound_texts}"
     )
+    assert "vamos financiar" not in joined
 
 
 @pytest.mark.asyncio

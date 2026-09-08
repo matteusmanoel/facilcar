@@ -259,6 +259,18 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason=HANDOFF_CONFIRMATION_PT_BR,
         )
 
+    # Courtesy-only inbound must not reopen qualification questions.
+    # If nothing useful remains to ask, keep the visit/handoff close path.
+    if getattr(state, "courtesy_only", False) and not state.document_received:
+        remaining = next_ask_field(state)
+        if remaining and remaining not in (None, "intent"):
+            return ActionPlan(
+                action=Action.SMALLTALK,
+                handoff=False,
+                reason_code="courtesy",
+                reason="Acknowledge thanks without reopening the roteiro",
+            )
+
     # Inventory BEFORE triage handoff — respect preference and widened scope.
     if _needs_inventory_search(state):
         key = _state_search_key(state)

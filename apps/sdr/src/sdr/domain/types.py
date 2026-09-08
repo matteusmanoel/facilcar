@@ -233,6 +233,8 @@ class ConversationCanonicalState:
     visit_courtesy: bool = False
     visit_declined_this_turn: bool = False
     needs_visit_slot_offer: bool = False
+    # Turn-scoped: inbound was thanks-only, no new commercial facts.
+    courtesy_only: bool = False
     # Unequivocal listing identity from inbound (id / url / media metadata).
     listing_reference: str | None = None
     last_inventory_match: dict[str, Any] | None = None
@@ -300,6 +302,8 @@ class ResponseDirective:
     expose_errors: bool = False
     # Media / tool failure code for sandbox recovery copy.
     failure_code: str | None = None
+    # Semantic obligations for this turn (acts, questions, restrictions).
+    dialogue_plan: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

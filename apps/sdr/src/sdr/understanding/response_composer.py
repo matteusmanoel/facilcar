@@ -22,7 +22,11 @@ from sdr.domain.question_adherence import (
     evaluate_adherence,
     replace_question_bubble,
 )
-from sdr.understanding.validator import validate_bubbles, validate_introduction_policy
+from sdr.understanding.validator import (
+    validate_bubbles,
+    validate_dialogue_plan,
+    validate_introduction_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "desired_model": "Qual modelo ou tipo de carro você está buscando?",
     "model": "Qual modelo ou tipo de carro você está buscando?",
     "deal_type": "Seria compra ou troca?",
-    "down_payment": "Como você pensa nessa negociação? Tem ideia de entrada ou prefere analisar a parcela?",
+    "down_payment": "Prefere combinar uma entrada ou ir direto pela parcela?",
     "desired_installment": "Até quanto de parcela você tem em mente?",
     "income": "Pode me informar sua renda mensal aproximada?",
     "documents": "Pra montar a simulação, pode me enviar a CNH, um comprovante de residência e um comprovante de renda (holerite)?",
@@ -67,7 +71,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
 _FIELD_QUESTIONS_ES: dict[str, str] = {
     "name": "¿Me dices tu nombre, por favor?",
     "deal_type": "¿Sería compra o permuta?",
-    "down_payment": "¿Cómo piensas esta negociación? ¿Tienes idea de cuánto dar de entrada, o prefieres analizar la cuota?",
+    "down_payment": "¿Prefieres combinar una entrada o ir directo por la cuota?",
     "desired_installment": "¿Hasta cuánto de cuota tienes en mente?",
     "income": "¿Cuál es tu ingreso mensual aproximado? (solo para armar la pre-ficha)",
     "documents": "Para armar la pre-ficha, ¿puedes enviarme la licencia y un comprobante de ingresos?",
@@ -320,8 +324,8 @@ def _ack_followup_bubbles(
         if es:
             if zero_down:
                 text = (
-                    "Anoté tu interés en financiar el valor total. "
-                    "Las condiciones dependen del análisis de crédito."
+                    "Podemos hacer una simulación sin entrada. "
+                    "La aprobación y las condiciones dependen del análisis de la financiera."
                 )
             else:
                 text = (
@@ -331,8 +335,8 @@ def _ack_followup_bubbles(
         else:
             if zero_down:
                 text = (
-                    "Anotei seu interesse em financiar o valor todo. "
-                    "As condições variam conforme a análise de crédito."
+                    "Podemos fazer uma simulação sem entrada. "
+                    "A aprovação e as condições dependem da análise da financeira."
                 )
             else:
                 text = (
@@ -352,7 +356,7 @@ def _ack_followup_bubbles(
         if es:
             text = "Recibí: de contado."
         else:
-            text = "Recebi: à vista."
+            text = "Certo, então seria à vista."
         return [text, question] if question else [text]
     if kind == "down_payment":
         # Distinguish zero-entry (financia o valor todo) from positive-entry cases.
@@ -362,17 +366,21 @@ def _ack_followup_bubbles(
         no_down = down_val == 0 or down_val == "0"
         if es:
             if no_down:
-                text = "Entendido, financiaremos el valor total."
+                text = "Entendido, podemos simular sin entrada. Las condiciones dependen de la financiera."
             else:
                 text = "Entendido, anotada la entrada."
         else:
             if no_down:
-                text = "Entendido, vamos financiar o valor todo."
+                text = "Certo, então seria sem entrada. Podemos simular, sujeito à análise da financeira."
             else:
                 text = "Certo, anotei a entrada."
         return [text, question] if question else [text]
     if kind == "desired_installment":
-        return [question] if question else None
+        if es:
+            text = "Perfecto, anoté la cuota."
+        else:
+            text = "Perfeito, anotei a parcela."
+        return [text, question] if question else [text]
     if kind == "difference_financing":
         if es:
             text = "De acuerdo, la diferencia será financiada."
@@ -535,8 +543,21 @@ def _template_compose(
                 brief = "Oi, sou a Júlia da FacilCar!"
             return [brief, follow] if follow else [brief]
         if should_introduce:
-            return introduction_smalltalk_bubbles(lang, customer_name=state.get("customer_name"))
-        return continuation_smalltalk_bubbles(lang)
+            plan = state.get("dialogue_plan") or {}
+            skip_menu = bool(plan.get("skip_generic_intent_menu"))
+            inbound = str(state.get("inbound_text") or "")
+            return introduction_smalltalk_bubbles(
+                lang,
+                customer_name=state.get("customer_name"),
+                inbound_text=inbound,
+                skip_intent_menu=skip_menu,
+            )
+        courtesy = bool((state.get("dialogue_plan") or {}).get("courtesy_only"))
+        return continuation_smalltalk_bubbles(
+            lang,
+            inbound_text=str(state.get("inbound_text") or ""),
+            courtesy=courtesy,
+        )
 
     # COMMERCIAL_UNKNOWN: intent was UNKNOWN (not a greeting, not classified).
     # Must never produce a greeting or a generic "Como posso ajudar?".
@@ -669,6 +690,10 @@ def _template_compose(
         if state.get("ack_kind") == "document_received":
             docs = _document_received_bubbles(state, lang)
             return [*docs, visit[0]][:3]
+        ack = _ack_followup_bubbles(state, {"action": "ask_info"}, lang)
+        if ack:
+            ack_text = ack[0]
+            return [ack_text, visit[0]][:3] if ack_text != visit[0] else visit[:1]
         return visit[:1]
 
     # Fallback: one gentle clarifying bubble
@@ -800,6 +825,47 @@ _LAST_COMPOSE_META: dict[str, Any] = {
 }
 
 
+def _finalize_composed_bubbles(
+    bubbles: list[str],
+    state: Mapping[str, Any],
+    action_plan: Mapping[str, Any],
+    *,
+    language: str,
+    should_introduce: bool,
+    action: str,
+) -> tuple[list[str], dict[str, Any]]:
+    bubbles = validate_bubbles(list(bubbles), language=language)
+    bubbles, intro_meta = validate_introduction_policy(
+        bubbles,
+        should_introduce=should_introduce,
+        action=action,
+        language=language,
+    )
+    question = _required_question(state, action_plan, language)
+    dialogue_meta: dict[str, Any] = {}
+    plan = state.get("dialogue_plan")
+    if plan:
+        bubbles, dialogue_meta = validate_dialogue_plan(
+            bubbles,
+            plan,
+            language=language,
+            customer_name=state.get("customer_name") if isinstance(state.get("customer_name"), str) else None,
+            next_question=question,
+            document_kind=str(state.get("document_kind") or "") or None,
+            should_introduce=should_introduce,
+        )
+    bubbles, meta = _enforce_ask_field_adherence(bubbles, state, action_plan, language)
+    meta = {
+        **meta,
+        "introduction": intro_meta,
+        "dialogue": dialogue_meta,
+        "requested_acts": (dialogue_meta or {}).get("requested_acts") or (plan or {}).get("acts") or [],
+        "realized_acts": (dialogue_meta or {}).get("realized_acts") or [],
+        "used_template_fallback": bool((dialogue_meta or {}).get("fallback_used")),
+    }
+    return bubbles, meta
+
+
 def last_compose_meta() -> dict[str, Any]:
     return dict(_LAST_COMPOSE_META)
 
@@ -850,10 +916,6 @@ async def compose_response(
         and str(action_plan.get("ask_field") or action_plan.get("next_question") or "") == "visit"
     ):
         use_templates = True
-    elif state.get("ack_kind"):
-        # Roteiro acks use deterministic templates — prevents LLM from echoing
-        # amounts, re-asking known fields, or generating unreliable phrasing.
-        use_templates = True
     elif client is not None and _is_unittest_mock(client):
         use_templates = True
     elif client is None and not api_key:
@@ -863,19 +925,22 @@ async def compose_response(
 
         client = AsyncOpenAI(api_key=api_key)
 
+    # ack_kind no longer forces templates: the LLM phrases acknowledgments
+    # when a key is present; templates remain the offline / invalid-LLM fallback.
+
     should_introduce = bool(state.get("should_introduce", False))
     lang = _language(state)
 
     if use_templates:
         bubbles = _template_compose(state, action_plan, tool_context)
-        bubbles = validate_bubbles(bubbles, language=lang)
-        bubbles, _ = validate_introduction_policy(
+        bubbles, meta = _finalize_composed_bubbles(
             bubbles,
+            state,
+            action_plan,
+            language=lang,
             should_introduce=should_introduce,
             action=action,
-            language=lang,
         )
-        bubbles, meta = _enforce_ask_field_adherence(bubbles, state, action_plan, lang)
         _LAST_COMPOSE_META.update(meta)
         return bubbles
 
@@ -936,10 +1001,10 @@ async def compose_response(
         facts = state.get("facts") or {}
         if facts.get("down_payment") == 0 or facts.get("down_payment") == "0":
             tone_rule += (
-                "\nCliente pediu financiar 100%/sem entrada: confirme que anotou o "
-                "interesse em financiar o valor todo, diga que condições dependem da "
-                "análise de crédito (sem prometer aprovação) e avance. "
-                "NÃO pergunte valor de entrada de novo."
+                "\nCliente perguntou se financia 100%/sem entrada: responda que "
+                "é possível SIMULAR sem entrada; aprovação, taxa e prazo dependem "
+                "da financeira. NÃO diga 'vamos financiar o valor todo', NÃO afirme "
+                "aprovação. NÃO pergunte entrada de novo. Depois uma pergunta principal."
             )
         else:
             tone_rule += "\nConfirme o recebimento (financiamento) e avance para a entrada."
@@ -1005,7 +1070,7 @@ async def compose_response(
         "context": {
             "intent": state.get("intent", "unknown"),
             "language": state.get("language", "pt-BR"),
-            "customer_name": state.get("customer_name"),
+            "customer_name": state.get("customer_name") if (state.get("dialogue_plan") or {}).get("use_name") else None,
             "facts": state.get("facts", {}),
             "lifecycle_status": state.get("lifecycle_status", "BOT_ACTIVE"),
             "should_introduce": should_introduce,
@@ -1017,10 +1082,12 @@ async def compose_response(
             "claims_forbidden": state.get("claims_forbidden", []),
             "claims_allowed": state.get("claims_allowed", []),
             "inventory_outcome": inv_outcome,
+            "dialogue_plan": state.get("dialogue_plan") or {},
         },
         "action_plan": dict(action_plan),
         "tool_results": dict(tool_context or {}),
         "inbound_text": inbound_text,
+        "dialogue_plan": state.get("dialogue_plan") or {},
     }
 
     response = await client.chat.completions.create(
@@ -1040,38 +1107,45 @@ async def compose_response(
     )
 
     raw = response.choices[0].message.content or "{}"
+    used_llm_fallback = False
     try:
         data = json.loads(raw)
         bubbles = data.get("bubbles") if isinstance(data, Mapping) else None
         if not isinstance(bubbles, list):
             bubbles = _template_compose(state, action_plan, tool_context)
+            used_llm_fallback = True
         else:
             bubbles = [str(b) for b in bubbles if b]
     except json.JSONDecodeError:
         logger.warning("compose_response: invalid JSON; using templates")
         bubbles = _template_compose(state, action_plan, tool_context)
+        used_llm_fallback = True
 
-    bubbles = validate_bubbles(list(bubbles)[:3], language=lang)
-    bubbles, _ = validate_introduction_policy(
+    bubbles, meta = _finalize_composed_bubbles(
         bubbles,
+        state,
+        action_plan,
+        language=lang,
         should_introduce=should_introduce,
         action=action,
-        language=lang,
     )
     retries = 0
     questions_rejected = 0
+    dialogue_failed = bool((meta.get("dialogue") or {}).get("violations"))
     report = evaluate_adherence(
         bubbles,
         str(action_plan.get("ask_field") or action_plan.get("next_question") or ""),
         action=action,
     )
-    if not report.get("match"):
+    if (not report.get("match") or dialogue_failed) and not used_llm_fallback:
         questions_rejected = 1
         retries = 1
         retry_prompt = (
             system_prompt
-            + "\nA pergunta anterior NÃO tratava do campo pedido. "
-            + f"Pergunte SOMENTE sobre: {next_q_text or action_plan.get('ask_field')}."
+            + "\nA resposta anterior violou o plano semântico ou a pergunta canônica. "
+            + f"Pergunta canônica: {next_q_text or action_plan.get('ask_field') or 'nenhuma'}. "
+            + "Cumpra os atos do dialogue_plan. Não invente, não aprove financiamento, "
+            "não use menu genérico, não se reapresente."
         )
         try:
             retry_resp = await client.chat.completions.create(
@@ -1093,20 +1167,32 @@ async def compose_response(
             retry_data = json.loads(retry_raw)
             retry_bubbles = retry_data.get("bubbles") if isinstance(retry_data, Mapping) else None
             if isinstance(retry_bubbles, list) and retry_bubbles:
-                bubbles = validate_bubbles([str(b) for b in retry_bubbles if b][:3], language=lang)
-                bubbles, _ = validate_introduction_policy(
-                    bubbles,
+                bubbles, meta = _finalize_composed_bubbles(
+                    [str(b) for b in retry_bubbles if b][:3],
+                    state,
+                    action_plan,
+                    language=lang,
                     should_introduce=should_introduce,
                     action=action,
-                    language=lang,
                 )
         except Exception:
-            logger.warning("compose_response: ask_field retry failed; using template question")
-        bubbles, meta = _enforce_ask_field_adherence(bubbles, state, action_plan, lang)
+            logger.warning("compose_response: semantic retry failed; using validated fallback")
+            bubbles = _template_compose(state, action_plan, tool_context)
+            bubbles, meta = _finalize_composed_bubbles(
+                bubbles,
+                state,
+                action_plan,
+                language=lang,
+                should_introduce=should_introduce,
+                action=action,
+            )
+            meta["used_template_fallback"] = True
         meta["retries"] = retries
         meta["questions_rejected"] = questions_rejected + int(meta.get("questions_rejected") or 0)
         _LAST_COMPOSE_META.update(meta)
         return bubbles
 
-    _LAST_COMPOSE_META.update({**report, "retries": 0, "questions_rejected": 0, "used_template_fallback": False})
+    meta["retries"] = 0
+    meta["questions_rejected"] = 0
+    _LAST_COMPOSE_META.update(meta)
     return bubbles

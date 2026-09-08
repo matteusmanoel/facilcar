@@ -354,6 +354,7 @@ def deterministic_merge(
         visit_courtesy=False,
         visit_declined_this_turn=False,
         needs_visit_slot_offer=False,
+        courtesy_only=False,
         documents_asked=prev.documents_asked,
         installment_asked=prev.installment_asked,
         installment_mismatch_offered=prev.installment_mismatch_offered,
@@ -420,6 +421,12 @@ def deterministic_merge(
     if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:
         state.intent = BusinessIntent.PURCHASE_FINANCING
         state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE_FINANCING]
+    if (
+        state.facts.get("payment_method") in {"cash", "a_vista"}
+        and state.intent == BusinessIntent.PURCHASE_FINANCING
+    ):
+        state.intent = BusinessIntent.PURCHASE
+        state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE]
     if facts.facts.get("desired_engine_any") is True:
         state.facts.pop("desired_engine_displacement_liters", None)
         state.facts["desired_engine_any"] = True

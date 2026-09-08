@@ -1151,6 +1151,10 @@ class Orchestrator:
             tracer.tools_executed(result.tool_results)
             if result.response_directive is not None:
                 d = result.response_directive
+                from sdr.understanding.response_composer import last_compose_meta
+
+                compose_meta = last_compose_meta()
+                dialogue_meta = compose_meta.get("dialogue") or {}
                 tracer.composer_input(
                     action=d.action.value,
                     should_introduce=d.should_introduce,
@@ -1159,6 +1163,13 @@ class Orchestrator:
                     conversational_affordance=d.conversational_affordance.value,
                     budget_status=d.budget_status.value,
                     alternative_scope=d.alternative_scope.value,
+                    dialogue_acts=(d.dialogue_plan or {}).get("acts"),
+                    canonical_question=(d.dialogue_plan or {}).get("canonical_question"),
+                    facts_to_acknowledge=(d.dialogue_plan or {}).get("facts_to_acknowledge"),
+                    realized_acts=compose_meta.get("realized_acts") or dialogue_meta.get("realized_acts"),
+                    dialogue_violations=dialogue_meta.get("violations"),
+                    used_template_fallback=compose_meta.get("used_template_fallback"),
+                    retries=compose_meta.get("retries"),
                 )
             tracer.outbound(result.outbound_texts)
             if result.outbound_media and hasattr(tracer, "media_actions"):

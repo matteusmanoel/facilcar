@@ -300,7 +300,7 @@ class TestDownPaymentAckPayload:
         bubbles = asyncio.run(_run())
         assert bubbles, "Expected at least one bubble for down_payment=0 ack."
         combined = " ".join(bubbles).lower()
-        assert "entrada" not in combined or "sem entrada" in combined or "financiar o valor todo" in combined or "total" in combined, (
+        assert "entrada" not in combined or "sem entrada" in combined or "simula" in combined, (
             f"Template for down_payment=0 must not imply the customer has an entry. Got: {bubbles!r}"
         )
         # The old bug: template said "taxas do financiamento tendem a ser ainda melhores"
