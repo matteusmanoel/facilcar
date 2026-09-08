@@ -1156,10 +1156,21 @@ class ConversationRepository:
         content_type: str = "TEXT",
         presented_vehicle: dict[str, Any] | None = None,
     ) -> str:
-        """Persist bot outbound before/after Evolution send for fromMe dedupe."""
+        """Persist Júlia outbound with isBotSent so fromMe echoes are not human.
+
+        Correlation key is ``(instanceName, providerMessageId)``. Duplicate
+        Evolution deliveries hit ON CONFLICT and must not be treated as a
+        seller. Empty provider ids are reserved as ``bot-{uuid}`` so the row
+        is still correlatable after insert.
+
+        Residual TOCTOU: callers that send_text then insert can lose the race
+        against an Evolution echo that already carries the real provider id.
+        Ingest refuses assume when that id is missing; it cannot close the
+        remaining send-then-insert window without reserving the id first.
+        """
         now = _now()
         msg_id = str(uuid.uuid4())
-        provider_id = provider_message_id or f"bot-{msg_id}"
+        provider_id = (provider_message_id or "").strip() or f"bot-{msg_id}"
         ctype = (content_type or "TEXT").upper()
         if ctype not in {"TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "STICKER"}:
             ctype = "TEXT"
@@ -1195,6 +1206,32 @@ class ConversationRepository:
                 turn_facts,
             )
             return str(row["id"]) if row else msg_id
+
+    async def has_bot_outbound_provider_id(
+        self,
+        *,
+        instance_name: str,
+        provider_message_id: str | None,
+    ) -> bool:
+        """True when this instance already recorded a bot send with this id.
+
+        Scoped to instanceName so another tenant/conversation cannot satisfy
+        correlation. Missing/blank ids are insufficient provenance.
+        """
+        pid = (provider_message_id or "").strip()
+        if not pid:
+            return False
+        sql = f'''
+            SELECT 1
+            FROM "{SCHEMA}"."Message"
+            WHERE "instanceName" = $1
+              AND "providerMessageId" = $2
+              AND "isBotSent" = true
+            LIMIT 1
+        '''
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(sql, instance_name, pid)
+        return row is not None
 
     async def patch_canonical_facts(
         self, conversation_id: str, facts_patch: dict

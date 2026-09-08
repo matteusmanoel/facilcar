@@ -1,6 +1,10 @@
 import type { MessageContentType, Prisma } from "@prisma/client";
 import { extractInboundMessages } from "@/features/catalog-import/server/evolution-parse";
 import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
+import {
+  classifyFromMeProvenance,
+  shouldAssumeHumanFromMe,
+} from "./fromme-provenance";
 import { humanFromMeOwnershipCas } from "./human-from-me-cas";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
@@ -80,6 +84,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
   const messages = extractInboundMessages(payload);
 
   let handled = 0;
+  let inboundHandled = 0;
   let ignored = 0;
   let deduped = 0;
   let reason: string | undefined;
@@ -107,14 +112,24 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
           providerMessageId: msg.messageId,
         },
       },
-      select: { id: true, conversationId: true },
+      select: { id: true, conversationId: true, isBotSent: true },
     });
+    // Dedupe is instance-scoped (instanceName + providerMessageId). A bot
+    // echo or a second Evolution delivery of the same id must not assume
+    // this thread again, and must not touch another conversation.
     if (existing) {
       deduped++;
       conversationId = conversationId ?? existing.conversationId;
       messageIds.push(existing.id);
       continue;
     }
+
+    const classification = classifyFromMeProvenance({
+      fromMe: msg.fromMe,
+      providerMessageId: msg.messageId,
+      existingIsBotSent: false,
+      knownBotProviderId: false,
+    });
 
     const lastAt = msg.waTimestamp ?? new Date();
 
@@ -136,12 +151,13 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     });
     conversationId = conversation.id;
 
-    // Bot outbound must be pre-inserted with isBotSent=true + providerMessageId
-    // before Evolution send; the echo then hits the dedupe branch above.
-    // Any NEW fromMe without that pre-insert is treated as a human seller.
-    let isHumanSent = false;
-    if (msg.fromMe) {
-      isHumanSent = true;
+    // Human outbound only when provenance is sufficient: fromMe + a real
+    // provider id that does not match a known bot row. Missing/blank ids
+    // do not change ownership. Residual TOCTOU: send-then-insert can still
+    // let a real Evolution id arrive before insert_bot_outbound.
+    const assumeHuman = shouldAssumeHumanFromMe(classification);
+    const isHumanSent = assumeHuman;
+    if (assumeHuman) {
       const cas = humanFromMeOwnershipCas({
         conversationId: conversation.id,
         ownershipRevision: conversation.ownershipRevision,
@@ -218,7 +234,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         fromMe: msg.fromMe,
         isHumanSent,
         isBotSent: false,
-        processingStatus: "PENDING",
+        processingStatus: msg.fromMe ? "DONE" : "PENDING",
         createdAt: lastAt,
         ...(mediaInitJson !== undefined ? { turnFactsJson: mediaInitJson } : {}),
       } satisfies Prisma.MessageUncheckedCreateInput,
@@ -227,6 +243,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     messageIds.push(created.id);
     handled++;
     if (!msg.fromMe) {
+      inboundHandled++;
       if (msg.pushName) {
         await upgradeCustomerDisplayNameByPhone(msg.pushName, phone);
       }
@@ -238,7 +255,10 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     reason = "ignored";
   }
 
-  if (handled > 0) {
+  // fromMe (bot echo or human seller) must not wake process_turn. Worker
+  // already claims only fromMe=false PENDING rows; skip the notify too so a
+  // human bubble cannot start a concurrent auto-reply.
+  if (inboundHandled > 0) {
     notifySdrApi(payload);
   }
 

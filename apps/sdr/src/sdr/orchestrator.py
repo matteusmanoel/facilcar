@@ -1449,6 +1449,10 @@ class Orchestrator:
                     batch.batch_id,
                 )
                 return
+            # Residual TOCTOU: Evolution may echo this id before the row
+            # exists. Pre-insert would require a reserved provider id that
+            # Evolution does not accept; keep send-then-insert so B6
+            # (confirmed outbound stays) is unchanged.
             await self.conversations.insert_bot_outbound(
                 conversation_id=conversation_id,
                 instance_name=instance,

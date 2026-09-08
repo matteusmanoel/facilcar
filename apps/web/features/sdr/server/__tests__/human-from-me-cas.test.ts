@@ -27,6 +27,17 @@ describe("humanFromMeOwnershipCas", () => {
     });
   });
 
+  it("does not set assumedByUserId — device fromMe has no CRM user", () => {
+    const patch = humanFromMeOwnershipCas({
+      conversationId: "conv-1",
+      ownershipRevision: 2,
+      botStatus: "BOT_ACTIVE",
+      handoffAt: null,
+      lastAt,
+    });
+    expect(patch?.data).not.toHaveProperty("assumedByUserId");
+  });
+
   it("does not treat an already human or closed thread as a new assume", () => {
     expect(
       humanFromMeOwnershipCas({
