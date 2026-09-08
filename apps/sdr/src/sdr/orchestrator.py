@@ -22,6 +22,12 @@ from sdr.application.coalesce import (
 )
 from sdr.application.document_storage import DocumentStorageService, StoreDocumentRequest
 from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
+from sdr.application.outbound_guard import (
+    cancel_pending_automation,
+    human_assumed_live,
+    ownership_revision_from_row,
+    suppression_batch_result,
+)
 from sdr.application.process_turn import ProcessTurnResult, process_turn
 from sdr.config import Settings, get_settings
 from sdr.debounce import wait_until_quiet
@@ -245,6 +251,73 @@ class Orchestrator:
             settings=self.settings,
         )
         self._inbound_image_bytes: dict[str, bytes] = {}
+
+    async def _human_assumed(self, conversation_id: str) -> tuple[bool, int]:
+        """Re-read Conversation.botStatus from DB — never a stale seed."""
+        return await human_assumed_live(self.conversations, conversation_id)
+
+    async def _record_human_active_skip(
+        self,
+        batch,
+        *,
+        ownership_revision: int,
+        outbound_texts: list[str] | None = None,
+        outbound_provider_ids: list[str | None] | None = None,
+        outbound_sent: bool = False,
+    ) -> dict[str, Any]:
+        await cancel_pending_automation(batch.conversation_id)
+        payload = suppression_batch_result(
+            ownership_revision=ownership_revision,
+            outbound_texts=outbound_texts,
+            outbound_sent=outbound_sent,
+            outbound_provider_ids=outbound_provider_ids,
+            processed_at=utc_now_naive().isoformat() + "Z",
+        )
+        status = "DONE" if outbound_sent else "SKIPPED:HUMAN_ACTIVE"
+        await self.conversations.finalize_batch_messages(
+            batch.message_ids,
+            status=status[:64],
+            batch_patch={
+                "batch_id": batch.batch_id,
+                "turn_id": batch.batch_id,
+                "conversation_id": batch.conversation_id,
+                "anchor_message_id": batch.anchor_message_id,
+                "cutoff": batch.cutoff.isoformat() + "Z",
+                "message_ids": batch.message_ids,
+                "canonical_order": batch.message_ids,
+                "status": "DONE" if outbound_sent else "SKIPPED",
+                "result": payload,
+            },
+        )
+        return payload
+
+    async def _silenced_turn(
+        self,
+        batch,
+        *,
+        state: ConversationCanonicalState,
+        ownership_revision: int,
+        outbound_texts: list[str] | None = None,
+        outbound_provider_ids: list[str | None] | None = None,
+        outbound_sent: bool = False,
+    ) -> ProcessTurnResult:
+        await self._record_human_active_skip(
+            batch,
+            ownership_revision=ownership_revision,
+            outbound_texts=outbound_texts,
+            outbound_provider_ids=outbound_provider_ids,
+            outbound_sent=outbound_sent,
+        )
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="human_active",
+            ),
+            state=state,
+            outbound_texts=list(outbound_texts or []),
+            turn_facts=TurnFacts(),
+            tool_results=[],
+        )
 
     # ------------------------------------------------------------------
     # Audio enrichment
@@ -623,22 +696,9 @@ class Orchestrator:
             )
             return None
         if bot_status == LifecycleStatus.HUMAN_ACTIVE.value:
-            skip_reason = "human_active"
-            await self.conversations.finalize_batch_messages(
-                batch.message_ids,
-                status=f"SKIPPED:{skip_reason.upper()}"[:64],
-                batch_patch={
-                    "batch_id": batch.batch_id,
-                    "turn_id": batch.batch_id,
-                    "anchor_message_id": batch.anchor_message_id,
-                    "cutoff": batch.cutoff.isoformat() + "Z",
-                    "message_ids": batch.message_ids,
-                    "canonical_order": batch.message_ids,
-                    "status": "SKIPPED",
-                    "result": BatchResult(
-                        outbound_sent=False, action="no_reply", reason_code=skip_reason
-                    ).to_dict(),
-                },
+            await self._record_human_active_skip(
+                batch,
+                ownership_revision=ownership_revision_from_row(conv_row),
             )
             return None
 
@@ -988,31 +1048,12 @@ class Orchestrator:
             ):
                 state.customer.name = existing_name
 
-        if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
-            skip_reason = "human_active"
-            await self.conversations.finalize_batch_messages(
-                batch.message_ids,
-                status=f"SKIPPED:{skip_reason.upper()}"[:64],
-                batch_patch={
-                    "batch_id": batch.batch_id,
-                    "turn_id": batch.batch_id,
-                    "anchor_message_id": batch.anchor_message_id,
-                    "cutoff": batch.cutoff.isoformat() + "Z",
-                    "message_ids": batch.message_ids,
-                    "canonical_order": batch.message_ids,
-                    "status": "SKIPPED",
-                    "result": BatchResult(outbound_sent=False, action="no_reply").to_dict(),
-                },
-            )
-            return ProcessTurnResult(
-                action_plan=ActionPlan(
-                    action=Action.NO_REPLY,
-                    reason_code=skip_reason,
-                ),
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed or state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
+            return await self._silenced_turn(
+                batch,
                 state=state,
-                outbound_texts=[],
-                turn_facts=TurnFacts(),
-                tool_results=[],
+                ownership_revision=revision or int(state.ownership_revision or 0),
             )
 
         tracer = make_tracer(thread_id=conversation_id, message_id=batch.anchor_message_id)
@@ -1089,6 +1130,12 @@ class Orchestrator:
                 _understand_fn = _understand_with_history
             else:
                 _understand_fn = self.understand
+
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch, state=state, ownership_revision=revision
+                )
 
             result = await process_turn(
                 state=state,
@@ -1231,6 +1278,12 @@ class Orchestrator:
             if result.outbound_media and hasattr(tracer, "media_actions"):
                 tracer.media_actions([m.to_dict() for m in result.outbound_media])
 
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch, state=result.state, ownership_revision=revision
+            )
+
         customer = await self.customers.upsert_by_phone(
             phone, name=result.state.customer.name
         )
@@ -1293,6 +1346,13 @@ class Orchestrator:
 
         # Persist pending_question before Evolution I/O so an overlapping inbound
         # (photos take seconds) does not re-ask the same field.
+        # Do not write canonical state over a live HUMAN_ACTIVE assume.
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch, state=result.state, ownership_revision=revision
+            )
+
         planned_outbound = bool(
             result.outbound_texts
             or result.outbound_media
@@ -1304,48 +1364,16 @@ class Orchestrator:
 
         # Pin, then media, then text. A later send failure must not retry the
         # pin — that duplicated location cards when sendText returned 400.
+        # HUMAN_ACTIVE is re-checked immediately before every Evolution send.
         provider_ids: list[str | None] = []
+        sent_texts: list[str] = []
         turns_sent = 0
         send_failures = 0
+        suppressed_revision: int | None = None
         pin = getattr(result, "outbound_location", None)
         send_pin = getattr(self.evolution, "send_location", None)
-        if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
-            provider_id = None
-            try:
-                maybe = await send_pin(
-                    phone,
-                    latitude=float(pin["latitude"]),
-                    longitude=float(pin["longitude"]),
-                    name=str(pin.get("name") or "FacilCar"),
-                    address=str(pin.get("address") or ""),
-                    instance=instance,
-                )
-                if isinstance(maybe, str):
-                    provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_location pin failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
-                )
-            else:
-                await self.conversations.insert_bot_outbound(
-                    conversation_id=conversation_id,
-                    instance_name=instance,
-                    provider_message_id=provider_id
-                    or f"bot-batch-{batch.batch_id}-location-{turns_sent}",
-                    text=str(pin.get("address") or pin.get("name") or "location"),
-                )
-                provider_ids.append(provider_id)
-                turns_sent += 1
-
         send_media = getattr(self.evolution, "send_media", None)
         directive = result.response_directive
-        # Send leading text before photos when:
-        # (a) introducing Julia on first contact, OR
-        # (b) showing inventory results — so "Deixa eu dar uma olhadinha..." arrives
-        #     before the vehicle images.
         intro_then_media = bool(
             result.outbound_texts
             and result.outbound_media
@@ -1359,8 +1387,18 @@ class Orchestrator:
             result.outbound_texts[1:] if intro_then_media else list(result.outbound_texts)
         )
 
+        async def _abort_if_human_assumed() -> bool:
+            nonlocal suppressed_revision
+            taken, rev = await self._human_assumed(conversation_id)
+            if taken:
+                suppressed_revision = rev
+                return True
+            return False
+
         async def _send_one_text(outbound: str) -> None:
             nonlocal turns_sent, send_failures
+            if await _abort_if_human_assumed():
+                return
             provider_id = None
             send = getattr(self.evolution, "send_text", None)
             try:
@@ -1385,12 +1423,49 @@ class Orchestrator:
                 text=outbound,
             )
             provider_ids.append(provider_id)
+            sent_texts.append(outbound)
             turns_sent += 1
 
+        if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
+            if not await _abort_if_human_assumed():
+                provider_id = None
+                try:
+                    maybe = await send_pin(
+                        phone,
+                        latitude=float(pin["latitude"]),
+                        longitude=float(pin["longitude"]),
+                        name=str(pin.get("name") or "FacilCar"),
+                        address=str(pin.get("address") or ""),
+                        instance=instance,
+                    )
+                    if isinstance(maybe, str):
+                        provider_id = maybe
+                except Exception:
+                    send_failures += 1
+                    logger.exception(
+                        "send_location pin failed conversation=%s batch=%s",
+                        conversation_id,
+                        batch.batch_id,
+                    )
+                else:
+                    await self.conversations.insert_bot_outbound(
+                        conversation_id=conversation_id,
+                        instance_name=instance,
+                        provider_message_id=provider_id
+                        or f"bot-batch-{batch.batch_id}-location-{turns_sent}",
+                        text=str(pin.get("address") or pin.get("name") or "location"),
+                    )
+                    provider_ids.append(provider_id)
+                    turns_sent += 1
+
         for outbound in leading_texts:
+            if suppressed_revision is not None:
+                break
             await _send_one_text(outbound)
 
         for media in result.outbound_media:
+            if await _abort_if_human_assumed():
+                break
             provider_id = None
             try:
                 if send_media is not None:
@@ -1431,7 +1506,20 @@ class Orchestrator:
             turns_sent += 1
 
         for outbound in trailing_texts:
+            if suppressed_revision is not None:
+                break
             await _send_one_text(outbound)
+
+        if suppressed_revision is not None:
+            # Confirmed outbound stays; do not clobber HUMAN_ACTIVE with result.state.
+            return await self._silenced_turn(
+                batch,
+                state=result.state,
+                ownership_revision=suppressed_revision,
+                outbound_texts=sent_texts,
+                outbound_provider_ids=provider_ids,
+                outbound_sent=bool(sent_texts or provider_ids),
+            )
 
         planned_outbound = (
             bool(isinstance(pin, dict) and pin.get("latitude") is not None)
@@ -1440,6 +1528,17 @@ class Orchestrator:
         )
         if planned_outbound and turns_sent == 0 and send_failures:
             raise EvolutionError("all outbound sends failed")
+
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch,
+                state=result.state,
+                ownership_revision=revision,
+                outbound_texts=sent_texts,
+                outbound_provider_ids=provider_ids,
+                outbound_sent=bool(sent_texts or provider_ids),
+            )
 
         await self.conversations.save_canonical_state(conversation_id, result.state)
 
