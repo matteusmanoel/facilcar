@@ -219,6 +219,20 @@ class ConversationCanonicalState:
     collected_fields: list[str] = field(default_factory=list)
     # Visit slots offered this thread (exact labels from scheduling).
     offered_visit_slots: list[str] = field(default_factory=list)
+    # Structured visit preference — never mixed into a single string.
+    visit_interest: bool = False
+    visit_declined: bool = False
+    visit_date: str | None = None
+    visit_period: str | None = None
+    visit_time: str | None = None
+    visit_raw: str | None = None
+    visit_within_hours: bool | None = None
+    visit_accepted_offered: bool = False
+    location_sent: bool = False
+    # Turn-scoped visit flags — reset on merge.
+    visit_courtesy: bool = False
+    visit_declined_this_turn: bool = False
+    needs_visit_slot_offer: bool = False
     # Unequivocal listing identity from inbound (id / url / media metadata).
     listing_reference: str | None = None
     last_inventory_match: dict[str, Any] | None = None

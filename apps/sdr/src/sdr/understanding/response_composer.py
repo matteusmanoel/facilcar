@@ -52,7 +52,7 @@ _FIELD_QUESTIONS_PT: dict[str, str] = {
     "plate": "Se tiver a placa do veículo, pode me passar?",
     "location": "Você está de qual cidade?",
     "city": "Você é de em qual cidade?",
-    "visit": "Que tal segunda-feira, 7/09 às 14h ou terça-feira, 8/09 às 9h30? O horário fica pendente de confirmação do vendedor.",
+    "visit": "Que tal segunda-feira, 7/09 às 14h ou terça-feira, 8/09 às 9h30?",
     "timeline": "Em quanto tempo você pensa em fechar?",
     "mileage": "Quantos km rodados tem o veículo, aproximadamente?",
     "asking_price": "Até qual valor você tem em mente?",
@@ -211,15 +211,19 @@ def _required_question(
 def _visit_cta_bubbles(state: Mapping[str, Any], lang: str) -> list[str]:
     style = str(state.get("visit_cta_style") or "warm_invite")
     es = lang == "es"
+    if state.get("visit_preferred_time") or state.get("visit_accepted_offered"):
+        if es:
+            return ["Perfecto, registré tu preferencia de visita."]
+        return ["Perfeito, registrei sua preferência de visita."]
     if style == "location_close":
         if es:
             return [
                 "Podemos evaluar las condiciones de la negociación aquí en la tienda. "
-                "El vendedor confirma el horario contigo."
+                "Si quieres conocer el vehículo, me dices un día o período."
             ]
         return [
             "Conseguimos avaliar as condições da negociação aqui na loja. "
-            "O vendedor confirma o horário com você."
+            "Se quiser conhecer o veículo, me fala um dia ou período que fique melhor."
         ]
     from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
 

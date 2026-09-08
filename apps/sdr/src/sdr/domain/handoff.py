@@ -93,7 +93,6 @@ def customer_handoff_bubbles(
     """WhatsApp close: honest about what was collected; never fake completeness."""
     es = (state.language or "").lower().startswith("es")
     name = display_first_name(state.customer.name)
-    visit_time = state.visit_preferred_time
     incomplete = not getattr(state, "profile_complete", False)
     empty_lead = not (state.facts or {}) and not name
     site = HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT
@@ -108,17 +107,15 @@ def customer_handoff_bubbles(
         )
         return [msg]
 
-    if visit_time:
-        slot_line = (
-            f"Anotei sua preferência{f', {name}' if name else ''}: {visit_time}. "
-            "O vendedor confirma o horário com você."
-        )
-        specialist = (
-            "Vou encaminhar para a equipe continuar o atendimento."
-            if incomplete
-            else "Já organizei o que você me passou e vou encaminhar para a equipe."
-        )
-        return [slot_line, specialist, site]
+    from sdr.domain.visit import should_send_store_location, visit_confirmation_bubbles
+
+    visit_bubbles = visit_confirmation_bubbles(
+        state,
+        include_location=should_send_store_location(state),
+        handoff=True,
+    )
+    if visit_bubbles:
+        return visit_bubbles
 
     if reason_code in {
         "triage_complete",
@@ -148,8 +145,9 @@ def customer_handoff_bubbles(
 def should_handoff_now(state: ConversationCanonicalState) -> bool:
     """True when gated signals require immediate handoff (bypass triage).
 
-    Visit intent without a recorded slot is not immediate handoff — Decision
-    must offer concrete times first.
+    Visit intent without a recorded preference is not immediate handoff —
+    Decision may still invite once, then close when qualification is ready.
+    Exact clock time is never required.
     """
     if state.lifecycle.status in (
         LifecycleStatus.HANDOFF_SENT,
@@ -164,9 +162,11 @@ def should_handoff_now(state: ConversationCanonicalState) -> bool:
     if sig.high_purchase_intent is True:
         return True
     if sig.visit_intent is True:
-        from sdr.domain.scheduling import is_concrete_visit_slot
+        from sdr.domain.visit import has_visit_preference
 
-        if is_concrete_visit_slot(state.visit_preferred_time):
+        if getattr(state, "visit_accepted_offered", False) or getattr(state, "visit_time", None):
+            return True
+        if state.visit_invited and has_visit_preference(state):
             return True
     return False
 

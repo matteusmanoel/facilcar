@@ -89,4 +89,4 @@ def test_genuine_visit_intent() -> None:
     gated = gate_handoff_signals(text, HandoffSignals(visit_intent=True))
     assert gated.visit_intent is True
     plan = decide(_state(signals=gated))
-    assert plan.reason_code in {"visit_intent", "need_field", "visit_invitation_pre_handoff", "visit_schedule_ask"}
+    assert plan.reason_code in {"visit_intent", "need_field", "visit_invitation_pre_handoff"}

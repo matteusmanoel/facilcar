@@ -1,6 +1,6 @@
 {
   "name": "agendamento_semana",
-  "description": "Dois horários exatos; cliente escolhe 14h; vendedor confirma.",
+  "description": "Dois horários exatos; cliente escolhe 14h; encaminha ao time.",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "HANDOFF_VENDOR",
   "expected_final_intent": "purchase",
@@ -60,9 +60,7 @@
       },
       "expected_action": "HANDOFF_VENDOR",
       "required_in_outbound_any": [
-        "encaminh",
-        "vendedor",
-        "confirma"
+        "encaminh"
       ],
       "forbidden_in_outbound": [
         "reservado",
@@ -70,7 +68,9 @@
         "aprovado",
         "seria compra ou troca",
         "100% financiado",
-        "esperamos você"
+        "confirmação do vendedor",
+        "handoff",
+        "triagem"
       ]
     }
   ]

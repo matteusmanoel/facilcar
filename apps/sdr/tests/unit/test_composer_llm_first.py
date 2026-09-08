@@ -110,21 +110,21 @@ class TestVisitInviteHandoffGuard:
     """decide() must not immediately HANDOFF on the turn where pending_question='visit'."""
 
     def test_obrigado_after_visit_invite_asks_schedule_not_handoff(self) -> None:
-        """After visit invite, an 'Obrigado' (no visit_intent) must NOT HANDOFF.
+        """After visit invite, courtesy with min qualification ready hands off.
 
-        Hot lead: ask for a visit slot instead of COMMERCIAL_UNKNOWN (which
-        restarted the vehicle roteiro and asked model/year again).
+        Visit is not a required field. 'Obrigado' is not accept. The old
+        ASK_INFO visit-schedule loop is forbidden.
         """
         state = _actionable_financing_state(
             visit_invited=True,
             pending_question="visit",
         )
         plan = decide(state)
-        assert plan.action == Action.ASK_INFO, (
-            f"Expected ASK_INFO visit schedule (guard active), got {plan.action!r}."
+        assert plan.action == Action.HANDOFF_VENDOR, (
+            f"Expected HANDOFF when triage is ready after visit invite, got {plan.action!r}."
         )
-        assert plan.ask_field == "visit"
-        assert plan.handoff is False
+        assert plan.handoff is True
+        assert plan.reason_code != "visit_schedule_ask"
 
     def test_visit_intent_after_invite_triggers_handoff(self) -> None:
         """After visit invite, visit_intent=True (e.g. 'Vou amanhã') → HANDOFF via should_handoff_now."""
@@ -166,15 +166,15 @@ class TestVisitInviteHandoffGuard:
         assert plan.handoff is False
 
     def test_seria_otimo_after_invite_asks_schedule_not_model(self) -> None:
-        """Positive reply without a slot must ask when — not restart vehicle search."""
+        """Positive reply without a slot must hand off — not restart vehicle search."""
         state = _actionable_financing_state(
             visit_invited=True,
             pending_question="visit",
         )
         plan = decide(state)
-        assert plan.action == Action.ASK_INFO
-        assert plan.ask_field == "visit"
-        assert plan.handoff is False
+        assert plan.action == Action.HANDOFF_VENDOR
+        assert plan.handoff is True
+        assert plan.ask_field != "visit"
 
 
 # ---------------------------------------------------------------------------

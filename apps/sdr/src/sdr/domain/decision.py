@@ -247,9 +247,9 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         tool_calls: list[dict] = []
         if state.signals.visit_intent is True:
             tool_calls.append({"tool": "register_visit_interest"})
-            # When the customer confirmed a specific slot, send the location pin
-            # alongside the handoff confirmation so they have the store address.
-            if state.visit_preferred_time:
+            from sdr.domain.visit import should_send_store_location
+
+            if should_send_store_location(state):
                 tool_calls.append({"tool": "send_location"})
         return ActionPlan(
             action=Action.HANDOFF_VENDOR,
@@ -352,7 +352,28 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         )
 
     if is_handoff_ready(state) or is_seller_actionable(state):
-        if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
+        from sdr.domain.visit import has_visit_preference, should_send_store_location
+
+        if getattr(state, "needs_visit_slot_offer", False):
+            state.visit_invited = True
+            return ActionPlan(
+                action=Action.REGISTER_VISIT_INTEREST,
+                handoff=False,
+                tool_calls=[{"tool": "register_visit_interest"}],
+                reason_code="visit_invitation_pre_handoff",
+                reason="Offer visit times that match the customer's day request",
+            )
+
+        already_scheduled = (
+            has_visit_preference(state)
+            or state.visit_accepted_offered
+            or state.visit_declined
+        )
+        if (
+            state.intent in _VISIT_ELIGIBLE_INTENTS
+            and not state.visit_invited
+            and not already_scheduled
+        ):
             state.visit_invited = True
             return ActionPlan(
                 action=Action.REGISTER_VISIT_INTEREST,
@@ -361,27 +382,24 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 reason_code="visit_invitation_pre_handoff",
                 reason="Invite customer to visit store before handoff",
             )
-        from sdr.domain.scheduling import is_concrete_visit_slot
-
-        if state.pending_question == "visit" and not is_concrete_visit_slot(
-            state.visit_preferred_time
-        ):
-            return ActionPlan(
-                action=Action.ASK_INFO,
-                handoff=False,
-                ask_field="visit",
-                next_question="visit",
-                reason_code="visit_schedule_ask",
-                reason="Ask for visit day/time before handoff",
-            )
         reason = "triage_actionable" if is_seller_actionable(state) else "handoff_ready"
         state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF
         state.lifecycle.handoff_reason = reason
         state.business.actionability = Actionability.ACTIONABLE
         state.temperature = compute_temperature(state)
+        tool_calls: list[dict] = []
+        if (
+            state.signals.visit_intent is True
+            or has_visit_preference(state)
+            or state.visit_accepted_offered
+        ):
+            tool_calls.append({"tool": "register_visit_interest"})
+        if should_send_store_location(state):
+            tool_calls.append({"tool": "send_location"})
         return ActionPlan(
             action=Action.HANDOFF_VENDOR,
             handoff=True,
+            tool_calls=tool_calls,
             reason_code=reason,
             reason=HANDOFF_CONFIRMATION_PT_BR,
         )

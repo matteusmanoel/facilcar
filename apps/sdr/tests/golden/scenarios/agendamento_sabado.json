@@ -80,9 +80,7 @@
       },
       "expected_action": "HANDOFF_VENDOR",
       "required_in_outbound_any": [
-        "encaminh",
-        "vendedor",
-        "confirma"
+        "encaminh"
       ],
       "forbidden_in_outbound": [
         "reservado",
@@ -90,7 +88,9 @@
         "aprovado",
         "seria compra ou troca",
         "100% financiado",
-        "esperamos você"
+        "confirmação do vendedor",
+        "handoff",
+        "triagem"
       ]
     }
   ]

@@ -161,24 +161,21 @@ def suggest_visit_slots(
 
 
 def format_slot_suggestion(slots: list[str], lang: str = "pt") -> str:
-    """Format slot list as a natural language suggestion."""
+    """Format slot list as a natural language suggestion.
+
+    Preference only — never expose vendor-confirmation process to the customer.
+    """
     if not slots:
         return (
             "Qual dia e horário fica melhor pra você passar na loja?"
             if lang != "es"
             else "¿Qué día y horario te queda mejor para pasar?"
         )
-    vendor_note = (
-        "O horário fica pendente de confirmação do vendedor."
-        if lang != "es"
-        else "El horario queda pendiente de confirmación del vendedor."
-    )
     if len(slots) == 1:
-        lead = f"Que tal {slots[0]}?" if lang != "es" else f"¿Qué tal el {slots[0]}?"
-        return f"{lead} {vendor_note}"
+        return f"Que tal {slots[0]}?" if lang != "es" else f"¿Qué tal el {slots[0]}?"
     if lang == "es":
-        return f"¿Qué tal el {slots[0]}, o el {slots[1]}? {vendor_note}"
-    return f"Que tal {slots[0]} ou {slots[1]}? {vendor_note}"
+        return f"¿Qué tal el {slots[0]}, o el {slots[1]}?"
+    return f"Que tal {slots[0]} ou {slots[1]}?"
 
 
 def is_concrete_visit_slot(text: str | None) -> bool:
@@ -186,6 +183,21 @@ def is_concrete_visit_slot(text: str | None) -> bool:
     if not text or not str(text).strip():
         return False
     return bool(re.search(r"\d{1,2}\s*h", str(text), re.I))
+
+
+def _clock_labels(text: str) -> list[str]:
+    """Normalize 9:30 / 9h30 / 14h into comparable hour labels."""
+    labels: list[str] = []
+    for match in re.finditer(r"\b(\d{1,2})\s*(?:h|:)\s*(\d{2})?\b", text, re.I):
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        if hour > 23 or minute > 59:
+            continue
+        if minute:
+            labels.append(f"{hour}h{minute:02d}")
+        else:
+            labels.append(f"{hour}h")
+    return labels
 
 
 def resolve_slot_choice(
@@ -198,6 +210,7 @@ def resolve_slot_choice(
     if not text:
         return None
     low = text.lower()
+    inbound_clocks = _clock_labels(low)
     if offered:
         if any(p in low for p in ("primeiro", "a primeira", "1º", "opção 1", "opcao 1")):
             return offered[0]
@@ -206,6 +219,9 @@ def resolve_slot_choice(
                 return offered[1]
         for slot in offered:
             slot_low = slot.lower()
+            slot_clocks = _clock_labels(slot_low)
+            if inbound_clocks and slot_clocks and any(c in slot_clocks for c in inbound_clocks):
+                return slot
             # Match weekday token present in the slot label.
             for day in _WEEKDAY_PT:
                 if day in low and day in slot_low:

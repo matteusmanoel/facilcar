@@ -520,7 +520,7 @@ def check_scenario(
     if name.startswith("agendamento_"):
         if state is not None and not getattr(state, "visit_preferred_time", None):
             fail("SCENARIO: visit_slot_not_recorded", "visit_preferred_time is empty")
-        if "esperamos você" in last_outbound and "vendedor" not in last_outbound:
+        if "confirmação do vendedor" in last_outbound or "confirmacao do vendedor" in last_outbound:
             fail("SCENARIO: false_visit_confirmation", last_outbound[:160])
 
     if name == "civic_vendido_foto":

@@ -103,15 +103,6 @@ def _track_engagement(
         merged.engagement_low_streak = 0
 
 
-def _extract_visit_preference(turn_facts: TurnFacts) -> str | None:
-    """Extract visit time preference from facts if present."""
-    for key in ("visit_time", "visit_preferred_time", "preferred_time", "timeline"):
-        val = turn_facts.facts.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return None
-
-
 def _is_sandbox() -> bool:
     from sdr.config import get_settings
 
@@ -552,9 +543,12 @@ async def process_turn(
 
     reset_compose_meta()
 
-    # HANDOFF_SENT / HUMAN_ACTIVE: ingest already happened upstream; never reply
-    # and never call Understanding (no tokens after qualification).
+    # HANDOFF_SENT / HUMAN_ACTIVE: never reopen the roteiro or inventory.
+    # Late visit preference may still update canonical state for the vendor.
     if is_ai_silenced(state):
+        from sdr.domain.visit import apply_visit_from_inbound
+
+        apply_visit_from_inbound(state, inbound.effective_text)
         return ProcessTurnResult(
             action_plan=ActionPlan(
                 action=Action.NO_REPLY,
@@ -678,28 +672,42 @@ async def process_turn(
         inbound_timestamp=inbound.timestamp,
     )
 
-    # Extract visit time preference from this turn's facts before deciding.
-    from sdr.domain.scheduling import (
-        is_concrete_visit_slot,
-        resolve_slot_choice,
-        suggest_visit_slots,
-    )
+    # Structured visit preference from this inbound — date-only is valid.
+    from sdr.domain.scheduling import suggest_visit_slots
+    from sdr.domain.visit import apply_visit_from_inbound
 
-    visit_pref = _extract_visit_preference(facts)
     inbound_low = (inbound.effective_text or "").lower()
-    pref_low = (visit_pref or inbound_low).lower()
-    saturday_ask = "sábado" in pref_low or "sabado" in pref_low
-    if visit_pref and is_concrete_visit_slot(visit_pref):
-        merged.visit_preferred_time = visit_pref
-    elif visit_pref or saturday_ask:
-        chosen = resolve_slot_choice(
-            visit_pref or inbound.effective_text,
-            list(merged.offered_visit_slots or []),
+    saturday_ask = "sábado" in inbound_low or "sabado" in inbound_low
+    parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
+    saturday_slots_already = all(
+        "sábado" in str(s).lower() or "sabado" in str(s).lower()
+        for s in (merged.offered_visit_slots or [])
+    ) if merged.offered_visit_slots else False
+    if (
+        saturday_ask
+        and parsed_visit.time is None
+        and not parsed_visit.accepted_offered
+        and not parsed_visit.declined
+        and not saturday_slots_already
+    ):
+        # Asking whether Saturday is possible — offer Saturday times, don't lock a date.
+        merged.visit_date = None
+        merged.visit_period = None
+        if not merged.visit_time:
+            merged.visit_preferred_time = None
+        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
+        merged.needs_visit_slot_offer = True
+    elif (
+        not parsed_visit.declined
+        and not parsed_visit.courtesy
+        and (
+            parsed_visit.accepted_offered
+            or parsed_visit.date is not None
+            or parsed_visit.time is not None
+            or parsed_visit.period is not None
         )
-        if chosen:
-            merged.visit_preferred_time = chosen
-        elif saturday_ask and not is_concrete_visit_slot(merged.visit_preferred_time):
-            merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
+    ):
+        merged.signals.visit_intent = True
 
     plan = decide(merged)
 
@@ -751,6 +759,8 @@ async def process_turn(
             _record_inventory_match(merged, tool_results)
             # Extract location pin so the orchestrator sends it before the handoff text.
             outbound_location = _location_pin_from_tools(tool_results)
+            if any(r.get("tool") == "send_location" for r in tool_results):
+                merged.location_sent = True
         from sdr.domain.handoff import customer_handoff_bubbles
 
         outbound.extend(customer_handoff_bubbles(merged, reason_code=plan.reason_code))
@@ -779,6 +789,8 @@ async def process_turn(
             )
 
         outbound_location = _location_pin_from_tools(tool_results)
+        if any(r.get("tool") == "send_location" for r in tool_results):
+            merged.location_sent = True
 
         outbound_media = _outbound_media_from_tools(
             plan, tool_results, language=merged.language or "pt-BR"
