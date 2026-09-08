@@ -91,9 +91,11 @@ class TurnTracer:
         print(f"[SDR_TRACE] {payload}", flush=True)
 
     def _record(self, stage: str, **kwargs: Any) -> None:
-        if not self._enabled:
-            return
         self._stages.append({"stage": stage, **_sanitize(kwargs)})
+
+    @property
+    def stages(self) -> list[dict[str, Any]]:
+        return self._stages
 
     def inbound(
         self,
@@ -245,6 +247,13 @@ class TurnTracer:
         anchor_message_id: str,
         composed_text: str | None = None,
         segments: list[dict[str, Any]] | None = None,
+        close_reason: str | None = None,
+        has_media: bool = False,
+        has_document: bool = False,
+        has_reply: bool = False,
+        runtime_call_count: int = 1,
+        worker_id: str | None = None,
+        message_count: int | None = None,
     ) -> None:
         self._record(
             "BATCH",
@@ -256,6 +265,13 @@ class TurnTracer:
             composed_text_len=len(composed_text) if composed_text else 0,
             composed_preview=(composed_text or "")[:120],
             segments=segments or [],
+            close_reason=close_reason,
+            has_media=has_media,
+            has_document=has_document,
+            has_reply=has_reply,
+            runtime_call_count=runtime_call_count,
+            worker_id=worker_id,
+            message_count=message_count if message_count is not None else len(included_ids),
         )
 
     def media_actions(self, actions: list[dict[str, Any]]) -> None:

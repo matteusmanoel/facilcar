@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Awaitable, Callable
 
 import asyncpg
@@ -124,9 +125,11 @@ async def run_worker_loop(
     evolution = _default_evolution(cfg)
     stop = stop_event or asyncio.Event()
     logger.info(
-        "SDR worker started julia_enabled=%s debounce_ms=%s evolution=%s instance=%s",
+        "SDR worker started julia_enabled=%s debounce_ms=%s debounce_max_ms=%s worker_id=%s evolution=%s instance=%s",
         cfg.julia_enabled,
         cfg.sdr_debounce_ms,
+        cfg.sdr_debounce_max_ms,
+        (cfg.sdr_worker_id or "").strip() or str(os.getpid()),
         type(evolution).__name__,
         cfg.evolution_sdr_instance,
     )

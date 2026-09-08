@@ -39,6 +39,15 @@ class MediaFailureCode(str, Enum):
 
 
 @dataclass(slots=True)
+class QuotedContext:
+    """Structured WhatsApp reply metadata — never mixed into author text."""
+
+    stanza_id: str | None = None
+    quoted_text: str | None = None
+    quoted_type: str | None = None
+
+
+@dataclass(slots=True)
 class InboundTurn:
     """Normalized representation of a customer message.
 
@@ -48,6 +57,7 @@ class InboundTurn:
       extracted text for documents, caption/alt for images).
     - text is None only when media_status == FAILED.
     - raw_message_ref holds only provider metadata (no base64 content).
+    - quoted holds reply context; quoted text is not author text.
     """
 
     thread_id: str
@@ -64,6 +74,7 @@ class InboundTurn:
     # Typed origins when this turn was composed from a closed inbound batch.
     # Empty for single-message / legacy callers.
     segments: list[Any] = field(default_factory=list)
+    quoted: list[QuotedContext] = field(default_factory=list)
 
     @property
     def is_media_failed(self) -> bool:
@@ -71,8 +82,15 @@ class InboundTurn:
 
     @property
     def effective_text(self) -> str:
-        """Resolved text for understanding. Empty string on failure."""
+        """Author-resolved text for understanding. Empty string on failure.
+
+        Quoted/reply text is never included here.
+        """
         return self.text or ""
+
+    @property
+    def author_text(self) -> str:
+        return self.effective_text
 
 
 def make_text_inbound(

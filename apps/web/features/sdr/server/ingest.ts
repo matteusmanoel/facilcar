@@ -3,6 +3,7 @@ import { extractInboundMessages } from "@/features/catalog-import/server/evoluti
 import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
+import { extractSdrQuotedContext } from "./quoted-context";
 
 export type IngestSdrResult = {
   ok: true;
@@ -173,10 +174,22 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
       };
     }
 
-    // When the customer used WhatsApp reply feature, store the quoted stanza ID
-    // so the Python orchestrator can look up which vehicle card was referenced.
-    if (msg.quotedStanzaId) {
-      turnFactsBase["_sdr_quoted_id"] = msg.quotedStanzaId;
+    // When the customer used WhatsApp reply feature, store quoted stanza +
+    // structured metadata. Prefer SDR-owned extraction (image/document/video
+    // contextInfo) over catalog-import's extendedText-only stanza id.
+    if (!msg.fromMe) {
+      const quoted = extractSdrQuotedContext(msg.rawMessage);
+      const stanzaId = quoted?.stanzaId ?? msg.quotedStanzaId;
+      if (stanzaId) {
+        turnFactsBase["_sdr_quoted_id"] = stanzaId;
+        if (quoted) {
+          turnFactsBase["_sdr_quoted"] = {
+            stanzaId: quoted.stanzaId,
+            quotedType: quoted.quotedType,
+            quotedText: quoted.quotedText,
+          };
+        }
+      }
     }
 
     if (Object.keys(turnFactsBase).length > 0) {

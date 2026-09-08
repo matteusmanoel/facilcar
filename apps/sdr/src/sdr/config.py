@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     # production: tool/media failures stay silent so a human can take over.
     sdr_environment: Literal["sandbox", "production"] = "sandbox"
 
-    sdr_debounce_ms: int = Field(default=4000)
+    sdr_debounce_ms: int = Field(default=8000)
+    sdr_debounce_max_ms: int = Field(default=20000)
+    sdr_worker_id: str = ""
     sdr_lock_ttl_seconds: int = Field(default=60)
     sdr_max_turns_in_context: int = Field(default=10)
 

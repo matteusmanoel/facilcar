@@ -1,0 +1,17 @@
+# Sanitized fixture for Phase 1 inbound batching.
+# Derived only from relative timing / message-type structure of real WhatsApp
+# bursts. Names, phones, IDs, and any personal data are synthetic.
+# Do not treat this file as a production transcript.
+sanitized: true
+phone: "5511900000001"
+conversation_id: "syn-conv-batch-1"
+instance_name: "facilcar-sdr-test"
+events:
+  - t_offset_ms: 0
+    text: "Compra financiada."
+    content_type: TEXT
+    provider_message_id: "syn-msg-fin-1"
+  - t_offset_ms: 6000
+    text: "Financia 100%?"
+    content_type: TEXT
+    provider_message_id: "syn-msg-fin-2"

@@ -634,18 +634,9 @@ async def process_turn(
                 injected["vehicle_type"] = hint_type
             facts.facts = {**facts.facts, **injected}
 
-    # If the customer replied to a specific bot vehicle card (via WhatsApp reply
-    # feature), the quoted vehicle text is in raw_message_ref. When Understanding
-    # did not extract a vehicle preference, inject the quoted vehicle so the
-    # decision engine can link the interest without asking again.
-    quoted_vehicle_text = (
-        inbound.raw_message_ref.get("quoted_vehicle_text") if inbound.raw_message_ref else None
-    )
-    if quoted_vehicle_text and isinstance(quoted_vehicle_text, str):
-        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
-            # Store the raw caption text; Understanding/extractor already ran so
-            # we inject directly into facts to seed the next search key.
-            facts.facts = {**facts.facts, "desired_vehicle_text": quoted_vehicle_text[:200]}
+    # Quoted/reply text is structured context on InboundTurn.quoted — never a
+    # substitute for customer-authored desired_vehicle_text (URLs and card
+    # captions must not be treated as the customer typing a vehicle).
 
     # Document extraction is authoritative for identity fields when present.
     # Inject into TurnFacts so merge + CRM persistence do not depend only on

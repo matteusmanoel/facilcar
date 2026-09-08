@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 from typing import Any, Protocol
 
 import asyncpg
@@ -15,6 +16,7 @@ from sdr.application.coalesce import (
     build_batch_from_claimed_rows,
     compose_turn_from_batch,
     is_retry_seed,
+    quoted_from_row,
     segment_from_row,
     utc_now_naive,
 )
@@ -31,6 +33,7 @@ from sdr.domain.inbound import (
     InboundTurn,
     MediaFailureCode,
     MediaStatus,
+    QuotedContext,
     make_audio_inbound,
     make_media_failed_inbound,
     make_text_inbound,
@@ -38,6 +41,8 @@ from sdr.domain.inbound import (
 from sdr.domain.inbound_batch import (
     BatchResult,
     BatchStatus,
+    dedupe_snapshot_rows,
+    first_batch_partition,
     new_batch_id,
 )
 from sdr.domain.phone import normalize_phone
@@ -423,7 +428,7 @@ class Orchestrator:
             # while debounce keeps extending.
             prior = await self.conversations.load_canonical_state(conversation_id)
             turn_count = prior.assistant_turn_count if prior is not None else 0
-            await wait_until_quiet(
+            quiet = await wait_until_quiet(
                 self.redis,
                 phone,
                 settings=self.settings,
@@ -436,12 +441,14 @@ class Orchestrator:
                         conversation_id=conversation_id,
                         phone=phone,
                         instance=instance,
+                        quiet=quiet,
                     )
             return await self._claim_and_run_batch(
                 seed=seed,
                 conversation_id=conversation_id,
                 phone=phone,
                 instance=instance,
+                quiet=quiet,
             )
 
         return await _run()
@@ -464,6 +471,7 @@ class Orchestrator:
         conversation_id: str,
         phone: str,
         instance: str,
+        quiet=None,
     ) -> ProcessTurnResult | None:
         retry = is_retry_seed(seed)
         batch_meta = batch_meta_from_seed(seed) if retry else None
@@ -501,12 +509,19 @@ class Orchestrator:
         else:
             cutoff = utc_now_naive()
             batch_id = new_batch_id()
+            pending = await self.conversations.list_pending_inbound_up_to(
+                conversation_id, cutoff=cutoff
+            )
+            pending = first_batch_partition(dedupe_snapshot_rows(pending))
+            if not pending:
+                return None
             claimed = await self.conversations.claim_inbound_batch(
                 conversation_id=conversation_id,
                 cutoff=cutoff,
                 batch_id=batch_id,
                 phone=phone,
                 instance_name=instance,
+                message_ids=[str(r["id"]) for r in pending],
             )
 
         if not claimed:
@@ -593,6 +608,7 @@ class Orchestrator:
                 inbound=inbound,
                 phone=phone,
                 instance=instance,
+                quiet=quiet,
             )
             return result
         except Exception as exc:
@@ -726,19 +742,58 @@ class Orchestrator:
             text=text,
             content_type=content_type,
         )
+        quoted = await self._quoted_context_for_row(row, message_id=str(row["id"]))
+        if quoted:
+            inbound.quoted = [quoted]
         if inbound.media_status == MediaStatus.FAILED:
-            return segment_from_row(
+            seg = segment_from_row(
                 row,
                 order=order,
                 text_override=None,
                 media_status=MediaStatus.FAILED,
                 failure_code=inbound.failure_code,
             )
-        return segment_from_row(
-            row,
-            order=order,
-            text_override=inbound.text,
-            media_status=inbound.media_status,
+        else:
+            seg = segment_from_row(
+                row,
+                order=order,
+                text_override=inbound.text,
+                media_status=inbound.media_status,
+            )
+        if quoted:
+            seg.quoted = quoted
+        hint = inbound.raw_message_ref.get("vehicle_hint") if inbound.raw_message_ref else None
+        if isinstance(hint, dict):
+            seg.vehicle_hint = hint
+        extracted = (
+            inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
+        )
+        if isinstance(extracted, dict):
+            seg.document_extracted = extracted
+        return seg
+
+    async def _quoted_context_for_row(
+        self, row: asyncpg.Record, *, message_id: str
+    ) -> QuotedContext | None:
+        base = quoted_from_row(row)
+        stanza_id = base.stanza_id if base else None
+        quoted_text = base.quoted_text if base else None
+        quoted_type = base.quoted_type if base else None
+        if stanza_id:
+            try:
+                looked_up = await self.conversations.find_bot_message_text_by_provider_id(
+                    stanza_id
+                )
+                if looked_up:
+                    quoted_text = looked_up
+            except Exception:
+                logger.exception("message %s: lookup quoted stanza failed", message_id)
+        if not stanza_id and not quoted_text:
+            return None
+        return QuotedContext(
+            stanza_id=stanza_id,
+            quoted_text=quoted_text,
+            quoted_type=quoted_type,
         )
 
     async def _build_inbound_turn(
@@ -882,35 +937,11 @@ class Orchestrator:
                 caption=text,
             )
 
-        # If the customer used WhatsApp reply on a bot vehicle card, inject
-        # the quoted vehicle as context so Understanding does not lose the reference.
-        quoted_vehicle_text: str | None = None
-        turn_facts_raw_text = row.get("turnFactsJson")
-        quoted_id: str | None = None
-        if isinstance(turn_facts_raw_text, dict):
-            quoted_id = turn_facts_raw_text.get("_sdr_quoted_id")
-        elif isinstance(turn_facts_raw_text, str):
-            try:
-                quoted_id = json.loads(turn_facts_raw_text).get("_sdr_quoted_id")
-            except Exception:
-                pass
-        if quoted_id:
-            try:
-                quoted_vehicle_text = (
-                    await self.conversations.find_bot_message_text_by_provider_id(quoted_id)
-                )
-            except Exception:
-                logger.exception(
-                    "text message %s: lookup quoted vehicle failed", message_id
-                )
-
         inbound = make_text_inbound(
             thread_id=message_id,
             text=text,
             provider_message_id=str(row.get("providerMessageId") or ""),
         )
-        if quoted_vehicle_text:
-            inbound.raw_message_ref["quoted_vehicle_text"] = quoted_vehicle_text
         return inbound
 
     async def _run_batch_turn(
@@ -920,6 +951,7 @@ class Orchestrator:
         inbound: InboundTurn,
         phone: str,
         instance: str,
+        quiet=None,
     ) -> ProcessTurnResult:
         conversation_id = batch.conversation_id
         conv = await self.conversations.get_by_id(conversation_id)
@@ -1005,6 +1037,14 @@ class Orchestrator:
                         }
                         for s in batch.segments
                     ],
+                    close_reason=getattr(quiet, "close_reason", None),
+                    has_media=bool((inbound.raw_message_ref or {}).get("has_media")),
+                    has_document=bool((inbound.raw_message_ref or {}).get("has_document")),
+                    has_reply=bool(inbound.quoted)
+                    or bool((inbound.raw_message_ref or {}).get("has_reply")),
+                    runtime_call_count=1,
+                    worker_id=(self.settings.sdr_worker_id or "").strip() or str(os.getpid()),
+                    message_count=len(batch.message_ids),
                 )
             tracer.inbound(
                 content_type=inbound.content_type.value,

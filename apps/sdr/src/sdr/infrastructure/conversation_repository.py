@@ -450,12 +450,18 @@ class ConversationRepository:
         batch_id: str,
         phone: str,
         instance_name: str,
+        message_ids: list[str] | None = None,
     ) -> list[asyncpg.Record]:
         """Atomically claim PENDING rows with createdAt <= cutoff → PROCESSING.
 
-        Returns claimed rows in canonical order. Empty if nothing to claim.
+        When ``message_ids`` is provided, only that partition is claimed (used so
+        ``/deletar`` stays in its own batch). Returns claimed rows in canonical
+        order. Empty if nothing to claim.
         """
         import json as _json
+
+        if message_ids is not None and not message_ids:
+            return []
 
         cutoff_naive = cutoff
         if cutoff.tzinfo is not None:
@@ -463,23 +469,44 @@ class ConversationRepository:
 
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                rows = list(
-                    await conn.fetch(
-                        f'''
-                        SELECT *
-                        FROM "{SCHEMA}"."Message"
-                        WHERE "conversationId" = $1
-                          AND "processingStatus" = 'PENDING'
-                          AND "direction" = 'INBOUND'
-                          AND "fromMe" = false
-                          AND "createdAt" <= $2
-                        ORDER BY "createdAt" ASC, "id" ASC
-                        FOR UPDATE SKIP LOCKED
-                        ''',
-                        conversation_id,
-                        cutoff_naive,
+                if message_ids is not None:
+                    rows = list(
+                        await conn.fetch(
+                            f'''
+                            SELECT *
+                            FROM "{SCHEMA}"."Message"
+                            WHERE "conversationId" = $1
+                              AND "processingStatus" = 'PENDING'
+                              AND "direction" = 'INBOUND'
+                              AND "fromMe" = false
+                              AND "createdAt" <= $2
+                              AND "id" = ANY($3::text[])
+                            ORDER BY "createdAt" ASC, "id" ASC
+                            FOR UPDATE SKIP LOCKED
+                            ''',
+                            conversation_id,
+                            cutoff_naive,
+                            message_ids,
+                        )
                     )
-                )
+                else:
+                    rows = list(
+                        await conn.fetch(
+                            f'''
+                            SELECT *
+                            FROM "{SCHEMA}"."Message"
+                            WHERE "conversationId" = $1
+                              AND "processingStatus" = 'PENDING'
+                              AND "direction" = 'INBOUND'
+                              AND "fromMe" = false
+                              AND "createdAt" <= $2
+                            ORDER BY "createdAt" ASC, "id" ASC
+                            FOR UPDATE SKIP LOCKED
+                            ''',
+                            conversation_id,
+                            cutoff_naive,
+                        )
+                    )
                 if not rows:
                     return []
                 message_ids = [str(r["id"]) for r in rows]
