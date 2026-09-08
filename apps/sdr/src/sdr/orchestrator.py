@@ -22,6 +22,7 @@ from sdr.application.coalesce import (
 )
 from sdr.application.document_storage import DocumentStorageService, StoreDocumentRequest
 from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
+from sdr.application.followup_cancel import cancel_pending_followups
 from sdr.application.outbound_guard import (
     cancel_pending_automation,
     column_authorizes_outbound,
@@ -35,6 +36,12 @@ from sdr.debounce import wait_until_quiet
 from sdr.domain.commands import (
     RESET_MEMORY_CONFIRMATION_PT,
     is_reset_memory_command,
+)
+from sdr.domain.followup_cancel import (
+    FollowUpCancelReason,
+    FollowUpCanceller,
+    inbound_cancel_reason,
+    is_opt_out_signal,
 )
 from sdr.domain.document_storage import STORAGE_STORED
 from sdr.domain.inbound import (
@@ -234,12 +241,14 @@ class Orchestrator:
         settings: Settings | None = None,
         understand=default_understand,
         evolution: EvolutionSender | None = None,
+        followup_canceller: FollowUpCanceller | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.pool = pool
         self.redis = redis_client
         self.understand = understand
         self.evolution: EvolutionSender = evolution or StubEvolutionSender()
+        self.followup_canceller = followup_canceller
         self.conversations = ConversationRepository(pool)
         self.customers = CustomerRepository(pool)
         self.leads = LeadRepository(pool)
@@ -259,6 +268,15 @@ class Orchestrator:
         Overlay already reconciles loaded state; live re-read is the gate.
         """
         return await human_assumed_live(self.conversations, conversation_id)
+
+    async def _cancel_pending_followups(
+        self,
+        conversation_id: str,
+        reason: str | FollowUpCancelReason,
+    ) -> int:
+        return await cancel_pending_followups(
+            self.followup_canceller, conversation_id, reason
+        )
 
     async def _save_canonical_state(
         self,
@@ -286,7 +304,11 @@ class Orchestrator:
         outbound_provider_ids: list[str | None] | None = None,
         outbound_sent: bool = False,
     ) -> dict[str, Any]:
-        await cancel_pending_automation(batch.conversation_id)
+        await cancel_pending_automation(
+            batch.conversation_id,
+            reason=FollowUpCancelReason.HUMAN_ASSUMED.value,
+            canceller=self.followup_canceller,
+        )
         payload = suppression_batch_result(
             ownership_revision=ownership_revision,
             outbound_texts=outbound_texts,
@@ -336,6 +358,51 @@ class Orchestrator:
             ),
             state=state,
             outbound_texts=list(outbound_texts or []),
+            turn_facts=TurnFacts(),
+            tool_results=[],
+        )
+
+    async def _opt_out_turn(
+        self,
+        batch,
+        *,
+        state: ConversationCanonicalState,
+        inbound_text: str = "",
+    ) -> ProcessTurnResult:
+        """Honor opt-out: cancel follow-up, persist inbound, no commercial outbound."""
+        await self._cancel_pending_followups(
+            batch.conversation_id, FollowUpCancelReason.OPT_OUT
+        )
+        payload = BatchResult(
+            outbound_texts=[],
+            outbound_sent=False,
+            action="no_reply",
+            reason_code="opt_out",
+            processed_at=utc_now_naive().isoformat() + "Z",
+        ).to_dict()
+        payload["inbound_text"] = inbound_text
+        await self.conversations.finalize_batch_messages(
+            batch.message_ids,
+            status="DONE",
+            batch_patch={
+                "batch_id": batch.batch_id,
+                "turn_id": batch.batch_id,
+                "conversation_id": batch.conversation_id,
+                "anchor_message_id": batch.anchor_message_id,
+                "cutoff": batch.cutoff.isoformat() + "Z",
+                "message_ids": batch.message_ids,
+                "canonical_order": batch.message_ids,
+                "status": "DONE",
+                "result": payload,
+            },
+        )
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="opt_out",
+            ),
+            state=state,
+            outbound_texts=[],
             turn_facts=TurnFacts(),
             tool_results=[],
         )
@@ -768,6 +835,9 @@ class Orchestrator:
         instance: str,
     ) -> ProcessTurnResult:
         """Clear conversation memory for this phone/thread and confirm to customer."""
+        await self._cancel_pending_followups(
+            batch.conversation_id, FollowUpCancelReason.CONVERSATION_RESET
+        )
         fresh = await self.conversations.reset_conversation_memory(
             batch.conversation_id, phone=phone
         )
@@ -1081,6 +1151,26 @@ class Orchestrator:
                 ownership_revision=revision or int(state.ownership_revision or 0),
             )
 
+        inbound_text = inbound.effective_text or ""
+        if is_opt_out_signal(inbound_text):
+            return await self._opt_out_turn(
+                batch, state=state, inbound_text=inbound_text
+            )
+
+        context_changed = False
+        probe = getattr(self.followup_canceller, "context_changed_for_inbound", None)
+        if probe is not None:
+            maybe = probe(conversation_id, inbound_text)
+            if hasattr(maybe, "__await__"):
+                maybe = await maybe
+            context_changed = bool(maybe)
+
+        # Later inbound cancels pending follow-up BEFORE understand.
+        await self._cancel_pending_followups(
+            conversation_id,
+            inbound_cancel_reason(inbound_text, context_changed=context_changed),
+        )
+
         tracer = make_tracer(thread_id=conversation_id, message_id=batch.anchor_message_id)
         with tracer:
             if hasattr(tracer, "batch"):
@@ -1170,6 +1260,13 @@ class Orchestrator:
                 linked_vehicle_titles=linked_titles or None,
                 image_bytes=_first_inbound_image_bytes(self, batch),
             )
+
+            if is_opt_out_signal(inbound.effective_text, result.turn_facts):
+                return await self._opt_out_turn(
+                    batch,
+                    state=result.state,
+                    inbound_text=inbound.effective_text or "",
+                )
 
             vis = (inbound.raw_message_ref or {}).get("visual_resolution") or result.state.last_visual_resolution or {}
             if vis:

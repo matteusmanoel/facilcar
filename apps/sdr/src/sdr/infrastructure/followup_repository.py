@@ -412,6 +412,10 @@ class InMemoryFollowUpRepository:
                 cancelled.append(_copy_task(task))
         return cancelled
 
+    async def cancel_for_conversation(self, conversation_id: str, reason: str) -> int:
+        rows = await self.cancel_pending_for_conversation(conversation_id, reason)
+        return len(rows)
+
     async def list_due(self, now: datetime) -> list[FollowUpTask]:
         async with self._mutex:
             return [
@@ -757,6 +761,10 @@ class FollowUpRepository:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, conversation_id, reason, stamp)
         return [FollowUpTask.from_row(r) for r in rows]
+
+    async def cancel_for_conversation(self, conversation_id: str, reason: str) -> int:
+        rows = await self.cancel_pending_for_conversation(conversation_id, reason)
+        return len(rows)
 
     async def list_due(self, now: datetime) -> list[FollowUpTask]:
         stamp = naive_wall(now)

@@ -110,7 +110,11 @@ def resume_ai(
     reason: str,
     expected_revision: int,
 ) -> ConversationCanonicalState:
-    """HUMAN_ACTIVE → AI_RESUMED. Does not clear assignment, summary, or QUALIFIED."""
+    """HUMAN_ACTIVE → AI_RESUMED. Does not clear assignment, summary, or QUALIFIED.
+
+    Resume must not revive cancelled follow-up tasks. Ownership flip is
+    independent of FollowUpTask.status — cancelled stays cancelled.
+    """
     if expected_revision != state.ownership_revision:
         raise StaleOwnershipRevision(
             f"expected ownershipRevision={expected_revision}, "

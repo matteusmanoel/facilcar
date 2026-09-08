@@ -6,14 +6,20 @@ JSON may mirror for dumps/observability; it must not authorize outbound.
 Already-confirmed outbound (Evolution send + insert_bot_outbound) stays
 valid; remaining unsent bubbles are discarded.
 
-Assume cancels pending FollowUpTask rows (HUMAN_ASSUMED). The repository is
-injectable; when a pool exists the Postgres adapter is used. Cancel never DELETE.
+Assume cancels pending FollowUpTask rows (HUMAN_ASSUMED). Prefer an
+injected ``FollowUpCanceller``; otherwise the FollowUp repository (or
+pool adapter). Cancel never DELETE.
 """
 
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from sdr.domain.followup_cancel import (
+    FollowUpCancelReason,
+    FollowUpCanceller,
+    normalize_cancel_reason,
+)
 from sdr.domain.inbound_batch import BatchResult
 from sdr.domain.types import LifecycleStatus
 from sdr.infrastructure.followup_repository import CANCEL_REASON_HUMAN_ASSUMED
@@ -77,7 +83,7 @@ async def human_assumed_live(
 
 
 def set_cancel_pending_automation(fn: CancelPendingFn | None) -> None:
-    """Inject a cancel callback (tests / Frente C). ``None`` restores default."""
+    """Inject a cancel callback (tests). ``None`` restores default."""
     global _cancel_pending
     _cancel_pending = fn
 
@@ -102,17 +108,44 @@ def _resolve_followup_repository() -> Any | None:
     return FollowUpRepository(pool)
 
 
-async def cancel_pending_automation(conversation_id: str) -> None:
-    """Cancel pending follow-up tasks after assume (HUMAN_ASSUMED). Never DELETE."""
+class _RepoCanceller:
+    """Adapt FollowUpRepository.cancel_pending_for_conversation → FollowUpCanceller."""
+
+    def __init__(self, repo: Any) -> None:
+        self._repo = repo
+
+    async def cancel_for_conversation(self, conversation_id: str, reason: str) -> int:
+        direct = getattr(self._repo, "cancel_for_conversation", None)
+        if direct is not None:
+            result = await direct(conversation_id, reason)
+            return int(result or 0)
+        rows = await self._repo.cancel_pending_for_conversation(
+            conversation_id, reason=reason
+        )
+        return len(rows) if rows is not None else 0
+
+
+async def cancel_pending_automation(
+    conversation_id: str,
+    *,
+    reason: str = FollowUpCancelReason.HUMAN_ASSUMED.value,
+    canceller: FollowUpCanceller | None = None,
+) -> int:
+    """Cancel pending follow-up for a conversation. Never DELETE.
+
+    Order: explicit canceller → injected callback → repository/pool.
+    SENT tasks stay SENT — that contract lives on the store.
+    """
+    why = normalize_cancel_reason(reason) or CANCEL_REASON_HUMAN_ASSUMED
+    if canceller is not None:
+        return await canceller.cancel_for_conversation(conversation_id, why)
     if _cancel_pending is not None:
         await _cancel_pending(conversation_id)
-        return None
+        return 0
     repo = _resolve_followup_repository()
     if repo is None:
-        return None
-    await repo.cancel_pending_for_conversation(
-        conversation_id, reason=CANCEL_REASON_HUMAN_ASSUMED
-    )
+        return 0
+    return await _RepoCanceller(repo).cancel_for_conversation(conversation_id, why)
 
 
 def suppression_batch_result(
