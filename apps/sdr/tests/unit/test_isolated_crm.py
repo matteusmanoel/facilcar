@@ -34,3 +34,24 @@ def test_isolated_crm_persist_reread_matches_payload() -> None:
     assert stored["summary_origin"] == "deterministic_special_vendor_request"
     assert stored["summary_validation"]["claim_policy"] == "commercial_claims_not_applicable"
     assert stored["summary_validation"]["pass"] is True
+
+
+def test_persist_handoff_second_call_reuses_lead_and_does_not_renotify() -> None:
+    state = ConversationCanonicalState(
+        thread_id="replay_same_lead",
+        customer=CustomerState(phone="5511988001100", name="Carla Mendes"),
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts={"desired_model": "Civic", "desired_installment": 1500},
+    )
+    store = IsolatedCrmStore()
+    first = store.persist_handoff(state)
+    state.facts = {**state.facts, "desired_installment": 1800}
+    state.crm_revision = int(state.crm_revision or 0) + 1
+    second = store.persist_handoff(state)
+    assert second["id"] == first["id"]
+    assert store.handoff_count == 1
+    assert store.qualified_notifications == 1
+    reread = store.reread_id(first["id"])
+    assert reread is not None
+    assert reread["id"] == first["id"]
+    assert reread["status"] == "QUALIFIED"

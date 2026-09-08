@@ -140,3 +140,24 @@ def test_unknown_turn_intent_does_not_overwrite_canonical_sale() -> None:
     assert merged.facts.get("trade_model") == "Corolla"
 
 
+def test_merge_preserves_ownership_fields() -> None:
+    from sdr.domain.types import LifecycleState, LifecycleStatus
+
+    prev = _state(
+        lifecycle=LifecycleState(status=LifecycleStatus.AI_RESUMED),
+        ownership_revision=2,
+        assumed_by_user_id="user-1",
+        resumed_by_user_id="user-1",
+        resume_reason="seller_released",
+        handoff_at="2026-09-07T10:00:00-03:00",
+    )
+    facts = TurnFacts(intent=BusinessIntent.PURCHASE, facts={"desired_model": "Civic"})
+    merged = deterministic_merge(prev, facts)
+    assert merged.lifecycle.status == LifecycleStatus.AI_RESUMED
+    assert merged.ownership_revision == 2
+    assert merged.assumed_by_user_id == "user-1"
+    assert merged.resumed_by_user_id == "user-1"
+    assert merged.resume_reason == "seller_released"
+    assert merged.handoff_at == "2026-09-07T10:00:00-03:00"
+
+

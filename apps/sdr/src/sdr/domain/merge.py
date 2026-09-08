@@ -377,6 +377,13 @@ def deterministic_merge(
         if getattr(prev, "last_visual_resolution", None)
         else None,
         crm_revision=int(getattr(prev, "crm_revision", 0) or 0),
+        ownership_revision=int(getattr(prev, "ownership_revision", 0) or 0),
+        assumed_by_user_id=getattr(prev, "assumed_by_user_id", None),
+        assumed_at=getattr(prev, "assumed_at", None),
+        resumed_by_user_id=getattr(prev, "resumed_by_user_id", None),
+        resumed_at=getattr(prev, "resumed_at", None),
+        resume_reason=getattr(prev, "resume_reason", None),
+        handoff_at=getattr(prev, "handoff_at", None),
         handoff_ready=prev.handoff_ready,
         profile_complete=prev.profile_complete,
         missing_fields=list(prev.missing_fields),

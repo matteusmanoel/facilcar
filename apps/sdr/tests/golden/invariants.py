@@ -95,8 +95,18 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: fines_cleared_all_debts",
     "SCENARIO: summary_validation",
     "SCENARIO: principal_event_not_executed",
+    "SCENARIO: invariant_single_handoff",
     "SCENARIO: expected_primary_vehicle",
     "SCENARIO: expected_handoff_count",
+    "SCENARIO: expected_crm_same_lead",
+    "TURN: forbidden_action",
+    "TURN: expected_outbound_empty",
+    "TURN: expected_outbound_min",
+    "TURN: expected_llm_calls",
+    "TURN: expected_inbound_persisted",
+    "TURN: inbound_persisted_on_silence",
+    "TURN: expected_bot_status",
+    "TURN: expected_suppressed_reason",
     "SCENARIO: expected_crm_status",
     "SCENARIO: expected_crm_monthly_payment",
     "SCENARIO: expected_crm_installments_not_money",
@@ -146,6 +156,9 @@ def check_turn(
     result: Any,  # ProcessTurnResult
     inbound: Any = None,
     runtime_calls: int = 1,
+    llm_calls: int = 0,
+    inbound_persisted: bool = False,
+    suppressed_reason: str | None = None,
 ) -> list[InvariantViolation]:
     """Validate a single turn against its spec. Returns list of violations (empty = pass)."""
     violations: list[InvariantViolation] = []
@@ -232,10 +245,61 @@ def check_turn(
     # --- Per-turn assertions ---
 
     expected_action = turn_def.get("expected_action")
+    action_u = plan.action.value.upper() if hasattr(plan.action, "value") else str(plan.action).upper()
     if expected_action:
-        got = plan.action.value.upper() if hasattr(plan.action, "value") else str(plan.action).upper()
+        got = action_u
         if got != expected_action.upper():
             fail("expected_action", f"expected {expected_action!r}, got {got!r}")
+
+    forbidden_action = turn_def.get("forbidden_action")
+    if forbidden_action and action_u == str(forbidden_action).upper():
+        fail("TURN: forbidden_action", f"action {action_u} is forbidden")
+
+    if turn_def.get("expected_outbound_empty") and outbound_texts:
+        fail(
+            "TURN: expected_outbound_empty",
+            f"expected no outbound, got {outbound_texts!r}",
+        )
+    outbound_min = turn_def.get("expected_outbound_min")
+    if outbound_min is not None and len(outbound_texts) < int(outbound_min):
+        fail(
+            "TURN: expected_outbound_min",
+            f"expected at least {outbound_min} outbound bubble(s), got {len(outbound_texts)}",
+        )
+    expected_llm = turn_def.get("expected_llm_calls")
+    if expected_llm is not None and int(llm_calls) != int(expected_llm):
+        fail(
+            "TURN: expected_llm_calls",
+            f"expected {expected_llm} understand call(s), got {llm_calls}",
+        )
+    if turn_def.get("expected_inbound_persisted") and not inbound_persisted:
+        fail("TURN: expected_inbound_persisted", "inbound was not persisted")
+    reason_code = getattr(plan, "reason_code", None)
+    silenced = action_u == "NO_REPLY" and str(reason_code or "") in {
+        "ai_silenced",
+        "human_or_handoff_silence",
+        "human_active",
+    }
+    if silenced and (turn_def.get("inbound") or (inbound is not None)) and not inbound_persisted:
+        fail(
+            "TURN: inbound_persisted_on_silence",
+            "HUMAN_ACTIVE inbound was dropped instead of persisted",
+        )
+    expected_bot = turn_def.get("expected_bot_status")
+    if expected_bot:
+        got_bot = getattr(getattr(state, "lifecycle", None), "status", None)
+        got_bot_val = got_bot.value if hasattr(got_bot, "value") else str(got_bot or "")
+        if got_bot_val != str(expected_bot):
+            fail(
+                "TURN: expected_bot_status",
+                f"expected {expected_bot!r}, got {got_bot_val!r}",
+            )
+    expected_suppressed = turn_def.get("expected_suppressed_reason")
+    if expected_suppressed and str(suppressed_reason or reason_code or "") != str(expected_suppressed):
+        fail(
+            "TURN: expected_suppressed_reason",
+            f"expected {expected_suppressed!r}, got {suppressed_reason or reason_code!r}",
+        )
 
     expected_outcome_in = turn_def.get("expected_outcome_in")
     if expected_outcome_in:
@@ -551,6 +615,15 @@ def _fact_path(facts: dict[str, Any], key: str) -> Any:
 def _principal_turn(turn_def: dict[str, Any]) -> bool:
     if turn_def.get("principal_event") or turn_def.get("expected_primary_vehicle_id"):
         return True
+    admin = turn_def.get("admin_event")
+    if isinstance(admin, dict) and str(admin.get("type") or "").lower() in {
+        "assume",
+        "resume",
+        "handoff",
+    }:
+        return True
+    if str(turn_def.get("expected_action") or "").upper() == "HANDOFF_VENDOR":
+        return True
     if turn_def.get("quoted_message_id") or turn_def.get("quoted"):
         return True
     events = turn_def.get("events")
@@ -576,7 +649,18 @@ def check_scenario(
 
     expected_terminal = scenario.get("expected_terminal")
     obtained = _obtained_terminal(result)
-    if expected_terminal and obtained != expected_terminal:
+    handoff_turns = [
+        t
+        for t in (result.turns or [])
+        if str(t.get("action") or "").upper() == "HANDOFF_VENDOR"
+    ]
+    if expected_terminal == "HANDOFF_VENDOR":
+        if not handoff_turns:
+            fail(
+                "SCENARIO: expected_terminal",
+                f"expected {expected_terminal!r}, got {obtained!r}",
+            )
+    elif expected_terminal and obtained != expected_terminal:
         fail(
             "SCENARIO: expected_terminal",
             f"expected {expected_terminal!r}, got {obtained!r}",
@@ -587,12 +671,13 @@ def check_scenario(
         last = result.turns[-1]
         last_outbound = " ".join(last.get("outbound") or []).lower()
         last_action = (last.get("action") or "").upper()
-        if expected_terminal == "HANDOFF_VENDOR" and last_action != "HANDOFF_VENDOR":
+        if expected_terminal == "HANDOFF_VENDOR" and not handoff_turns:
             if last.get("ask_field"):
                 fail(
                     "SCENARIO: ended_on_question",
                     f"Conversation ended asking {last.get('ask_field')!r} instead of handoff",
                 )
+            _ = last_action
 
     state = getattr(result, "final_state", None)
     facts = getattr(state, "facts", {}) if state is not None else {}
@@ -815,17 +900,27 @@ def check_scenario(
             )
 
     expected_handoffs = scenario.get("expected_handoff_count")
-    if expected_handoffs is not None:
-        handoffs = sum(
-            1
-            for t in (result.turns or [])
-            if str(t.get("action") or "").upper() == "HANDOFF_VENDOR"
+    handoffs = sum(
+        1
+        for t in (result.turns or [])
+        if str(t.get("action") or "").upper() == "HANDOFF_VENDOR"
+    )
+    notifications = int(getattr(result, "crm_handoff_count", 0) or 0)
+    if handoffs > 1 or notifications > 1:
+        fail(
+            "SCENARIO: invariant_single_handoff",
+            f"HANDOFF_VENDOR={handoffs} notifications={notifications}",
         )
-        if int(handoffs) != int(expected_handoffs):
-            fail(
-                "SCENARIO: expected_handoff_count",
-                f"expected {expected_handoffs} handoff(s), got {handoffs}",
-            )
+    if expected_handoffs is not None and int(handoffs) != int(expected_handoffs):
+        fail(
+            "SCENARIO: expected_handoff_count",
+            f"expected {expected_handoffs} handoff(s), got {handoffs}",
+        )
+    if expected_handoffs is not None and notifications and int(notifications) != int(expected_handoffs):
+        fail(
+            "SCENARIO: invariant_single_handoff",
+            f"expected {expected_handoffs} notification(s), got {notifications}",
+        )
 
     crm = getattr(result, "crm_report", None) or {}
     stored = crm.get("record_reread") or crm.get("payload_sent") or {}
@@ -861,6 +956,14 @@ def check_scenario(
                 )
     if scenario.get("expected_crm_reread_matches") and crm and not crm.get("matches_payload"):
         fail("SCENARIO: expected_crm_reread", str(crm.get("matches_payload")))
+    if scenario.get("expected_crm_same_lead"):
+        lead_id = getattr(result, "crm_lead_id", None)
+        stored_id = stored.get("id")
+        if not lead_id or stored_id != lead_id:
+            fail(
+                "SCENARIO: expected_crm_same_lead",
+                f"lead_id={lead_id!r} reread_id={stored_id!r}",
+            )
     summary_needles = scenario.get("expected_summary_contains_any") or []
     if summary_needles:
         blob = (result.vendor_summary or "").lower()

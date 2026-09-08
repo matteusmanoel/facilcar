@@ -1,0 +1,49 @@
+{
+  "name": "p10_04_crm_same_lead",
+  "description": "Post-handoff commercial update rereads the same lead id. Notifications stay at one.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "expected_crm_status": "QUALIFIED",
+  "expected_crm_monthly_payment": 1800,
+  "expected_crm_same_lead": true,
+  "expected_final_intent": "purchase_financing",
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR"
+    },
+    {
+      "inbound": "Consigo parcela de 1800 no Civic",
+      "principal_event": true,
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "Civic",
+          "desired_installment": 1800,
+          "payment_method": "financing",
+          "name": "Carla Mendes"
+        }
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_facts_after": {
+        "desired_installment": 1800
+      }
+    }
+  ]
+}

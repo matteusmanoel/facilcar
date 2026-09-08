@@ -84,6 +84,15 @@ class ScenarioRunResult:
     identification_source: str | None = None
     first_inbound: str | None = None
     visual_turns: int = 0
+    llm_calls: int = 0
+    suppressed_outbound_count: int = 0
+    suppressed_outbound_reasons: list[str] = field(default_factory=list)
+    inbound_persisted: list[dict[str, Any]] = field(default_factory=list)
+    events_executed: list[dict[str, Any]] = field(default_factory=list)
+    crm_handoff_count: int = 0
+    crm_lead_id: str | None = None
+    bot_status: str | None = None
+    ownership_revision: int = 0
 
 
 
@@ -196,6 +205,61 @@ def _reset_state(state: Any) -> Any:
             name=getattr(state.customer, "name", None),
         ),
     )
+
+
+def _admin_event(turn_def: dict[str, Any]) -> dict[str, Any] | None:
+    raw = turn_def.get("admin_event")
+    return raw if isinstance(raw, dict) and raw.get("type") else None
+
+
+def _apply_admin_event(state: Any, admin: dict[str, Any]) -> tuple[Any, str]:
+    from sdr.domain.ownership import assume_human, resume_ai
+
+    etype = str(admin.get("type") or "").strip().lower()
+    actor = str(admin.get("actor_user_id") or "user-1")
+    revision = int(getattr(state, "ownership_revision", 0) or 0)
+    if etype == "assume":
+        return assume_human(state, actor_user_id=actor, expected_revision=revision), "assume"
+    if etype == "resume":
+        reason = str(admin.get("reason") or "seller_released")
+        return resume_ai(
+            state,
+            actor_user_id=actor,
+            reason=reason,
+            expected_revision=revision,
+        ), "resume"
+    raise ValueError(f"unknown admin_event type {etype!r}")
+
+
+def _has_customer_inbound(turn_def: dict[str, Any]) -> bool:
+    if str(turn_def.get("inbound") or "").strip():
+        return True
+    events = turn_def.get("events")
+    return isinstance(events, list) and any(isinstance(e, dict) for e in events)
+
+
+def _bot_status(state: Any) -> str:
+    lifecycle = getattr(state, "lifecycle", None)
+    status = getattr(lifecycle, "status", None)
+    if hasattr(status, "value"):
+        return str(status.value)
+    return str(status or "")
+
+
+def _ownership_snapshot(state: Any) -> dict[str, Any]:
+    return {
+        "botStatus": _bot_status(state),
+        "ownershipRevision": int(getattr(state, "ownership_revision", 0) or 0),
+        "assumedByUserId": getattr(state, "assumed_by_user_id", None),
+        "resumedByUserId": getattr(state, "resumed_by_user_id", None),
+        "resumeReason": getattr(state, "resume_reason", None),
+    }
+
+
+def _skip_dialogue_alignment(state: Any, previous_action: str) -> bool:
+    if previous_action in {"HANDOFF_VENDOR", "ADMIN_ASSUME", "ADMIN_RESUME"}:
+        return True
+    return _bot_status(state) in {"HANDOFF_SENT", "HUMAN_ACTIVE", "AI_RESUMED"}
 
 
 async def run_scenario(
@@ -355,6 +419,21 @@ async def run_scenario_detailed(
     else:
         understand, turn_idx_ref, understand_stubs = _stub_understand(turns)
 
+    llm_calls = 0
+    suppressed_outbound_count = 0
+    suppressed_outbound_reasons: list[str] = []
+    inbound_records: list[dict[str, Any]] = []
+    events_executed: list[dict[str, Any]] = []
+    crm_lead_id: str | None = None
+    inner_understand = understand
+
+    async def counting_understand(text: str, st: Any) -> Any:
+        nonlocal llm_calls
+        llm_calls += 1
+        return await inner_understand(text, st)
+
+    understand = counting_understand
+
     process_pool = pool if pool is not None else object()
     understanding_model = None
     composer_model = None
@@ -367,6 +446,70 @@ async def run_scenario_detailed(
 
     for idx, turn_def in enumerate(turns):
         turn_idx_ref[0] = idx
+        admin = _admin_event(turn_def)
+        if admin:
+            try:
+                state, event_name = _apply_admin_event(state, admin)
+            except Exception as exc:
+                errors.append(
+                    f"[{name}] turn {idx}: admin_event {admin.get('type')!r} "
+                    f"raised {type(exc).__name__}: {exc}"
+                )
+                break
+            events_executed.append({"type": event_name, "turn_id": idx})
+            if not _has_customer_inbound(turn_def):
+                from sdr.application.process_turn import ProcessTurnResult
+                from sdr.domain.types import Action, ActionPlan, TurnFacts
+
+                result = ProcessTurnResult(
+                    action_plan=ActionPlan(
+                        action=Action.NO_REPLY,
+                        reason_code=f"admin_{event_name}",
+                        reason=f"Replay admin event {event_name}",
+                    ),
+                    state=state,
+                    outbound_texts=[],
+                    turn_facts=TurnFacts(),
+                    tool_results=[],
+                )
+                own = _ownership_snapshot(state)
+                transcript.append({
+                    "idx": idx,
+                    "inbound": "",
+                    "admin_event": event_name,
+                    "action": f"ADMIN_{event_name.upper()}",
+                    "outbound": [],
+                    "llm_calls": 0,
+                    "inbound_persisted": False,
+                    "bot_status": own["botStatus"],
+                    "ownership_revision": own["ownershipRevision"],
+                    "runtime_calls": 0,
+                })
+                traces.append({
+                    "scenario_id": name,
+                    "turn_id": idx,
+                    "admin_event": admin,
+                    "botStatus": own["botStatus"],
+                    "ownershipRevision": own["ownershipRevision"],
+                    "composer_result": [],
+                    "invariant_results": ["pass"],
+                    "llm_calls": 0,
+                    "suppressed_outbound": False,
+                })
+                violations = check_turn(
+                    scenario_name=name,
+                    turn_idx=idx,
+                    turn_def=turn_def,
+                    result=result,
+                    inbound=None,
+                    runtime_calls=0,
+                    llm_calls=0,
+                    inbound_persisted=False,
+                )
+                for v in [str(item) for item in violations]:
+                    errors.append(v)
+                continue
+
         from sdr.replay.inbound import build_replay_inbound
 
         inbound, image_bytes, delays = build_replay_inbound(
@@ -391,7 +534,10 @@ async def run_scenario_detailed(
             or turn_def.get("response_mode"),
             "dialogue_alignment": True,
         }
-        if idx > 0 and traces:
+        if idx > 0 and traces and not _skip_dialogue_alignment(
+            state,
+            str((transcript[-1].get("action") if transcript else "") or "").upper(),
+        ):
             from sdr.domain.dialogue_alignment import evaluate_dialogue_alignment
 
             prev = traces[-1]
@@ -466,6 +612,14 @@ async def run_scenario_detailed(
         )
         if first_inbound is None and not _is_reset_turn(turn_def, inbound_text):
             first_inbound = inbound_text
+        inbound_record = {
+            "turn_id": idx,
+            "text": inbound_text,
+            "persisted": True,
+            "bot_status": _bot_status(state),
+        }
+        inbound_records.append(inbound_record)
+        llm_before = llm_calls
         try:
             if _is_reset_turn(turn_def, inbound_text):
                 from sdr.application.process_turn import ProcessTurnResult
@@ -528,6 +682,8 @@ async def run_scenario_detailed(
 
         plan = result.action_plan
         action_val = plan.action.value if hasattr(plan.action, "value") else str(plan.action)
+        action_upper = str(action_val or "").upper()
+        turn_llm_calls = llm_calls - llm_before
         facts_out = {
             k: v for k, v in result.turn_facts.facts.items() if v is not None
         } if result.turn_facts else {}
@@ -542,7 +698,16 @@ async def run_scenario_detailed(
         composer_retries += int(getattr(result, "composer_retries", 0) or 0)
         questions_rejected += int(getattr(result, "questions_rejected", 0) or 0)
         adherence = getattr(result, "question_adherence", None) or {}
-        if not (result.outbound_texts or []) and action_val != "NO_REPLY":
+        suppressed_reason = None
+        if action_upper == "NO_REPLY" and str(plan.reason_code or "") in {
+            "ai_silenced",
+            "human_or_handoff_silence",
+            "human_active",
+        }:
+            suppressed_reason = str(plan.reason_code)
+            suppressed_outbound_count += 1
+            suppressed_outbound_reasons.append(suppressed_reason)
+        if not (result.outbound_texts or []) and action_upper != "NO_REPLY":
             errors.append(f"[{name}] turn {idx}: empty Composer outbound")
 
         from sdr.domain.vehicle_presentation import vehicle_card_record
@@ -590,6 +755,11 @@ async def run_scenario_detailed(
             "runtime_calls": 1,
             "segment_count": (inbound.raw_message_ref or {}).get("segment_count"),
             "primary_vehicle_id": result.state.primary_vehicle_id,
+            "llm_calls": turn_llm_calls,
+            "inbound_persisted": True,
+            "bot_status": _bot_status(result.state),
+            "ownership_revision": int(getattr(result.state, "ownership_revision", 0) or 0),
+            "suppressed_reason": suppressed_reason,
         })
         trace_row = {
             "scenario_id": name,
@@ -620,6 +790,8 @@ async def run_scenario_detailed(
                 "primary_vehicle_id": result.state.primary_vehicle_id,
                 "location_sent": bool(getattr(result.state, "location_sent", False)),
                 "document_received": bool(getattr(result.state, "document_received", False)),
+                "botStatus": _bot_status(result.state),
+                "ownershipRevision": int(getattr(result.state, "ownership_revision", 0) or 0),
             },
             "applicable_fields": list(result.state.collected_fields or [])
             + list(result.state.missing_fields or []),
@@ -653,6 +825,12 @@ async def run_scenario_detailed(
             "validations": validator,
             "latency_ms": latency_ms,
             "handoff_reason": result.state.lifecycle.handoff_reason,
+            "botStatus": _bot_status(result.state),
+            "ownershipRevision": int(getattr(result.state, "ownership_revision", 0) or 0),
+            "llm_calls": turn_llm_calls,
+            "suppressed_outbound": bool(suppressed_reason),
+            "suppressed_reason": suppressed_reason,
+            "inbound_persisted": True,
         }
         traces.append(trace_row)
         if show_trace:
@@ -680,6 +858,9 @@ async def run_scenario_detailed(
             result=result,
             inbound=inbound,
             runtime_calls=1,
+            llm_calls=turn_llm_calls,
+            inbound_persisted=True,
+            suppressed_reason=suppressed_reason,
         )
         inv_msgs = [str(v) for v in violations]
         for v in inv_msgs:
@@ -698,7 +879,9 @@ async def run_scenario_detailed(
         trace_row["runtime_calls"] = 1
         trace_row["inbound_batch"] = inbound_batches[-1]
 
-        if plan.action == Action.HANDOFF_VENDOR or plan.handoff:
+        is_handoff = plan.action == Action.HANDOFF_VENDOR or plan.handoff
+        if is_handoff:
+            events_executed.append({"type": "handoff", "turn_id": idx})
             from sdr.domain.vendor_summary import compose_vendor_summary
 
             composed = None
@@ -720,11 +903,22 @@ async def run_scenario_detailed(
                 summary_llm_rejected = False
                 summary_used_fallback = True
                 summary_origin = "error"
-            stored = crm_store.persist_handoff(
-                result.state,
-                composed=composed,
-                first_inbound=first_inbound,
-            )
+            result.state.crm_revision = int(getattr(result.state, "crm_revision", 0) or 0) + 1
+            if result.state.active_lead_ids:
+                stored = crm_store.sync_from_state(
+                    result.state.active_lead_ids[0],
+                    result.state,
+                    qualify=True,
+                    first_inbound=first_inbound,
+                )
+            else:
+                stored = crm_store.persist_handoff(
+                    result.state,
+                    composed=composed,
+                    first_inbound=first_inbound,
+                )
+                result.state.active_lead_ids = [str(stored["id"])]
+            crm_lead_id = str(stored["id"])
             crm_report = crm_store.verify(result.state.thread_id)
             trace_row["crm_payload"] = stored
             trace_row["crm_persist"] = crm_report
@@ -740,6 +934,18 @@ async def run_scenario_detailed(
                 print(f"  CRM juliaSummary: {vendor_summary}")
                 print(f"  CRM persist verified: {crm_report.get('matches_payload')}")
                 print(f"  summary_validation: {summary_validation}")
+        elif result.state.active_lead_ids:
+            result.state.crm_revision = int(getattr(result.state, "crm_revision", 0) or 0) + 1
+            stored = crm_store.sync_from_state(
+                result.state.active_lead_ids[0],
+                result.state,
+                qualify=False,
+                first_inbound=first_inbound,
+            )
+            crm_lead_id = str(stored["id"])
+            crm_report = crm_store.verify(result.state.thread_id)
+            trace_row["crm_payload"] = stored
+            trace_row["crm_persist"] = crm_report
 
         state = result.state
 
@@ -753,15 +959,21 @@ async def run_scenario_detailed(
             )
 
     obtained_terminal = "INCOMPLETE"
-    if transcript:
+    handoff_seen = any(
+        str(t.get("action") or "").upper() == "HANDOFF_VENDOR" for t in transcript
+    )
+    if handoff_seen:
+        obtained_terminal = "HANDOFF_VENDOR"
+    elif transcript:
         last_action = (transcript[-1].get("action") or "").upper()
-        if last_action == "HANDOFF_VENDOR":
-            obtained_terminal = "HANDOFF_VENDOR"
-        elif last_action == "NO_REPLY":
+        if last_action in {"NO_REPLY", "ADMIN_ASSUME"}:
             obtained_terminal = "SILENCE"
+        elif last_action.startswith("ADMIN_"):
+            obtained_terminal = last_action
         else:
             obtained_terminal = last_action
 
+    own_final = _ownership_snapshot(state)
     run = ScenarioRunResult(
         ok=False,
         errors=errors,
@@ -799,6 +1011,15 @@ async def run_scenario_detailed(
         identification_source=identification_source,
         first_inbound=first_inbound,
         visual_turns=visual_turns,
+        llm_calls=llm_calls,
+        suppressed_outbound_count=suppressed_outbound_count,
+        suppressed_outbound_reasons=list(suppressed_outbound_reasons),
+        inbound_persisted=list(inbound_records),
+        events_executed=list(events_executed),
+        crm_handoff_count=int(crm_store.handoff_count),
+        crm_lead_id=crm_lead_id,
+        bot_status=own_final["botStatus"],
+        ownership_revision=int(own_final["ownershipRevision"]),
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
         errors.append(str(v))

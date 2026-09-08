@@ -75,6 +75,21 @@ def build_round_report(results: Iterable[Any]) -> dict[str, Any]:
         "identification_source_by_scenario": {
             r.name: getattr(r, "identification_source", None) for r in rows
         },
+        "llm_calls": sum(int(getattr(r, "llm_calls", 0) or 0) for r in rows),
+        "suppressed_outbound": sum(
+            int(getattr(r, "suppressed_outbound_count", 0) or 0) for r in rows
+        ),
+        "suppressed_outbound_reasons": {
+            r.name: list(getattr(r, "suppressed_outbound_reasons", None) or [])
+            for r in rows
+        },
+        "ownership_by_scenario": {
+            r.name: {
+                "botStatus": getattr(r, "bot_status", None),
+                "ownershipRevision": int(getattr(r, "ownership_revision", 0) or 0),
+            }
+            for r in rows
+        },
         "commercial_observations": {
             r.name: list(getattr(r, "commercial_observations", None) or [])
             for r in rows

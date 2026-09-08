@@ -151,6 +151,21 @@ class IsolatedCrmStore:
         *,
         first_inbound: str | None = None,
     ) -> dict[str, Any]:
+        existing = self._records.get(state.thread_id)
+        existing_id = None
+        if getattr(state, "active_lead_ids", None):
+            existing_id = str(state.active_lead_ids[0])
+        elif existing and existing.get("id"):
+            existing_id = str(existing["id"])
+        if existing_id and self._by_id.get(existing_id) is not None:
+            rec = self.sync_from_state(
+                existing_id,
+                state,
+                qualify=True,
+                first_inbound=first_inbound,
+            )
+            self._payloads_sent[state.thread_id] = copy.deepcopy(rec)
+            return rec
         payload = build_crm_payload(state, composed=composed)
         snapshot = build_commercial_snapshot(
             state,
@@ -239,6 +254,7 @@ class IsolatedCrmStore:
             rec["status"] = existing.get("status") or "NEW"
         self._by_id[lead_id] = rec
         self._records[state.thread_id] = rec
+        self._payloads_sent[state.thread_id] = copy.deepcopy(rec)
         return copy.deepcopy(rec)
 
     def reread(self, thread_id: str) -> dict[str, Any] | None:

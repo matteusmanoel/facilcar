@@ -95,6 +95,10 @@ def test_round_report_counters_are_derived_from_results() -> None:
     )
     assert report["pending_human_review_count"] == len(results)
     assert all(v == "PENDING_HUMAN_REVIEW" for v in report["human_review"].values())
+    assert report["llm_calls"] == sum(getattr(r, "llm_calls", 0) for r in results)
+    assert report["suppressed_outbound"] == sum(
+        getattr(r, "suppressed_outbound_count", 0) for r in results
+    )
     recounted = recount_from_traces(results)
     assert recounted["scenario_count"] == report["scenario_count"]
     assert recounted["persist_verified"] == report["persist_verified"]

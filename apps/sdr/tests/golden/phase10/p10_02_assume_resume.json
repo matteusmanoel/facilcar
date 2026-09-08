@@ -1,0 +1,92 @@
+{
+  "name": "p10_02_assume_resume",
+  "description": "Assume silences Júlia (persist inbound, zero understand, zero outbound). Resume replies only to a later inbound — the HUMAN_ACTIVE inbound is not sent retroactively.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Pode me passar para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor"
+      ]
+    },
+    {
+      "inbound": "Vocês ainda têm o Civic?",
+      "principal_event": true,
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "Civic",
+          "name": "Carla Mendes"
+        }
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1
+    },
+    {
+      "admin_event": {
+        "type": "assume",
+        "actor_user_id": "user-1"
+      },
+      "principal_event": true,
+      "expected_bot_status": "HUMAN_ACTIVE"
+    },
+    {
+      "inbound": "Quero financiar o Civic sem entrada",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "Civic",
+          "down_payment": 0,
+          "payment_method": "financing"
+        }
+      },
+      "expected_action": "NO_REPLY",
+      "expected_outbound_empty": true,
+      "expected_llm_calls": 0,
+      "expected_inbound_persisted": true,
+      "expected_bot_status": "HUMAN_ACTIVE",
+      "expected_suppressed_reason": "ai_silenced"
+    },
+    {
+      "admin_event": {
+        "type": "resume",
+        "actor_user_id": "user-1",
+        "reason": "seller_released"
+      },
+      "principal_event": true,
+      "expected_bot_status": "AI_RESUMED"
+    },
+    {
+      "inbound": "Ainda estão com o Civic?",
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "Civic"
+        }
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_bot_status": "AI_RESUMED"
+    }
+  ]
+}
