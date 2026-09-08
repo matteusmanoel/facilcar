@@ -31,6 +31,8 @@ class PresentedVehicleBinding:
     offer_set_id: str | None = None
     media_url: str | None = None
     created_at: float | None = None
+    content_sha256: str | None = None
+    dhash: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +44,8 @@ class PresentedVehicleBinding:
             "offer_set_id": self.offer_set_id,
             "media_url": self.media_url,
             "created_at": self.created_at,
+            "content_sha256": self.content_sha256,
+            "dhash": self.dhash,
         }
 
     @classmethod
@@ -64,6 +68,8 @@ class PresentedVehicleBinding:
             created_at = float(created) if created is not None else None
         except (TypeError, ValueError):
             created_at = None
+        sha = str(raw.get("content_sha256") or "").strip() or None
+        dhash = str(raw.get("dhash") or raw.get("perceptual_hash") or "").strip() or None
         return cls(
             conversation_id=conv,
             provider_message_id=provider,
@@ -73,6 +79,8 @@ class PresentedVehicleBinding:
             offer_set_id=(str(raw["offer_set_id"]) if raw.get("offer_set_id") else None),
             media_url=(str(raw["media_url"]).strip() if raw.get("media_url") else None),
             created_at=created_at,
+            content_sha256=sha,
+            dhash=dhash,
         )
 
 

@@ -355,6 +355,7 @@ def deterministic_merge(
         visit_declined_this_turn=False,
         needs_visit_slot_offer=False,
         courtesy_only=False,
+        visual_applied_this_turn=False,
         documents_asked=prev.documents_asked,
         installment_asked=prev.installment_asked,
         installment_mismatch_offered=prev.installment_mismatch_offered,
@@ -364,6 +365,9 @@ def deterministic_merge(
         offered_visit_slots=list(prev.offered_visit_slots),
         listing_reference=prev.listing_reference,
         last_inventory_match=deepcopy(prev.last_inventory_match) if prev.last_inventory_match else None,
+        last_visual_resolution=deepcopy(prev.last_visual_resolution)
+        if getattr(prev, "last_visual_resolution", None)
+        else None,
         crm_revision=int(getattr(prev, "crm_revision", 0) or 0),
         handoff_ready=prev.handoff_ready,
         profile_complete=prev.profile_complete,

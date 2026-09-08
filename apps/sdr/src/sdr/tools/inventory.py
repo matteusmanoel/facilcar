@@ -79,6 +79,7 @@ class InventoryVehicle:
     engine_match: str | None = None
     match_tier: MatchTier = MatchTier.ALTERNATIVE
     images: tuple[dict[str, Any], ...] = ()
+    status: str | None = None
 
     def field(self, name: str) -> Any:
         """Return the raw field value; ``None`` means unavailable (never fabricated)."""
@@ -117,6 +118,7 @@ class InventoryVehicle:
             "engineDisplacementLiters": engine,
             "engineMatch": self.engine_match,
             "matchTier": int(self.match_tier),
+            "status": self.status or "PUBLISHED",
             "images": list(self.images),
             "imageCount": len(self.images),
         }
@@ -161,7 +163,17 @@ def _row_to_vehicle(
         engine_displacement_liters=_read_engine_liters(get),
         match_tier=match_tier,
         images=_read_images(get),
+        status=_read_status(get),
     )
+
+
+def _read_status(get: Any) -> str:
+    try:
+        raw = get("status")
+    except (KeyError, IndexError):
+        return "PUBLISHED"
+    text = str(raw or "").strip().upper()
+    return text or "PUBLISHED"
 
 
 def _read_engine_liters(get: Any) -> Decimal | None:
@@ -611,6 +623,7 @@ SELECT
   v."yearManufacture",
   v."engineDisplacementLiters",
   b."name" AS "brandName",
+  v."status",
   COALESCE((
     SELECT json_agg(json_build_object(
       'id', vi."id",
@@ -630,3 +643,36 @@ WHERE v."id" = $1 AND v."status" = 'PUBLISHED'
     if row is None:
         return None
     return _row_to_vehicle(row)
+
+
+async def get_vehicle_catalog_row(
+    pool: asyncpg.Pool,
+    vehicle_id: str,
+) -> dict[str, Any] | None:
+    """Fetch catalog identity+status for any vehicle, including unpublished.
+
+    Used only to answer availability honestly after a secure visual/id match.
+    Does not invent price, year, or features.
+    """
+    sql = f'''
+SELECT
+  v."id",
+  v."status",
+  v."title",
+  v."model",
+  b."name" AS "brandName"
+FROM "{SCHEMA}"."Vehicle" v
+INNER JOIN "{SCHEMA}"."Brand" b ON b."id" = v."brandId"
+WHERE v."id" = $1
+'''
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(sql, vehicle_id)
+    if row is None:
+        return None
+    return {
+        "id": str(row["id"]),
+        "status": str(row["status"] or ""),
+        "title": str(row["title"] or ""),
+        "model": str(row["model"] or ""),
+        "brandName": str(row["brandName"] or ""),
+    }

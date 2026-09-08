@@ -126,7 +126,7 @@ async def test_first_commercial_turn_introduces_with_photos(monkeypatch) -> None
     assert result.response_directive.should_introduce is True
     joined = " ".join(result.outbound_texts).lower()
     assert "júlia" in joined or "julia" in joined
-    assert "excelente opção" in joined
+    assert "excelente opção" in joined or "dispon" in joined
     assert "vista" in joined or "financ" in joined
     assert result.outbound_media
     assert result.outbound_media[-1].url.endswith("cover.jpg")

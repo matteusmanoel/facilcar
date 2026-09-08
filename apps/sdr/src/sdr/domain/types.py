@@ -235,9 +235,13 @@ class ConversationCanonicalState:
     needs_visit_slot_offer: bool = False
     # Turn-scoped: inbound was thanks-only, no new commercial facts.
     courtesy_only: bool = False
+    # Turn-scoped: visual resolution ran on this inbound (do not persist).
+    visual_applied_this_turn: bool = False
     # Unequivocal listing identity from inbound (id / url / media metadata).
     listing_reference: str | None = None
     last_inventory_match: dict[str, Any] | None = None
+    # Last visual vehicle resolution (sanitized dict — no bytes / base64).
+    last_visual_resolution: dict[str, Any] | None = None
     # Compare-and-set for CRM sync — stale revisions must not overwrite newer.
     crm_revision: int = 0
 

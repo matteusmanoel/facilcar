@@ -100,6 +100,8 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "deferred_fields": list(state.deferred_fields),
         "offered_visit_slots": list(state.offered_visit_slots),
         "listing_reference": state.listing_reference,
+        "last_inventory_match": state.last_inventory_match,
+        "last_visual_resolution": getattr(state, "last_visual_resolution", None),
         "crm_revision": int(getattr(state, "crm_revision", 0) or 0),
         "handoff_ready": state.handoff_ready,
         "profile_complete": state.profile_complete,
@@ -242,6 +244,16 @@ def canonical_state_from_json(
         deferred_fields=list(data.get("deferred_fields") or []),
         offered_visit_slots=list(data.get("offered_visit_slots") or []),
         listing_reference=data.get("listing_reference") or None,
+        last_inventory_match=(
+            dict(data["last_inventory_match"])
+            if isinstance(data.get("last_inventory_match"), dict)
+            else None
+        ),
+        last_visual_resolution=(
+            dict(data["last_visual_resolution"])
+            if isinstance(data.get("last_visual_resolution"), dict)
+            else None
+        ),
         crm_revision=int(data.get("crm_revision") or 0),
         handoff_ready=bool(data.get("handoff_ready") or False),
         profile_complete=bool(data.get("profile_complete") or False),
@@ -644,6 +656,37 @@ class ConversationRepository:
                         ''',
                         message_ids,
                     )
+                )
+
+    async def merge_message_turn_facts(
+        self,
+        message_ids: list[str],
+        patch: dict[str, Any],
+    ) -> None:
+        """Merge JSON into Message.turnFactsJson without changing processingStatus."""
+        import json as _json
+
+        if not message_ids or not patch:
+            return
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f'''SELECT "id", "turnFactsJson" FROM "{SCHEMA}"."Message"
+                    WHERE "id" = ANY($1::text[])''',
+                message_ids,
+            )
+            for row in rows:
+                merged = _json.dumps(
+                    merge_turn_facts(row["turnFactsJson"], patch),
+                    ensure_ascii=False,
+                )
+                await conn.execute(
+                    f'''
+                    UPDATE "{SCHEMA}"."Message"
+                    SET "turnFactsJson" = $2::jsonb
+                    WHERE "id" = $1
+                    ''',
+                    str(row["id"]),
+                    merged,
                 )
 
     async def finalize_batch_messages(

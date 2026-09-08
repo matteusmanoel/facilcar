@@ -204,6 +204,37 @@ def _should_silence_tool_failure(
     return False
 
 
+def _availability_status_for_directive(
+    merged: ConversationCanonicalState,
+    inventory_outcome: InventoryOutcome,
+    inv_count: int,
+    tool_results: list[dict[str, Any]] | None = None,
+) -> str:
+    from sdr.domain.visual_resolution import VisualVehicleResolution, availability_status_for
+
+    vis = None
+    if merged.last_visual_resolution:
+        vis = VisualVehicleResolution.from_mapping(merged.last_visual_resolution)
+    match = merged.last_inventory_match if isinstance(merged.last_inventory_match, dict) else {}
+    catalog = (merged.facts or {}).get("matched_catalog_status") or match.get("matched_status")
+    for result in tool_results or []:
+        if result.get("tool") != "inventory_search":
+            continue
+        params = result.get("search_params") or {}
+        catalog = catalog or params.get("matched_status")
+        vehicles = result.get("vehicles") or []
+        first = vehicles[0] if vehicles and isinstance(vehicles[0], dict) else {}
+        catalog = catalog or first.get("status")
+    return availability_status_for(
+        resolution=vis,
+        inventory_outcome=(
+            inventory_outcome.value if hasattr(inventory_outcome, "value") else str(inventory_outcome)
+        ),
+        inventory_count=inv_count,
+        catalog_status=str(catalog) if catalog else None,
+    )
+
+
 def _build_response_directive(
     merged: ConversationCanonicalState,
     plan: ActionPlan,
@@ -341,6 +372,9 @@ def _build_response_directive(
         vehicle_chosen_this_turn=bool(
             merged.primary_vehicle_id
             and merged.primary_vehicle_id != prev_primary_vehicle_id
+        ),
+        availability_status=_availability_status_for_directive(
+            merged, inventory_outcome, inv_count, tool_results
         ),
     )
     suffix = dialogue_objective_suffix(dialogue)
@@ -578,6 +612,7 @@ async def process_turn(
     understand: UnderstandingFn,
     pool: asyncpg.Pool | None = None,
     linked_vehicle_titles: list[str] | None = None,
+    image_bytes: bytes | None = None,
 ) -> ProcessTurnResult:
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
@@ -642,6 +677,15 @@ async def process_turn(
             inbound_media_url=str(media_url) if media_url else None,
             inbound_timestamp=inbound.timestamp,
         )
+        from sdr.application.visual_inbound import enrich_state_with_visual, quoted_resolution_from_inbound
+
+        await enrich_state_with_visual(
+            merged,
+            inbound,
+            image_bytes=image_bytes,
+            pool=pool,
+            quoted_resolution=quoted_resolution_from_inbound(merged, inbound),
+        )
         from sdr.domain.visit import apply_visit_from_inbound
 
         apply_visit_from_inbound(merged, inbound.effective_text)
@@ -705,14 +749,17 @@ async def process_turn(
     # Understanding LLM did not resolve a vehicle preference from text alone,
     # inject the vision-extracted data so inventory search can proceed without
     # forcing the customer to re-type the vehicle name.
+    from sdr.domain.visual_resolution import is_weak_vehicle_text
+
     vehicle_hint = inbound.raw_message_ref.get("vehicle_hint") if inbound.raw_message_ref else None
     if vehicle_hint and isinstance(vehicle_hint, dict) and vehicle_hint.get("is_vehicle"):
         hint_model = vehicle_hint.get("model")
         hint_brand = vehicle_hint.get("brand")
         hint_color = vehicle_hint.get("color")
         hint_type = vehicle_hint.get("vehicle_type")
-        # Only inject when LLM understanding did not extract vehicle preference.
-        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
+        existing_model = facts.facts.get("desired_model")
+        existing_text = facts.facts.get("desired_vehicle_text")
+        if is_weak_vehicle_text(existing_model) and is_weak_vehicle_text(existing_text):
             injected: dict = {}
             if hint_model:
                 injected["desired_model"] = hint_model
@@ -767,6 +814,15 @@ async def process_turn(
         listing_id=str(listing_id) if listing_id else merged.listing_reference,
         inbound_media_url=str(media_url) if media_url else None,
         inbound_timestamp=inbound.timestamp,
+    )
+    from sdr.application.visual_inbound import enrich_state_with_visual, quoted_resolution_from_inbound
+
+    await enrich_state_with_visual(
+        merged,
+        inbound,
+        image_bytes=image_bytes,
+        pool=pool,
+        quoted_resolution=quoted_resolution_from_inbound(merged, inbound),
     )
 
     # Structured visit preference from this inbound — date-only is valid.

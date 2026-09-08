@@ -112,7 +112,7 @@ def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
         AlternativeScope.SIMILAR,
         AlternativeScope.ANY_VEHICLE,
     )
-    if not widened and not _desired_vehicle(state.facts):
+    if not widened and not _desired_vehicle(state.facts) and not state.primary_vehicle_id:
         return False
 
     key = _state_search_key(state)
@@ -269,6 +269,21 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 handoff=False,
                 reason_code="courtesy",
                 reason="Acknowledge thanks without reopening the roteiro",
+            )
+
+    from sdr.domain.visual_resolution import visual_search_override
+
+    visual_override = visual_search_override(state)
+    if visual_override is not None:
+        _block, ask, reason = visual_override
+        if _block:
+            return ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                ask_field=ask,
+                next_question=ask,
+                reason_code=reason,
+                reason="Visual identification is not a unique inventory match",
             )
 
     # Inventory BEFORE triage handoff — respect preference and widened scope.

@@ -68,6 +68,54 @@ async def _run_inventory_search(
     )
     search_params = req.as_trace_dict()
 
+    secure_id = str(state.facts.get("visual_match_vehicle_id") or "").strip()
+    if state.facts.get("visual_match_secure") and (secure_id or state.primary_vehicle_id):
+        from sdr.tools.inventory import get_vehicle_by_id, get_vehicle_catalog_row
+
+        vid = secure_id or str(state.primary_vehicle_id)
+        try:
+            published = await get_vehicle_by_id(pool, vid)
+        except Exception:
+            published = None
+        if published is not None:
+            card = published.to_dict()
+            return inventory_result(
+                outcome=InventoryOutcome.SUCCESS_FOUND,
+                count=1,
+                vehicles=[card],
+                alternatives=[card],
+                search_params={**search_params, "lookup": "visual_match_id"},
+            )
+        try:
+            catalog = await get_vehicle_catalog_row(pool, vid)
+        except Exception:
+            catalog = None
+        if catalog:
+            status = str(catalog.get("status") or "").upper()
+            if status == "SOLD":
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[catalog],
+                    alternatives=[],
+                    search_params={**search_params, "lookup": "visual_match_id", "matched_status": status},
+                )
+            if status in {"RESERVED", "DRAFT", "ARCHIVED"}:
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[catalog],
+                    alternatives=[],
+                    search_params={**search_params, "lookup": "visual_match_id", "matched_status": status},
+                )
+        return inventory_result(
+            outcome=InventoryOutcome.SUCCESS_EMPTY,
+            count=0,
+            vehicles=[],
+            alternatives=[],
+            search_params={**search_params, "lookup": "visual_match_id"},
+        )
+
     try:
         vehicles = await search_with_request(pool, req)
     except TimeoutError:

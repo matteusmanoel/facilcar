@@ -398,6 +398,46 @@ def _ack_followup_bubbles(
     return None
 
 
+def _availability_prefix_bubble(state: Mapping[str, Any], lang: str) -> str | None:
+    plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), Mapping) else {}
+    if not isinstance(plan, Mapping):
+        return None
+    kinds = {
+        str(q.get("kind"))
+        for q in (plan.get("direct_questions") or [])
+        if isinstance(q, Mapping)
+    }
+    status = str(plan.get("availability_status") or "")
+    if "availability" not in kinds and status != "available":
+        return None
+    facts = state.get("facts") if isinstance(state.get("facts"), Mapping) else {}
+    label = plan.get("proven_vehicle_label")
+    if not label and isinstance(facts, Mapping):
+        label = facts.get("desired_model") or facts.get("desired_vehicle_text")
+    label = str(label).strip() if label else ("o veículo" if lang != "es" else "el vehículo")
+    es = lang == "es"
+    if status == "sold":
+        return f"Esse {label} já foi vendido." if not es else f"Ese {label} ya fue vendido."
+    if status == "reserved":
+        return f"Esse {label} está reservado no momento." if not es else f"Ese {label} está reservado."
+    if status == "ambiguous":
+        return (
+            "Encontrei mais de uma possibilidade no estoque. Qual dessas opções é a sua?"
+            if not es
+            else "Encontré más de una posibilidad. ¿Cuál de esas opciones es la tuya?"
+        )
+    if status == "available":
+        return f"Sim, {label} está disponível." if not es else f"Sí, {label} está disponible."
+    if status in {"unresolved", "unpublished", "unknown", ""}:
+        if "availability" in kinds:
+            return (
+                "Não consegui confirmar a disponibilidade desse veículo com segurança."
+                if not es
+                else "No pude confirmar la disponibilidad de ese vehículo con seguridad."
+            )
+    return None
+
+
 def _follow_up_bubble(
     state: Mapping[str, Any],
     action_plan: Mapping[str, Any],
@@ -635,11 +675,24 @@ def _template_compose(
                 or (state.get("facts") or {}).get("desired_vehicle_text")
                 or "esse veículo"
             )
+            status = ""
+            if isinstance(sold_vehicle, dict):
+                status = str(sold_vehicle.get("status") or "").upper()
+            plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), Mapping) else {}
+            if not status and isinstance(plan, Mapping):
+                mapped = str(plan.get("availability_status") or "")
+                status = {"sold": "SOLD", "reserved": "RESERVED", "unpublished": "DRAFT"}.get(mapped, "")
             if lang == "es":
+                if status == "RESERVED":
+                    return [f"El {model_sold} está reservado."]
                 return [
                     f"El {model_sold} ya fue vendido.",
                     f"Además del {model_sold}, ¿qué otros modelos te interesan?",
                 ]
+            if status == "RESERVED":
+                return [f"Esse {model_sold} está reservado no momento."]
+            if status in {"DRAFT", "ARCHIVED"}:
+                return [f"Esse {model_sold} não está disponível no estoque publicado."]
             return [
                 f"Esse {model_sold} já foi vendido.",
                 f"Além do {model_sold}, quais outros modelos você procura?",
@@ -648,22 +701,27 @@ def _template_compose(
         if isinstance(offers, list) and offers:
             media_planned = bool((tool_context or {}).get("outbound_media_planned"))
             follow = _follow_up_bubble(state, action_plan, lang)
+            prefix = _availability_prefix_bubble(state, lang)
             if media_planned:
                 media_state = dict(state)
                 media_state["outbound_media_planned"] = True
-                return _with_first_contact(media_state, follow, lang)
-            from sdr.domain.vehicle_presentation import format_vehicle_caption
+                bubbles = _with_first_contact(media_state, follow, lang)
+            else:
+                from sdr.domain.vehicle_presentation import format_vehicle_caption
 
-            captions: list[str] = []
-            for offer in offers[:3]:
-                if isinstance(offer, Mapping):
-                    captions.append(format_vehicle_caption(offer, language=lang))
-                elif isinstance(offer, str):
-                    captions.append(offer)
-            bubbles = captions[:2]
-            if follow:
-                bubbles.append(follow)
-            return bubbles[:3]
+                captions: list[str] = []
+                for offer in offers[:3]:
+                    if isinstance(offer, Mapping):
+                        captions.append(format_vehicle_caption(offer, language=lang))
+                    elif isinstance(offer, str):
+                        captions.append(offer)
+                bubbles = captions[:2]
+                if follow:
+                    bubbles.append(follow)
+                bubbles = bubbles[:3]
+            if prefix and prefix.lower() not in " ".join(bubbles).lower():
+                bubbles = [prefix, *bubbles]
+            return bubbles[:4]
         # NOT_EXECUTED / unknown — never claim absence.
         if lang == "es":
             return ["Estoy consultando el stock publicado. ¿Tienes alguna preferencia?"]
@@ -742,6 +800,8 @@ def compose_inventory_response(
         "alternative_scope": scope_val,
         "intent": getattr(getattr(directive, "intent", None), "value", getattr(directive, "intent", None)),
         "outbound_media_planned": bool((tool_context or {}).get("outbound_media_planned")),
+        "dialogue_plan": dict(getattr(directive, "dialogue_plan", None) or {}),
+        "inbound_text": getattr(directive, "inbound_text", "") or "",
     }
     plan = {
         "action": "show_offers",

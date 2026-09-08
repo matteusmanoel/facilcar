@@ -434,8 +434,25 @@ def validate_dialogue_plan(
             _fail("ignored_direct_question")
 
     if DirectQuestionKind.AVAILABILITY.value in kinds:
-        if not re.search(r"dispon|ainda|estoque|publicado", joined, re.I):
+        status = parsed.availability_status or ""
+        if status == "available" and not re.search(r"dispon[ií]vel", joined, re.I):
             _fail("ignored_direct_question")
+        elif status == "sold" and not re.search(r"vendid", joined, re.I):
+            _fail("ignored_direct_question")
+        elif status == "reserved" and not re.search(r"reserv", joined, re.I):
+            _fail("ignored_direct_question")
+        elif status == "ambiguous" and not re.search(
+            r"mais de uma|v[aá]rias|qual dessas", joined, re.I
+        ):
+            _fail("ignored_direct_question")
+        elif status in {"unresolved", "unknown", "unpublished", ""}:
+            if not re.search(
+                r"dispon[ií]vel|vendid|reserv|n[aã]o consegui confirmar|mais de uma|"
+                r"n[aã]o est[aá] dispon",
+                joined,
+                re.I,
+            ):
+                _fail("ignored_direct_question")
 
     for field_name in parsed.forbid_reask_fields:
         pattern = _REASK_PATTERNS.get(field_name)

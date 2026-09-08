@@ -104,6 +104,18 @@ def _presented_vehicle_payload(
     return binding.as_dict()
 
 
+def _first_inbound_image_bytes(orchestrator: "Orchestrator", batch: Any) -> bytes | None:
+    store = getattr(orchestrator, "_inbound_image_bytes", None) or {}
+    for seg in getattr(batch, "segments", None) or []:
+        mid = getattr(seg, "message_id", None)
+        if not mid:
+            continue
+        data = store.pop(str(mid), None)
+        if data:
+            return data
+    return None
+
+
 class EvolutionSender(Protocol):
     async def send_text(self, phone: str, text: str, *, instance: str) -> None: ...
 
@@ -232,6 +244,7 @@ class Orchestrator:
             messages=self.conversations,
             settings=self.settings,
         )
+        self._inbound_image_bytes: dict[str, bytes] = {}
 
     # ------------------------------------------------------------------
     # Audio enrichment
@@ -888,73 +901,42 @@ class Orchestrator:
 
         if content_type == "IMAGE":
             caption = (text or "").strip()
-            # Attempt to identify vehicle brand/model/color from the image bytes.
-            # The result is used to pre-fill search facts without requiring the
-            # customer to re-type the vehicle name.
             media_ref = None
             turn_facts_raw = row.get("turnFactsJson")
+            parsed_facts: dict = {}
             if isinstance(turn_facts_raw, dict):
+                parsed_facts = turn_facts_raw
                 media_ref = turn_facts_raw.get("_sdr_media")
             elif isinstance(turn_facts_raw, str):
                 try:
-                    parsed = json.loads(turn_facts_raw)
-                    media_ref = parsed.get("_sdr_media")
+                    parsed_facts = json.loads(turn_facts_raw)
+                    media_ref = parsed_facts.get("_sdr_media")
                 except Exception:
-                    pass
+                    parsed_facts = {}
 
-            vehicle_hint: dict | None = None
-            if media_ref is not None:
-                img_data, img_mime = await self._download_media_bytes(
+            precomputed = parsed_facts.get("_sdr_visual")
+            img_data = None
+            img_mime = row.get("mediaMimeType")
+            already = isinstance(precomputed, dict) and precomputed.get("resolution_source")
+            if media_ref is not None and not already:
+                img_data, downloaded_mime = await self._download_media_bytes(
                     message_id, media_ref=media_ref
                 )
-                if img_data:
-                    from sdr.media.image_describer import extract_vehicle_intent_from_image
+                img_mime = downloaded_mime or img_mime
 
-                    try:
-                        hint = await extract_vehicle_intent_from_image(
-                            img_data, mime_type=img_mime or row.get("mediaMimeType")
-                        )
-                        if (
-                            hint
-                            and hint.get("is_vehicle")
-                            and float(hint.get("confidence") or 0) >= 0.5
-                        ):
-                            vehicle_hint = hint
-                            logger.info(
-                                "image %s: vehicle_hint brand=%s model=%s conf=%.2f",
-                                message_id,
-                                hint.get("brand"),
-                                hint.get("model"),
-                                hint.get("confidence"),
-                            )
-                    except Exception:
-                        logger.exception("image %s: vehicle intent extraction failed", message_id)
-
-            # Build enriched text: prefer caption; fall back to vehicle description.
-            if not caption and vehicle_hint:
-                parts = [
-                    p for p in [
-                        vehicle_hint.get("brand"),
-                        vehicle_hint.get("model"),
-                        vehicle_hint.get("color"),
-                    ]
-                    if p and isinstance(p, str) and p.strip()
-                ]
-                enriched_text = " ".join(parts) if parts else None
-            else:
-                enriched_text = caption or None
-
-            turn_status = MediaStatus.OK if enriched_text else MediaStatus.NONE
             inbound = InboundTurn(
                 thread_id=message_id,
                 content_type=ContentType.IMAGE,
-                text=enriched_text,
-                media_status=turn_status,
+                text=caption or None,
+                media_status=MediaStatus.OK if caption else MediaStatus.NONE,
                 provider_message_id=str(row.get("providerMessageId") or ""),
-                mime_type=row.get("mediaMimeType"),
+                mime_type=img_mime,
             )
-            if vehicle_hint:
-                inbound.raw_message_ref["vehicle_hint"] = vehicle_hint
+            if already:
+                inbound.raw_message_ref["visual_resolution"] = precomputed
+            if img_data:
+                inbound.raw_message_ref["_image_byte_size"] = len(img_data)
+                self._inbound_image_bytes[message_id] = img_data
             return inbound
 
         if content_type == "DOCUMENT":
@@ -1120,8 +1102,37 @@ class Orchestrator:
                 understand=_understand_fn,
                 pool=self.pool,
                 linked_vehicle_titles=linked_titles or None,
+                image_bytes=_first_inbound_image_bytes(self, batch),
             )
 
+            vis = (inbound.raw_message_ref or {}).get("visual_resolution") or result.state.last_visual_resolution or {}
+            if vis:
+                image_ids = [
+                    str(getattr(seg, "message_id", "") or "")
+                    for seg in (getattr(batch, "segments", None) or [])
+                    if str(getattr(getattr(seg, "content_type", None), "value", getattr(seg, "content_type", ""))).upper()
+                    == "IMAGE"
+                    and getattr(seg, "message_id", None)
+                ]
+                persist_ids = [mid for mid in image_ids if mid] or list(batch.message_ids)
+                try:
+                    await self.conversations.merge_message_turn_facts(
+                        persist_ids,
+                        {"_sdr_visual": vis},
+                    )
+                except Exception:
+                    logger.exception("persist _sdr_visual failed conversation=%s", conversation_id)
+            if vis and hasattr(tracer, "visual"):
+                tracer.visual(
+                    resolution_source=str(vis.get("resolution_source") or "") or None,
+                    confidence=vis.get("confidence"),
+                    candidate_vehicle_ids=list(vis.get("candidate_vehicle_ids") or []),
+                    matched_vehicle_id=vis.get("matched_vehicle_id"),
+                    vision_attempted=bool(vis.get("vision_attempted")),
+                    vision_calls=int(vis.get("vision_calls") or 0),
+                    fallback_reason=vis.get("fallback_reason"),
+                    ambiguity_reason=vis.get("ambiguity_reason"),
+                )
             tracer.understanding(
                 intent=result.turn_facts.intent.value,
                 language=result.turn_facts.language,

@@ -133,6 +133,30 @@ class TurnTracer:
             error=error,
         )
 
+    def visual(
+        self,
+        *,
+        resolution_source: str | None = None,
+        confidence: float | None = None,
+        candidate_vehicle_ids: list[str] | None = None,
+        matched_vehicle_id: str | None = None,
+        vision_attempted: bool = False,
+        vision_calls: int = 0,
+        fallback_reason: str | None = None,
+        ambiguity_reason: str | None = None,
+    ) -> None:
+        self._record(
+            "VISUAL_RESOLUTION",
+            resolution_source=resolution_source,
+            confidence=confidence,
+            candidate_vehicle_ids=candidate_vehicle_ids or [],
+            matched_vehicle_id=matched_vehicle_id,
+            vision_attempted=vision_attempted,
+            vision_calls=vision_calls,
+            fallback_reason=fallback_reason,
+            ambiguity_reason=ambiguity_reason,
+        )
+
     def understanding(
         self,
         *,
@@ -309,6 +333,9 @@ class NoopTracer:
         pass
 
     def media(self, **_: Any) -> None:
+        pass
+
+    def visual(self, **_: Any) -> None:
         pass
 
     def understanding(self, **_: Any) -> None:

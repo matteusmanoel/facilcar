@@ -156,6 +156,7 @@ class DialoguePlan:
     proven_vehicle_label: str | None = None
     max_text_bubbles: int = 3
     max_questions: int = 1
+    availability_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -169,10 +170,11 @@ class DialoguePlan:
             "courtesy_only": self.courtesy_only,
             "wellbeing_reciprocity": self.wellbeing_reciprocity,
             "forbid_reask_fields": list(self.forbid_reask_fields),
-            "restrictions": list(self.restrictions),
             "proven_vehicle_label": self.proven_vehicle_label,
             "max_text_bubbles": self.max_text_bubbles,
             "max_questions": self.max_questions,
+            "availability_status": self.availability_status,
+            "restrictions": list(self.restrictions),
         }
 
     @classmethod
@@ -196,6 +198,9 @@ class DialoguePlan:
             ),
             max_text_bubbles=int(raw.get("max_text_bubbles") or 3),
             max_questions=int(raw.get("max_questions") or 1),
+            availability_status=(
+                str(raw["availability_status"]) if raw.get("availability_status") else None
+            ),
         )
 
 
@@ -278,7 +283,9 @@ def _question_for_kind(kind: DirectQuestionKind, text: str) -> DirectQuestion:
         ),
         DirectQuestionKind.AVAILABILITY: (
             True,
-            "Responda a disponibilidade conhecida do veículo publicado já apresentado. Não invente estoque.",
+            "Responda a disponibilidade de forma explícita (está disponível / foi vendido / "
+            "está reservado / não conseguiu confirmar / há mais de uma possibilidade). "
+            "Não invente estoque. Não deixe a disponibilidade só implícita.",
         ),
         DirectQuestionKind.PRICE: (
             True,
@@ -376,6 +383,7 @@ def build_dialogue_plan(
     document_kind: str | None = None,
     lifecycle_status: str | None = None,
     vehicle_chosen_this_turn: bool = False,
+    availability_status: str | None = None,
 ) -> DialoguePlan:
     """Build the semantic plan for this turn from canonical state + inbound."""
     action_val = action.value if isinstance(action, Action) else str(action or "")
@@ -532,6 +540,7 @@ def build_dialogue_plan(
         proven_vehicle_label=_proven_vehicle_label(state, facts),
         max_text_bubbles=max_bubbles,
         max_questions=0 if courtesy or action_val == Action.HANDOFF_VENDOR.value else 1,
+        availability_status=availability_status,
     )
 
 
@@ -589,7 +598,15 @@ def infer_realized_acts(bubbles: Sequence[str], plan: DialoguePlan) -> list[str]
         elif DirectQuestionKind.ACCEPT_TRADE.value in kinds and "troca" in joined:
             realized.append(DialogueAct.ANSWER_DIRECT_QUESTION.value)
         elif DirectQuestionKind.AVAILABILITY.value in kinds and any(
-            token in joined for token in ("dispon", "ainda tem", "estoque", "publicado")
+            token in joined
+            for token in (
+                "dispon",
+                "vendid",
+                "reserv",
+                "não consegui confirmar",
+                "mais de uma",
+                "estoque",
+            )
         ):
             realized.append(DialogueAct.ANSWER_DIRECT_QUESTION.value)
         elif DirectQuestionKind.UNKNOWN.value in kinds and any(
@@ -722,11 +739,43 @@ def fallback_bubbles(
         )
     elif DirectQuestionKind.AVAILABILITY.value in kinds:
         label = plan.proven_vehicle_label or ("o veículo" if not es else "el vehículo")
-        bubbles.append(
-            f"Sim, {label} segue disponível no estoque publicado."
-            if not es
-            else f"Sí, {label} sigue disponible en el stock publicado."
-        )
+        status = plan.availability_status or "unknown"
+        if status == "sold":
+            bubbles.append(
+                f"Esse {label} já foi vendido."
+                if not es
+                else f"Ese {label} ya fue vendido."
+            )
+        elif status == "reserved":
+            bubbles.append(
+                f"Esse {label} está reservado no momento."
+                if not es
+                else f"Ese {label} está reservado en este momento."
+            )
+        elif status == "ambiguous":
+            bubbles.append(
+                "Encontrei mais de uma possibilidade no estoque. Qual dessas opções é a sua?"
+                if not es
+                else "Encontré más de una posibilidad. ¿Cuál de esas opciones es la tuya?"
+            )
+        elif status == "available":
+            bubbles.append(
+                f"Sim, {label} está disponível."
+                if not es
+                else f"Sí, {label} está disponible."
+            )
+        elif status == "unpublished":
+            bubbles.append(
+                f"Esse {label} não está disponível no estoque publicado."
+                if not es
+                else f"Ese {label} no está disponible en el stock publicado."
+            )
+        else:
+            bubbles.append(
+                "Não consegui confirmar a disponibilidade desse veículo com segurança."
+                if not es
+                else "No pude confirmar la disponibilidad de ese vehículo con seguridad."
+            )
     elif DirectQuestionKind.BUY_MY_CAR.value in kinds:
         bubbles.append(
             "Sim, avaliamos a compra do seu veículo."
