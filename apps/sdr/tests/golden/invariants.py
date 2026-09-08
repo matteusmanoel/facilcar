@@ -123,7 +123,14 @@ INVARIANT_CATALOG: list[str] = [
     "TURN: expected_primary_vehicle_id",
     "TURN: require_explicit_availability",
     "TURN: expected_docs_not_received",
-    "TURN: storage_failure_must_not_block",
+    "SCENARIO: expected_followup_sends",
+    "SCENARIO: expected_wait_state",
+    "SCENARIO: expected_scheduled_at",
+    "SCENARIO: followup_llm_when_cancelled",
+    "SCENARIO: artifact_pii",
+    "SCENARIO: one_followup_send",
+    "TURN: expected_wait_state",
+    "TURN: expected_followup_sends",
 ]
 
 
@@ -153,10 +160,18 @@ _QUESTIONNAIRE_CUES = (
 EVENT_KIND_CUSTOMER_INBOUND = "customer_inbound"
 EVENT_KIND_ADMIN_EVENT = "admin_event"
 EVENT_KIND_SUPPRESSED = "suppressed"
+EVENT_KIND_CLOCK_JUMP = "clock_jump"
+EVENT_KIND_SCHEDULER_TICK = "scheduler_tick"
+EVENT_KIND_INVENTORY_OVERRIDE = "inventory_override"
+EVENT_KIND_OPT_OUT = "opt_out"
 _VALID_EVENT_KINDS = frozenset({
     EVENT_KIND_CUSTOMER_INBOUND,
     EVENT_KIND_ADMIN_EVENT,
     EVENT_KIND_SUPPRESSED,
+    EVENT_KIND_CLOCK_JUMP,
+    EVENT_KIND_SCHEDULER_TICK,
+    EVENT_KIND_INVENTORY_OVERRIDE,
+    EVENT_KIND_OPT_OUT,
 })
 _ADMIN_ACTIONS = frozenset({"ADMIN_ASSUME", "ADMIN_RESUME"})
 _SUPPRESSED_REASONS = frozenset({"ai_silenced", "human_active", "human_or_handoff_silence"})
@@ -176,7 +191,15 @@ def classify_turn_event(turn: dict[str, Any] | None) -> dict[str, Any]:
     bot_status = str(turn.get("bot_status") or "")
     inbound = str(turn.get("inbound") or "").strip()
 
-    if action in _ADMIN_ACTIONS or (isinstance(admin, (str, dict)) and admin):
+    if action in {"CLOCK_JUMP"} or turn.get("clock_jump") or turn.get("clock") and action == "CLOCK_JUMP":
+        inferred = EVENT_KIND_CLOCK_JUMP
+    elif action in {"SCHEDULER_TICK", "FOLLOWUP_SEND"} or turn.get("scheduler_tick"):
+        inferred = EVENT_KIND_SCHEDULER_TICK
+    elif action == "INVENTORY_OVERRIDE" or turn.get("inventory_override"):
+        inferred = EVENT_KIND_INVENTORY_OVERRIDE
+    elif action == "OPT_OUT" or turn.get("opt_out"):
+        inferred = EVENT_KIND_OPT_OUT
+    elif action in _ADMIN_ACTIONS or (isinstance(admin, (str, dict)) and admin):
         inferred = EVENT_KIND_ADMIN_EVENT
     elif suppressed_reason in _SUPPRESSED_REASONS or (
         action == "NO_REPLY" and bot_status == "HUMAN_ACTIVE"
@@ -191,8 +214,20 @@ def classify_turn_event(turn: dict[str, Any] | None) -> dict[str, Any]:
 
     if "composer_expected" in turn:
         composer_expected = bool(turn.get("composer_expected"))
-    elif kind != EVENT_KIND_CUSTOMER_INBOUND:
+    elif kind in {
+        EVENT_KIND_ADMIN_EVENT,
+        EVENT_KIND_SUPPRESSED,
+        EVENT_KIND_CLOCK_JUMP,
+        EVENT_KIND_INVENTORY_OVERRIDE,
+        EVENT_KIND_OPT_OUT,
+    }:
         composer_expected = False
+    elif kind == EVENT_KIND_SCHEDULER_TICK:
+        composer_expected = bool(turn.get("outbound") or turn.get("expected_outbound_min"))
+        if action == "FOLLOWUP_SEND":
+            composer_expected = True
+        if action == "SCHEDULER_TICK" and not (turn.get("outbound") or []):
+            composer_expected = False
     else:
         composer_expected = action != "NO_REPLY"
         if not action and inbound:
@@ -239,6 +274,7 @@ def check_turn(
     llm_calls: int = 0,
     inbound_persisted: bool = False,
     suppressed_reason: str | None = None,
+    followup: dict[str, Any] | None = None,
 ) -> list[InvariantViolation]:
     """Validate a single turn against its spec. Returns list of violations (empty = pass)."""
     violations: list[InvariantViolation] = []
@@ -678,6 +714,20 @@ def check_turn(
                 f"internal Storage leak in outbound: {outbound_joined[:160]}",
             )
 
+    snap = followup or {}
+    expected_wait = turn_def.get("expected_wait_state")
+    if expected_wait and str(snap.get("wait_state") or "") != str(expected_wait):
+        fail(
+            "TURN: expected_wait_state",
+            f"expected {expected_wait!r}, got {snap.get('wait_state')!r}",
+        )
+    expected_sends = turn_def.get("expected_followup_sends")
+    if expected_sends is not None and int(snap.get("followup_sends") or 0) != int(expected_sends):
+        fail(
+            "TURN: expected_followup_sends",
+            f"expected {expected_sends} send(s), got {snap.get('followup_sends')}",
+        )
+
     return violations
 
 
@@ -694,6 +744,8 @@ def _fact_path(facts: dict[str, Any], key: str) -> Any:
 
 def _principal_turn(turn_def: dict[str, Any]) -> bool:
     if turn_def.get("principal_event") or turn_def.get("expected_primary_vehicle_id"):
+        return True
+    if turn_def.get("clock_jump") or turn_def.get("scheduler_tick") or turn_def.get("inventory_override"):
         return True
     admin = turn_def.get("admin_event")
     if isinstance(admin, dict) and str(admin.get("type") or "").lower() in {
@@ -1086,6 +1138,19 @@ def check_scenario(
                     f"previous_revision={(previous or {}).get('ownership_revision')!r}",
                 )
             continue
+        if kind in {
+            EVENT_KIND_CLOCK_JUMP,
+            EVENT_KIND_INVENTORY_OVERRIDE,
+            EVENT_KIND_OPT_OUT,
+        }:
+            continue
+        if kind == EVENT_KIND_SCHEDULER_TICK:
+            if semantics["outbound_expected"] and not (turn.get("outbound") or []):
+                fail(
+                    "SCENARIO: empty_composer",
+                    f"turn {idx} scheduler produced no outbound text",
+                )
+            continue
         if kind == EVENT_KIND_SUPPRESSED:
             reason = str(turn.get("suppressed_reason") or "").strip()
             if reason not in _SUPPRESSED_REASONS:
@@ -1099,6 +1164,61 @@ def check_scenario(
                 "SCENARIO: empty_composer",
                 f"turn {idx} produced no outbound text",
             )
+
+    expected_sends = scenario.get("expected_followup_sends")
+    got_sends = int(getattr(result, "followup_sends", 0) or 0)
+    if expected_sends is not None and got_sends != int(expected_sends):
+        fail(
+            "SCENARIO: expected_followup_sends",
+            f"expected {expected_sends} send(s), got {got_sends}",
+        )
+    if expected_sends == 1 and got_sends != 1:
+        fail("SCENARIO: one_followup_send", f"sends={got_sends}")
+    expected_wait = scenario.get("expected_wait_state")
+    got_wait = str(getattr(result, "wait_state", None) or "")
+    if expected_wait and got_wait != str(expected_wait):
+        fail(
+            "SCENARIO: expected_wait_state",
+            f"expected {expected_wait!r}, got {got_wait!r}",
+        )
+    expected_sched = scenario.get("expected_scheduled_at")
+    if expected_sched:
+        tasks = list(getattr(result, "followup_tasks", None) or [])
+        scheduled = [str(t.get("scheduledAt") or "") for t in tasks]
+        if not any(expected_sched in item or item.startswith(str(expected_sched)[:19]) for item in scheduled):
+            fail(
+                "SCENARIO: expected_scheduled_at",
+                f"expected {expected_sched!r} in {scheduled!r}",
+            )
+    if scenario.get("expected_no_llm_when_cancelled"):
+        for turn in turns:
+            action = str(turn.get("action") or "").upper()
+            if action in {"ADMIN_ASSUME", "OPT_OUT"}:
+                continue
+            if str(turn.get("event_kind") or "") in {EVENT_KIND_ADMIN_EVENT, EVENT_KIND_OPT_OUT}:
+                continue
+            if action in {"SCHEDULER_TICK", "FOLLOWUP_SEND"} and int(turn.get("llm_calls") or 0) != 0:
+                fail(
+                    "SCENARIO: followup_llm_when_cancelled",
+                    f"turn {turn.get('idx')} scheduler used LLM after cancel",
+                )
+            bot = str(turn.get("bot_status") or "")
+            if bot == "HUMAN_ACTIVE" and int(turn.get("llm_calls") or 0) != 0 and turn.get("inbound"):
+                fail(
+                    "SCENARIO: followup_llm_when_cancelled",
+                    f"turn {turn.get('idx')} LLM ran while HUMAN_ACTIVE",
+                )
+    if scenario.get("expected_artifact_clean"):
+        from sdr.replay.followup_harness import pii_leaks, sanitize_artifact
+
+        blob = str(sanitize_artifact({
+            "turns": result.turns,
+            "traces": getattr(result, "traces", None) or [],
+            "tasks": getattr(result, "followup_tasks", None) or [],
+        }))
+        leaks = pii_leaks(blob)
+        if leaks:
+            fail("SCENARIO: artifact_pii", f"leaks={leaks[:5]!r}")
 
     return violations
 

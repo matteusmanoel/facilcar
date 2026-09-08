@@ -1,0 +1,47 @@
+{
+  "name": "g7_after_hours",
+  "description": "G7 — due after store hours: do not send, reschedule to next open window, send once.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "FOLLOWUP_SENT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000017"},
+  "turns": [
+    {
+      "inbound": "Pode me chamar hoje depois das 19h.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada"}
+      },
+      "followup": {
+        "schedule": true,
+        "reason": "CUSTOMER_WILL_RETURN",
+        "consent_source": "EXPLICIT",
+        "consent_level": "EXPLICIT_WITH_TIME",
+        "original_temporal_text": "depois das 19h",
+        "scheduled_at": "2026-09-07T19:00:00-03:00",
+        "vehicle_id": "VH-STRADA-2018",
+        "vehicle_label": "Strada Freedom 1.4 2018"
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP"
+    },
+    {
+      "clock_jump": "2026-09-07T19:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 0,
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP"
+    },
+    {
+      "clock_jump": "2026-09-08T08:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP"
+    }
+  ]
+}

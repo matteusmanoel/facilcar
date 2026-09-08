@@ -76,6 +76,11 @@ def build_round_report(results: Iterable[Any]) -> dict[str, Any]:
             r.name: getattr(r, "identification_source", None) for r in rows
         },
         "llm_calls": sum(int(getattr(r, "llm_calls", 0) or 0) for r in rows),
+        "followup_sends": sum(int(getattr(r, "followup_sends", 0) or 0) for r in rows),
+        "wait_state_by_scenario": {
+            r.name: getattr(r, "wait_state", None) for r in rows
+        },
+        "clock_jumps": sum(len(getattr(r, "clock_jumps", None) or []) for r in rows),
         "suppressed_outbound": sum(
             int(getattr(r, "suppressed_outbound_count", 0) or 0) for r in rows
         ),

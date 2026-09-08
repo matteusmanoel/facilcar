@@ -1,0 +1,41 @@
+{
+  "name": "g6_two_workers",
+  "description": "G6 — two scheduler workers, one claim, one composer, one send, one idempotency key.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "FOLLOWUP_SENT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000016"},
+  "turns": [
+    {
+      "inbound": "Pode me chamar amanhã às 14h.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada"}
+      },
+      "followup": {
+        "schedule": true,
+        "reason": "CUSTOMER_WILL_RETURN",
+        "consent_source": "EXPLICIT",
+        "consent_level": "EXPLICIT_WITH_TIME",
+        "original_temporal_text": "amanhã às 14h",
+        "scheduled_at": "2026-09-08T14:00:00-03:00",
+        "vehicle_id": "VH-STRADA-2018",
+        "vehicle_label": "Strada Freedom 1.4 2018",
+        "idempotency_key": "g6-two-workers"
+      },
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "forbidden_action": "HANDOFF_VENDOR"
+    },
+    {
+      "clock_jump": "2026-09-08T14:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1", "w2"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "name": "g2_spouse_without_time",
+  "description": "G2 — spouse decision without time. At most one next-business-day retomada. No second attempt.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "FOLLOWUP_SENT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+  "expected_scheduled_at": "2026-09-08T09:30:00-03:00",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000012"},
+  "turns": [
+    {
+      "inbound": "Vou ver com meu marido e te retorno.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_model": "Strada",
+          "pause_reason": "DECISION_WITH_PARTNER",
+          "consent_level": "CONTEXTUAL_WITHOUT_TIME"
+        }
+      },
+      "followup": {
+        "schedule": true,
+        "reason": "DECISION_WITH_PARTNER",
+        "consent_source": "CONTEXTUAL",
+        "consent_level": "CONTEXTUAL_WITHOUT_TIME",
+        "original_temporal_text": "",
+        "scheduled_at": "2026-09-08T09:30:00-03:00",
+        "vehicle_id": "VH-STRADA-2018",
+        "vehicle_label": "Strada Freedom 1.4 2018"
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "forbidden_in_outbound": ["vi que você sumiu", "urgente", "última chance", "lead", "CRM", "handoff"]
+    },
+    {
+      "clock_jump": "2026-09-08T09:30:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+      "forbidden_in_outbound": ["vi que você sumiu", "urgente", "lead", "CRM"]
+    },
+    {
+      "clock_jump": {"hours": 2},
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "skipped": [],
+  "notes": [
+    "No G1–G10 skips. Domain/scheduler/composer fronts may replace sdr.replay.followup_harness.",
+    "Live gate runs G1 x2 and G2 x2 only. G3–G10 stay deterministic pytest."
+  ]
+}
