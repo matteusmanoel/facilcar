@@ -11,6 +11,8 @@ ALLOWED_RESPONSE_MODES = frozenset({
     "intent_change",
     "vendor_request",
     "objection",
+    "vehicle_choice",
+    "quoted_selection",
 })
 
 _PACKED_VEHICLE_FIELDS = frozenset({
@@ -24,6 +26,19 @@ _PACKED_VEHICLE_FIELDS = frozenset({
 def _fold(text: str) -> str:
     raw = unicodedata.normalize("NFKD", (text or "").lower())
     return "".join(ch for ch in raw if not unicodedata.combining(ch))
+
+
+def _quoted_vehicle_selection(spec: dict[str, Any]) -> bool:
+    """Quoted listing/image reply is a valid next turn, not a skipped payment answer."""
+    if spec.get("quoted_message_id") or spec.get("quoted"):
+        return True
+    events = spec.get("events")
+    if not isinstance(events, list):
+        return False
+    for event in events:
+        if isinstance(event, dict) and (event.get("quoted_message_id") or event.get("quoted")):
+            return True
+    return False
 
 
 def classify_inbound_response_type(text: str) -> str | None:
@@ -145,6 +160,10 @@ def evaluate_dialogue_alignment(
     if mode in ALLOWED_RESPONSE_MODES:
         aligned = True
         reason = f"response_mode:{mode}"
+    elif _quoted_vehicle_selection(spec):
+        aligned = True
+        reason = "quoted_vehicle_selection"
+        inbound_type = inbound_type or "vehicle_choice"
     elif not asked:
         aligned = True
         reason = "no_pending_question"

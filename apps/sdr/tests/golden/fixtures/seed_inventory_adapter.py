@@ -154,6 +154,93 @@ def search_seed(
     }
 
 
+_SYNTHETIC_FIXTURE_BY_ID = {
+    "VH-FOX-2014-001": "synthetic_fox",
+    "VH-STRADA-2018": "synthetic_strada",
+}
+
+
+def seed_catalog_image_index() -> list[dict[str, Any]]:
+    """Exact-match fingerprints for isolated visual lookup (no live pool)."""
+    from sdr.domain.image_fingerprint import dhash64, dhash_hex, sha256_hex
+    from tests.golden.fixtures.synthetic_media import load_image_fixture
+
+    index: list[dict[str, Any]] = []
+    for vehicle_id, fixture in _SYNTHETIC_FIXTURE_BY_ID.items():
+        data = load_image_fixture(fixture)
+        if not data:
+            continue
+        vehicle = get_seed_by_id(vehicle_id) or {}
+        index.append(
+            {
+                "vehicle_id": vehicle_id,
+                "conversation_id": "catalog",
+                "sha256": sha256_hex(data),
+                "dhash": dhash_hex(dhash64(data)),
+                "model": vehicle.get("model"),
+                "brand": vehicle.get("brand"),
+                "status": vehicle.get("status") or "PUBLISHED",
+            }
+        )
+    return index
+
+
+def visual_candidates_from_seed(
+    model: str | None = None,
+    brand: str | None = None,
+) -> list[dict[str, Any]]:
+    """Visual candidate set — includes id_only listings (photo is identity)."""
+    vehicles = load_seed()
+    model_q = _normalize(model or "")
+    brand_q = _normalize(brand or "")
+    matches: list[dict[str, Any]] = []
+    for vehicle in vehicles:
+        if str(vehicle.get("status") or "").upper() != "PUBLISHED":
+            continue
+        v_model = _normalize(vehicle.get("model") or "")
+        v_brand = _normalize(vehicle.get("brand") or "")
+        combined = f"{v_brand} {v_model}"
+        if model_q:
+            if model_q in combined:
+                matches.append(vehicle)
+        elif brand_q and brand_q in v_brand:
+            matches.append(vehicle)
+    return matches
+
+
+def inventory_vehicles_from_seed_request(req: Any) -> list[Any]:
+    """Adapter for ``search_with_request`` — never calls pool.acquire()."""
+    from decimal import Decimal
+
+    from sdr.tools.inventory import InventoryVehicle
+
+    model = getattr(req, "original_model", None) or getattr(req, "original_vehicle_text", None)
+    brand = getattr(req, "original_brand", None)
+    rows = visual_candidates_from_seed(model=model, brand=brand)
+    out: list[Any] = []
+    for vehicle in rows:
+        price = vehicle.get("priceCash")
+        year = vehicle.get("yearModel") or vehicle.get("year_model") or vehicle.get("year")
+        out.append(
+            InventoryVehicle(
+                id=str(vehicle.get("id")),
+                slug=str(vehicle.get("slug") or vehicle.get("id") or ""),
+                title=str(vehicle.get("title") or ""),
+                brand_name=str(vehicle.get("brand") or ""),
+                model=str(vehicle.get("model") or ""),
+                type=str(vehicle.get("type") or "CAR"),
+                price_cash=Decimal(str(price)) if price is not None else None,
+                mileage=vehicle.get("mileage"),
+                color=vehicle.get("color"),
+                year_model=int(year) if year is not None else None,
+                year_manufacture=int(year) if year is not None else None,
+                version=vehicle.get("version"),
+                status=str(vehicle.get("status") or "PUBLISHED"),
+            )
+        )
+    return out
+
+
 def make_seed_inventory_result(query: dict[str, Any]) -> list[dict[str, Any]]:
     model = query.get("model") or query.get("desired_model") or ""
     brand = query.get("brand") or ""

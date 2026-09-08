@@ -679,20 +679,33 @@ def visual_search_override(
     """If visual resolution already settled the turn, skip catalog search.
 
     Returns (block_search, ask_field, reason_code) or None to keep the default path.
+    A known textual model is never re-asked because vision failed.
     """
     vis = VisualVehicleResolution.from_mapping(getattr(state, "last_visual_resolution", None))
     if not getattr(state, "visual_applied_this_turn", False):
         return None
     if vis.is_secure_match:
         return None
+    facts = getattr(state, "facts", None) or {}
+    known_model = (
+        bool(facts.get("desired_model"))
+        and not is_weak_vehicle_text(facts.get("desired_model"))
+    ) or (
+        bool(facts.get("desired_vehicle_text"))
+        and not is_weak_vehicle_text(facts.get("desired_vehicle_text"))
+    )
     if vis.resolution_source is VisualResolutionSource.AMBIGUOUS:
         return (True, None, "visual_ambiguous")
     if vis.fallback_reason == "no_vehicle_in_image":
+        if known_model:
+            return None
         return (True, "desired_model", "visual_no_vehicle")
     if vis.resolution_source in (
         VisualResolutionSource.UNRESOLVED,
         VisualResolutionSource.ATTRIBUTES_ONLY,
     ) and vis.vision_attempted:
+        if known_model:
+            return None
         return (True, "desired_model", "visual_unresolved")
     return None
 

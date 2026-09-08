@@ -25,6 +25,7 @@
     {
       "inbound": "Gostei dessa opção",
       "quoted_message_id": "replay-img-VH-STRADA-2018",
+      "response_mode": "quoted_selection",
       "events": [
         {
           "content_type": "TEXT",

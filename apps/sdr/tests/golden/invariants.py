@@ -92,6 +92,7 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: ka_not_preserved",
     "SCENARIO: fines_cleared_all_debts",
     "SCENARIO: summary_validation",
+    "SCENARIO: principal_event_not_executed",
     "SCENARIO: expected_primary_vehicle",
     "SCENARIO: expected_handoff_count",
     "SCENARIO: expected_crm_status",
@@ -545,6 +546,19 @@ def _fact_path(facts: dict[str, Any], key: str) -> Any:
     return cur
 
 
+def _principal_turn(turn_def: dict[str, Any]) -> bool:
+    if turn_def.get("principal_event") or turn_def.get("expected_primary_vehicle_id"):
+        return True
+    if turn_def.get("quoted_message_id") or turn_def.get("quoted"):
+        return True
+    events = turn_def.get("events")
+    if isinstance(events, list):
+        for event in events:
+            if isinstance(event, dict) and (event.get("quoted_message_id") or event.get("quoted")):
+                return True
+    return False
+
+
 def check_scenario(
     *,
     scenario: dict[str, Any],
@@ -779,6 +793,16 @@ def check_scenario(
         ]
         if gol_outcomes and any(o != "SUCCESS_EMPTY" for o in gol_outcomes):
             fail("SCENARIO: gol_must_be_empty", str(gol_outcomes))
+
+    executed_idxs = {t.get("idx") for t in (result.turns or [])}
+    for idx, turn_def in enumerate(scenario.get("turns") or []):
+        if not isinstance(turn_def, dict):
+            continue
+        if _principal_turn(turn_def) and idx not in executed_idxs:
+            fail(
+                "SCENARIO: principal_event_not_executed",
+                f"turn {idx} never ran",
+            )
 
     expected_primary = scenario.get("expected_primary_vehicle_id")
     if expected_primary and state is not None:

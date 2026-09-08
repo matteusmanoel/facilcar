@@ -270,6 +270,11 @@ async def run_scenario_detailed(
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
 
+    async def _seed_search_with_request(_pool: Any, req: Any) -> list[Any]:
+        from tests.golden.fixtures.seed_inventory_adapter import inventory_vehicles_from_seed_request
+
+        return inventory_vehicles_from_seed_request(req)
+
     async def _seed_run_inventory_search(search_state: Any, _pool: Any) -> dict[str, Any]:
         from sdr.domain.inventory_outcome import inventory_result
         from sdr.domain.inventory_search import build_inventory_search_request
@@ -369,6 +374,13 @@ async def run_scenario_detailed(
             thread_id=state.thread_id,
             turn_idx=idx,
         )
+        if image_bytes and not use_live_inventory:
+            from tests.golden.fixtures.seed_inventory_adapter import seed_catalog_image_index
+
+            ref = dict(inbound.raw_message_ref or {})
+            if not ref.get("image_index") and not ref.get("fingerprints"):
+                ref["image_index"] = seed_catalog_image_index()
+                inbound.raw_message_ref = ref
         inbound_text = inbound.effective_text or str(turn_def.get("inbound") or "")
         listing_id = turn_def.get("listing_id")
         listing_url = turn_def.get("listing_url")
@@ -473,15 +485,20 @@ async def run_scenario_detailed(
                     tool_results=[],
                 )
             else:
-                ctx = (
-                    mock.patch.dict(
-                        "sdr.application.tool_executor._TOOL_REGISTRY",
-                        {"inventory_search": _seed_run_inventory_search},
-                    )
-                    if not use_live_inventory
-                    else contextlib.nullcontext()
-                )
-                with ctx:
+                with contextlib.ExitStack() as stack:
+                    if not use_live_inventory:
+                        stack.enter_context(
+                            mock.patch.dict(
+                                "sdr.application.tool_executor._TOOL_REGISTRY",
+                                {"inventory_search": _seed_run_inventory_search},
+                            )
+                        )
+                        stack.enter_context(
+                            mock.patch(
+                                "sdr.tools.inventory.search_with_request",
+                                _seed_search_with_request,
+                            )
+                        )
                     result = await process_turn(
                         state=state,
                         inbound=inbound,
