@@ -48,6 +48,14 @@ class DirectQuestionKind(str, Enum):
     UNKNOWN = "unknown"
 
 
+class QuestionCertainty(str, Enum):
+    """Evidence degree for a commercial question. Unknown is not absence."""
+
+    UNKNOWN = "unknown"
+    CONFIRMED = "confirmed"
+    UNCONFIRMED = "unconfirmed"
+
+
 _COURTESY = re.compile(
     r"\b(?:obrigad[oa]|valeu|agrade[cç]o|thanks)\b",
     re.I,
@@ -131,6 +139,8 @@ class DirectQuestion:
     answerable: bool
     allowed_answer: str
     inbound_span: str = ""
+    subject: str = ""
+    certainty: str = QuestionCertainty.UNKNOWN.value
 
 
 @dataclass(slots=True)
@@ -254,8 +264,168 @@ def looks_like_intent_menu(text: str) -> bool:
     return hits >= 3
 
 
+_WELLBEING_PARTICLES = frozenset(
+    {
+        "e",
+        "com",
+        "voce",
+        "você",
+        "oi",
+        "ola",
+        "olá",
+        "oie",
+        "tudo",
+        "bem",
+        "sim",
+        "certo",
+        "beleza",
+        "ai",
+        "aí",
+        "otimo",
+        "ótimo",
+    }
+)
+
+
+def _has_residual_commercial_question(text: str) -> bool:
+    """True when a ? remains after stripping greeting/wellbeing — not a product list."""
+    remainder = _WELLBEING.sub(" ", text or "")
+    remainder = _GREETING.sub(" ", remainder)
+    if "?" not in remainder and not remainder.strip():
+        return False
+    tokens = re.findall(r"[^\W\d_]+", remainder.lower(), flags=re.UNICODE)
+    return any(token not in _WELLBEING_PARTICLES for token in tokens)
+
+
+_SUBJECT_AFTER_TEM = re.compile(
+    r"\btem\s+(?:ele\s+)?(.+?)\s*\?\s*$",
+    re.I | re.S,
+)
+
+
+def _extract_question_subject(text: str) -> str:
+    """Noun phrase after a 'tem X?' stem — syntactic, not a product list."""
+    raw = re.sub(r"\s+", " ", (text or "").strip())
+    match = _SUBJECT_AFTER_TEM.search(raw)
+    if match:
+        return match.group(1).strip(" .")
+    return raw.rstrip(" ?")[:160]
+
+
+def _authorized_option_map(facts: Mapping[str, Any] | None) -> dict[str, bool]:
+    raw = (facts or {}).get("authorized_options")
+    if not isinstance(raw, Mapping):
+        return {}
+    confirmed: dict[str, bool] = {}
+    for key, value in raw.items():
+        label = str(key or "").strip().lower()
+        if label and value is True:
+            confirmed[label] = True
+    return confirmed
+
+
+def resolve_question_certainty(
+    inbound_text: str,
+    subject: str,
+    authorized_options: Mapping[str, bool] | None,
+) -> str:
+    """Match authorized option keys against the inbound. Missing evidence is unknown."""
+    if not authorized_options:
+        return QuestionCertainty.UNKNOWN.value
+    haystack = f"{inbound_text or ''} {subject or ''}".lower()
+    for key in authorized_options:
+        if key and key in haystack:
+            return QuestionCertainty.CONFIRMED.value
+    return QuestionCertainty.UNCONFIRMED.value
+
+
+def _uncertainty_allowed_answer(subject: str) -> str:
+    topic = subject.strip() if subject and subject.strip() else "o que o cliente perguntou"
+    return (
+        f"Reconheça o assunto ({topic}). Não invente equipamento. "
+        "Não afirme ausência sem evidência. Admita incerteza e ofereça "
+        "verificação com o vendedor."
+    )
+
+
+def _confirmed_allowed_answer(subject: str) -> str:
+    topic = subject.strip() if subject and subject.strip() else "o item autorizado"
+    return (
+        f"Responda de forma factual que o veículo tem {topic}. "
+        "Não acrescente opcionais que não estejam autorizados."
+    )
+
+
+def _question_as_payload(question: DirectQuestion) -> dict[str, Any]:
+    return {
+        "kind": question.kind.value,
+        "answerable": question.answerable,
+        "allowed_answer": question.allowed_answer,
+        "subject": question.subject,
+        "certainty": question.certainty,
+        "inbound_span": question.inbound_span,
+    }
+
+
+def apply_question_certainty(
+    questions: Sequence[DirectQuestion],
+    *,
+    inbound_text: str,
+    facts_context: Mapping[str, Any] | None = None,
+) -> list[DirectQuestion]:
+    option_map = _authorized_option_map(facts_context)
+    resolved: list[DirectQuestion] = []
+    for question in questions:
+        if question.kind == DirectQuestionKind.WELLBEING:
+            resolved.append(question)
+            continue
+        certainty = resolve_question_certainty(inbound_text, question.subject, option_map)
+        answerable = question.answerable
+        allowed = question.allowed_answer
+        if certainty == QuestionCertainty.CONFIRMED.value:
+            answerable = True
+            allowed = _confirmed_allowed_answer(question.subject)
+        elif question.kind in (DirectQuestionKind.UNKNOWN, DirectQuestionKind.WARRANTY) or not answerable:
+            answerable = False
+            allowed = _uncertainty_allowed_answer(question.subject)
+        resolved.append(
+            DirectQuestion(
+                kind=question.kind,
+                answerable=answerable,
+                allowed_answer=allowed,
+                inbound_span=question.inbound_span,
+                subject=question.subject,
+                certainty=certainty,
+            )
+        )
+    return resolved
+
+
+def unanswered_questions_for_turn(
+    inbound_text: str,
+    *,
+    authorized_options: Mapping[str, Any] | None = None,
+    facts_context: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Turn-scoped commercial questions. Do not persist to Redis."""
+    facts = dict(facts_context or {})
+    if authorized_options:
+        facts["authorized_options"] = dict(authorized_options)
+    questions = apply_question_certainty(
+        classify_direct_questions(inbound_text),
+        inbound_text=inbound_text,
+        facts_context=facts,
+    )
+    return [
+        _question_as_payload(question)
+        for question in questions
+        if question.kind != DirectQuestionKind.WELLBEING
+    ]
+
+
 def classify_direct_questions(inbound_text: str) -> list[DirectQuestion]:
     text = inbound_text or ""
+    subject = _extract_question_subject(text)
     found: list[DirectQuestion] = []
     if has_wellbeing_question(text):
         found.append(
@@ -264,27 +434,34 @@ def classify_direct_questions(inbound_text: str) -> list[DirectQuestion]:
                 answerable=True,
                 allowed_answer="Responda com reciprocidade breve (está bem) e convide a continuar.",
                 inbound_span="wellbeing",
+                subject="wellbeing",
             )
         )
     for kind, pattern in _QUESTION_STEMS:
         if pattern.search(text):
-            found.append(_question_for_kind(kind, text))
+            found.append(_question_for_kind(kind, text, subject=subject))
     if "?" in text and not any(q.kind != DirectQuestionKind.WELLBEING for q in found):
+        if found and not _has_residual_commercial_question(text):
+            return found
         found.append(
             DirectQuestion(
                 kind=DirectQuestionKind.UNKNOWN,
                 answerable=False,
-                allowed_answer=(
-                    "A informação pedida não está disponível com segurança. "
-                    "Seja transparente, não invente, e ofereça o próximo passo útil."
-                ),
+                allowed_answer=_uncertainty_allowed_answer(subject),
                 inbound_span=text[:160],
+                subject=subject,
+                certainty=QuestionCertainty.UNKNOWN.value,
             )
         )
     return found
 
 
-def _question_for_kind(kind: DirectQuestionKind, text: str) -> DirectQuestion:
+def _question_for_kind(
+    kind: DirectQuestionKind,
+    text: str,
+    *,
+    subject: str | None = None,
+) -> DirectQuestion:
     answers = {
         DirectQuestionKind.FINANCING_100: (
             True,
@@ -327,7 +504,15 @@ def _question_for_kind(kind: DirectQuestionKind, text: str) -> DirectQuestion:
         ),
     }
     answerable, allowed = answers[kind]
-    return DirectQuestion(kind=kind, answerable=answerable, allowed_answer=allowed, inbound_span=text[:160])
+    topic = subject if subject else _extract_question_subject(text)
+    return DirectQuestion(
+        kind=kind,
+        answerable=answerable,
+        allowed_answer=allowed,
+        inbound_span=text[:160],
+        subject=topic,
+        certainty=QuestionCertainty.UNKNOWN.value,
+    )
 
 
 def _has_vehicle_context(
@@ -413,12 +598,20 @@ def build_dialogue_plan(
         intent_val = state.intent
     lifecycle = lifecycle_status or (state.lifecycle.status.value if state is not None else "BOT_ACTIVE")
 
-    questions = classify_direct_questions(inbound_text)
+    questions = apply_question_certainty(
+        classify_direct_questions(inbound_text),
+        inbound_text=inbound_text,
+        facts_context=facts,
+    )
     courtesy = is_courtesy_only(inbound_text, turn_facts)
     vehicle_ctx = _has_vehicle_context(state, facts)
     known_intent = _intent_known(intent_val)
     wellbeing = any(q.kind == DirectQuestionKind.WELLBEING for q in questions)
     commercial_qs = [q for q in questions if q.kind != DirectQuestionKind.WELLBEING]
+    needs_uncertainty = any(
+        q.certainty in (QuestionCertainty.UNKNOWN.value, QuestionCertainty.UNCONFIRMED.value)
+        for q in commercial_qs
+    )
 
     new_fact_keys: list[str] = []
     if turn_facts and turn_facts.facts:
@@ -464,7 +657,9 @@ def build_dialogue_plan(
         acts.append(DialogueAct.RAPPORT.value)
 
     if any(q.kind == DirectQuestionKind.FINANCING_100 for q in commercial_qs) or (
-        facts.get("down_payment") in (0, "0") and "payment_method" in (new_fact_keys + known_fields)
+        not commercial_qs
+        and facts.get("down_payment") in (0, "0")
+        and "payment_method" in (new_fact_keys + known_fields)
         and facts.get("payment_method") == "financing"
     ):
         acts.append(DialogueAct.SAFETY_DISCLAIMER.value)
@@ -475,21 +670,23 @@ def build_dialogue_plan(
 
     if action_val == Action.SHOW_OFFERS.value:
         acts.append(DialogueAct.PRESENT_VEHICLE.value)
-    if action_val == Action.REGISTER_VISIT_INTEREST.value:
+    if action_val == Action.REGISTER_VISIT_INTEREST.value and not commercial_qs:
         if visit_cta_style in ("location_close",) or (
             state is not None and (state.visit_accepted_offered or state.visit_preferred_time)
         ):
             acts.append(DialogueAct.CONFIRM_VISIT.value)
         else:
             acts.append(DialogueAct.INVITE_VISIT.value)
-    if action_val == Action.SEND_LOCATION.value:
+    if action_val == Action.SEND_LOCATION.value and not commercial_qs:
         acts.append(DialogueAct.INVITE_VISIT.value)
-    if action_val == Action.HANDOFF_VENDOR.value:
+    if action_val == Action.HANDOFF_VENDOR.value and not commercial_qs:
         acts.append(DialogueAct.HANDOFF_MESSAGE.value)
     if action_val == Action.COMMERCIAL_UNKNOWN.value:
         acts.append(DialogueAct.CLARIFY.value)
 
     ask = ask_field if ask_field not in (None, "", "intent") else None
+    if commercial_qs and ask == "documents":
+        ask = None
     if (
         ask
         and action_val == Action.ASK_INFO.value
@@ -541,14 +738,16 @@ def build_dialogue_plan(
     primary_action = None
     supporting_acts: list[str] = []
     forbidden_concurrent: list[str] = []
-    if state is not None:
-        from sdr.domain.qualification_policy import (
-            ACT_HANDOFF,
-            ACT_INVITE_VISIT,
-            PRIMARY_ASK_REMAINING_DOCUMENTS,
-            remaining_document_components,
-        )
+    from sdr.domain.qualification_policy import (
+        ACT_ASK_REMAINING_DOCUMENTS,
+        ACT_HANDOFF,
+        ACT_INVITE_VISIT,
+        PRIMARY_ANSWER_QUESTION,
+        PRIMARY_ASK_REMAINING_DOCUMENTS,
+        remaining_document_components,
+    )
 
+    if state is not None:
         remaining_docs = remaining_document_components(state)
         remaining_this_turn = (
             action_val == Action.ASK_INFO.value
@@ -559,7 +758,7 @@ def build_dialogue_plan(
                 or any(status == "received" for status in (state.facts.get("document_status") or {}).values())
             )
         )
-        if remaining_this_turn:
+        if remaining_this_turn and not commercial_qs:
             primary_action = PRIMARY_ASK_REMAINING_DOCUMENTS
             supporting_acts = ["acknowledge_document"]
             forbidden_concurrent = [ACT_INVITE_VISIT, ACT_HANDOFF]
@@ -568,9 +767,22 @@ def build_dialogue_plan(
                 "Peça só os comprovantes restantes. Não convide visita nem encaminhe neste turno."
             )
             acts = [a for a in acts if a != DialogueAct.INVITE_VISIT.value]
-        elif action_val == Action.REGISTER_VISIT_INTEREST.value:
+        elif action_val == Action.REGISTER_VISIT_INTEREST.value and not commercial_qs:
             primary_action = "invite_visit"
             forbidden_concurrent = ["ask_remaining_documents"]
+
+    if commercial_qs:
+        primary_action = PRIMARY_ANSWER_QUESTION
+        forbidden_concurrent = [ACT_INVITE_VISIT, ACT_HANDOFF, ACT_ASK_REMAINING_DOCUMENTS]
+        if new_fact_keys:
+            supporting_acts = list(dict.fromkeys([*supporting_acts, "acknowledge_fact"]))
+        restrictions.append(
+            "Responda a pergunta comercial antes de convidar visita, pedir documentos restantes ou encaminhar."
+        )
+        if needs_uncertainty:
+            restrictions.append(
+                "Sem evidência de catálogo: não invente equipamento e não afirme ausência."
+            )
 
     if inbound_content_type.upper() == "DOCUMENT" and primary_action != "ask_remaining_documents":
         max_bubbles = 3
@@ -591,11 +803,7 @@ def build_dialogue_plan(
     return DialoguePlan(
         acts=ordered_acts,
         direct_questions=[
-            {
-                "kind": q.kind.value,
-                "answerable": q.answerable,
-                "allowed_answer": q.allowed_answer,
-            }
+            _question_as_payload(q)
             for q in questions
             if q.kind != DirectQuestionKind.WELLBEING or wellbeing
         ],
@@ -686,7 +894,16 @@ def infer_realized_acts(bubbles: Sequence[str], plan: DialoguePlan) -> list[str]
         ):
             realized.append(DialogueAct.ANSWER_DIRECT_QUESTION.value)
         elif DirectQuestionKind.UNKNOWN.value in kinds and any(
-            token in joined for token in ("não tenho", "não consigo confirmar", "equipe", "não está")
+            token in joined
+            for token in (
+                "não tenho",
+                "não consigo confirmar",
+                "equipe",
+                "não está",
+                "vendedor",
+                "verificar",
+                "estoque",
+            )
         ):
             realized.append(DialogueAct.ANSWER_DIRECT_QUESTION.value)
         elif "?" not in joined or len(kinds) == 0:
@@ -796,7 +1013,45 @@ def fallback_bubbles(
     if plan.wellbeing_reciprocity and not should_introduce:
         bubbles.append("Tudo bem sim, e com você?" if not es else "Todo bien sí, ¿y tú?")
 
-    if DirectQuestionKind.FINANCING_100.value in kinds or DialogueAct.SAFETY_DISCLAIMER.value in plan.acts:
+    catalog_q = next(
+        (
+            q
+            for q in plan.direct_questions
+            if str(q.get("kind"))
+            in (DirectQuestionKind.UNKNOWN.value, DirectQuestionKind.WARRANTY.value)
+        ),
+        None,
+    )
+    if catalog_q is not None:
+        subject = str(catalog_q.get("subject") or "").strip()
+        certainty = str(catalog_q.get("certainty") or QuestionCertainty.UNKNOWN.value)
+        if certainty == QuestionCertainty.CONFIRMED.value and subject:
+            bubbles.append(
+                f"Sim, esse veículo tem {subject}."
+                if not es
+                else f"Sí, ese vehículo tiene {subject}."
+            )
+        elif subject:
+            bubbles.append(
+                f"Não tenho essa informação confirmada no estoque sobre {subject}. "
+                "Posso pedir ao vendedor para verificar para você."
+                if not es
+                else (
+                    f"No tengo esa información confirmada en el stock sobre {subject}. "
+                    "Puedo pedirle al vendedor que lo verifique."
+                )
+            )
+        else:
+            bubbles.append(
+                "Não tenho essa informação confirmada no estoque. "
+                "Posso pedir ao vendedor para verificar para você."
+                if not es
+                else (
+                    "No tengo esa información confirmada en el stock. "
+                    "Puedo pedirle al vendedor que lo verifique."
+                )
+            )
+    elif DirectQuestionKind.FINANCING_100.value in kinds or DialogueAct.SAFETY_DISCLAIMER.value in plan.acts:
         if es:
             bubbles.append(
                 "Podemos hacer una simulación sin entrada. La aprobación y las condiciones "
@@ -876,12 +1131,6 @@ def fallback_bubbles(
             if not es
             else "Te envío la ubicación de la tienda."
         )
-    elif DirectQuestionKind.WARRANTY.value in kinds or DirectQuestionKind.UNKNOWN.value in kinds:
-        bubbles.append(
-            "Esse detalhe eu não tenho confirmado aqui. Posso encaminhar para a equipe."
-            if not es
-            else "Ese detalle no lo tengo confirmado aquí. Puedo pasarlo al equipo."
-        )
     elif DirectQuestionKind.PRICE.value in kinds:
         bubbles.append(
             "O valor é o publicado no anúncio que te mostrei. Se não estiver à mão, confirmo com a equipe."
@@ -913,14 +1162,21 @@ def fallback_bubbles(
         if "down_payment" not in kinds and DirectQuestionKind.FINANCING_100.value not in kinds:
             bubbles.append("Certo." if not es else "De acuerdo.")
 
-    if DialogueAct.CONFIRM_VISIT.value in plan.acts:
+    skip_close_path = plan.primary_action == "answer_direct_question" or DirectQuestionKind.UNKNOWN.value in kinds
+
+    if DialogueAct.CONFIRM_VISIT.value in plan.acts and not skip_close_path:
         bubbles.append(
             "Perfeito, registrei sua preferência de visita."
             if not es
             else "Perfecto, registré tu preferencia de visita."
         )
 
-    if plan.canonical_question and next_question and DialogueAct.ASK_NEXT_FIELD.value in plan.acts:
+    if (
+        plan.canonical_question
+        and next_question
+        and DialogueAct.ASK_NEXT_FIELD.value in plan.acts
+        and not skip_close_path
+    ):
         bubbles.append(next_question)
     elif should_introduce and not plan.skip_generic_intent_menu and not plan.canonical_question:
         invite = (

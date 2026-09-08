@@ -358,6 +358,7 @@ def deterministic_merge(
         visit_declined_this_turn=False,
         needs_visit_slot_offer=False,
         courtesy_only=False,
+        unanswered_questions=[],
         visual_applied_this_turn=False,
         documents_asked=prev.documents_asked,
         remaining_documents_asked=bool(getattr(prev, "remaining_documents_asked", False)),

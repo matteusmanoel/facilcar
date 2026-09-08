@@ -583,9 +583,29 @@ def _template_compose(
     lang = _language(state)
     engagement_low = bool(state.get("engagement_low", False))
     inbound_ctype = str(state.get("inbound_content_type") or "TEXT")
+    plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), Mapping) else {}
 
     if action == "no_reply":
         return []
+
+    if (plan or {}).get("primary_action") == "answer_direct_question" and action in (
+        "ask_info",
+        "register_visit_interest",
+    ):
+        from sdr.domain.dialogue_plan import DialoguePlan, fallback_bubbles
+
+        parsed = DialoguePlan.from_mapping(plan)
+        question = _required_question(state, action_plan, lang)
+        bubbles = fallback_bubbles(
+            parsed,
+            language=lang,
+            customer_name=state.get("customer_name") if isinstance(state.get("customer_name"), str) else None,
+            next_question=question,
+            document_kind=str(state.get("document_kind") or "") or None,
+            should_introduce=bool(state.get("should_introduce")),
+        )
+        if bubbles:
+            return bubbles[: parsed.max_text_bubbles or 3]
 
     if action == "handoff_vendor" or handoff:
         msg = HANDOFF_CONFIRMATION_ES if lang == "es" else HANDOFF_CONFIRMATION_PT
@@ -996,6 +1016,8 @@ async def compose_response(
 
     settings = get_settings()
     api_key = (settings.openai_api_key or "").strip()
+    dialogue = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), Mapping) else {}
+    answering_question = (dialogue or {}).get("primary_action") == "answer_direct_question"
 
     use_templates = False
     if action in (
@@ -1003,8 +1025,9 @@ async def compose_response(
         "show_offers",
         "send_location",
         "media_failed",
-        "register_visit_interest",
     ):
+        use_templates = True
+    elif action == "register_visit_interest" and not answering_question:
         use_templates = True
     elif (
         action == "ask_info"

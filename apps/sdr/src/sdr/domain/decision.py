@@ -187,7 +187,22 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     )
 
     def _finish(plan: ActionPlan) -> ActionPlan:
-        return annotate_action_plan(plan, state)
+        return annotate_action_plan(
+            plan,
+            state,
+            inbound_has_direct_question=bool(getattr(state, "unanswered_questions", None)),
+        )
+
+    def _has_unanswered_question() -> bool:
+        return bool(getattr(state, "unanswered_questions", None))
+
+    def _answer_unanswered_question() -> ActionPlan:
+        return _finish(ActionPlan(
+            action=Action.ASK_INFO,
+            handoff=False,
+            reason_code="answer_direct_question",
+            reason="Answer the customer's unanswered commercial question before visit or handoff",
+        ))
 
     if status in (LifecycleStatus.HUMAN_ACTIVE, LifecycleStatus.HANDOFF_SENT):
         return _finish(ActionPlan(
@@ -248,7 +263,10 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         ))
 
     # Irreversible handoff from gated explicit signals — vendor beats documents.
+    # A commercial question is not a vendor emergency; explicit_handoff may still win.
     if should_handoff_now(state):
+        if _has_unanswered_question() and not vendor_signal_this_turn(state):
+            return _answer_unanswered_question()
         reason = _handoff_reason(state)
         if vendor_signal_this_turn(state) or visit_signal_this_turn(state):
             _defer_remaining_if_path_changed(state)
@@ -273,6 +291,8 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
     # Visit during documentary collection is an alternative path, not a concurrent ask.
     if visit_signal_this_turn(state) and remaining_document_components(state):
+        if _has_unanswered_question():
+            return _answer_unanswered_question()
         _defer_remaining_if_path_changed(state)
         if state.intent in _VISIT_ELIGIBLE_INTENTS and not state.visit_invited:
             state.visit_invited = True
@@ -286,6 +306,8 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
     # A received document this turn is acknowledged before visit/handoff.
     if state.document_received:
+        if _has_unanswered_question():
+            return _answer_unanswered_question()
         ask = next_ask_field(state)
         if ask and ask not in (None, "intent", "documents"):
             _mark_enrichment_ask(state, remaining=False)
@@ -447,9 +469,11 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
     # on explicit signals (handled above) or once the minimum roteiro is done.
     ask = next_ask_field(state)
     if ask and ask != "intent":
+        remaining_ask = ask == "documents" and should_ask_remaining_documents(state)
+        if _has_unanswered_question() and (remaining_ask or ask == "documents"):
+            return _answer_unanswered_question()
         if state.lifecycle.status == LifecycleStatus.BOT_ACTIVE:
             state.lifecycle.status = LifecycleStatus.QUALIFYING
-        remaining_ask = ask == "documents" and should_ask_remaining_documents(state)
         _mark_enrichment_ask(state, remaining=remaining_ask)
         return _finish(ActionPlan(
             action=Action.ASK_INFO,
@@ -461,6 +485,8 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
         ))
 
     if is_handoff_ready(state) or is_seller_actionable(state):
+        if _has_unanswered_question():
+            return _answer_unanswered_question()
         from sdr.domain.visit import has_visit_preference, should_send_store_location
 
         if getattr(state, "needs_visit_slot_offer", False):

@@ -476,8 +476,9 @@ def test_j_unknown_question_does_not_invent() -> None:
         customer_name="Mateus",
     )
     joined = _joined(bubbles)
-    assert "teto solar panorâmico de série" not in joined
-    assert result.get("violations") or "não" in joined or "equipe" in joined
+    assert "sim, tem teto" not in joined
+    assert "teto de vidro" not in joined
+    assert result.get("violations") or "não" in joined or "equipe" in joined or "vendedor" in joined
 
 
 @pytest.mark.asyncio

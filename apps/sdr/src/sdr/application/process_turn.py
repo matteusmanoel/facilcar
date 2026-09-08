@@ -885,27 +885,28 @@ async def process_turn(
     ):
         merged.signals.visit_intent = True
 
-    from sdr.domain.dialogue_plan import DirectQuestionKind, classify_direct_questions, is_courtesy_only
+    from sdr.domain.dialogue_plan import unanswered_questions_for_turn, is_courtesy_only
     from sdr.domain.qualification_policy import annotate_action_plan
 
     merged.courtesy_only = is_courtesy_only(inbound.effective_text, facts)
+    merged.unanswered_questions = unanswered_questions_for_turn(
+        inbound.effective_text or "",
+        facts_context=merged.facts,
+    )
 
     plan = decide(merged)
-    commercial_questions = [
-        q
-        for q in classify_direct_questions(inbound.effective_text or "")
-        if q.kind != DirectQuestionKind.WELLBEING
-    ]
     annotate_action_plan(
         plan,
         merged,
-        inbound_has_direct_question=bool(commercial_questions),
+        inbound_has_direct_question=bool(merged.unanswered_questions),
     )
 
     # After deciding, persist the field being asked so the next turn can resolve
     # short confirmations ("sim", "exato") against the right context.
     asked = plan.ask_field or plan.next_question
-    if asked and plan.action in (
+    if plan.reason_code == "answer_direct_question":
+        merged.pending_question = None
+    elif asked and plan.action in (
         Action.ASK_INFO,
         Action.SHOW_OFFERS,
         Action.SEND_PHOTOS,

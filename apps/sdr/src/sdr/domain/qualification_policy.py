@@ -148,9 +148,19 @@ def annotate_action_plan(
             vehicle_label_source = "catalog"
 
     action = plan.action
+    has_question = inbound_has_direct_question or bool(getattr(state, "unanswered_questions", None))
     if action == Action.HANDOFF_VENDOR:
         primary = PRIMARY_HANDOFF
         forbidden.append(ACT_ASK_REMAINING_DOCUMENTS)
+        if has_question:
+            supporting.append(PRIMARY_ANSWER_QUESTION)
+    elif has_question:
+        primary = PRIMARY_ANSWER_QUESTION
+        forbidden.extend([ACT_INVITE_VISIT, ACT_HANDOFF, ACT_ASK_REMAINING_DOCUMENTS])
+        if plan.ask_field and plan.ask_field != "documents":
+            supporting.append(PRIMARY_ASK_FIELD)
+        if state.document_received:
+            supporting.append("acknowledge_document")
     elif action == Action.REGISTER_VISIT_INTEREST:
         primary = PRIMARY_INVITE_VISIT
         forbidden.append(ACT_ASK_REMAINING_DOCUMENTS)
@@ -166,10 +176,6 @@ def annotate_action_plan(
         primary = PRIMARY_RAPPORT
     elif action == Action.COMMERCIAL_UNKNOWN:
         primary = PRIMARY_CLARIFY
-    elif inbound_has_direct_question:
-        primary = PRIMARY_ANSWER_QUESTION
-        if plan.ask_field:
-            supporting.append(PRIMARY_ASK_FIELD)
     elif action == Action.ASK_INFO:
         primary = PRIMARY_ASK_FIELD
         if state.document_received:
@@ -190,7 +196,7 @@ def annotate_action_plan(
         "remaining_documents_asked": bool(getattr(state, "remaining_documents_asked", False)),
         "enrichment_ask_count": int(getattr(state, "enrichment_ask_count", 0) or 0),
         "enrichment_limit": ENRICHMENT_ASK_LIMIT,
-        "direct_question_detected": bool(inbound_has_direct_question),
+        "direct_question_detected": bool(has_question),
         "next_question": plan.ask_field or plan.next_question,
     }
     return plan

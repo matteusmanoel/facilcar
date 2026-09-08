@@ -241,6 +241,8 @@ class ConversationCanonicalState:
     needs_visit_slot_offer: bool = False
     # Turn-scoped: inbound was thanks-only, no new commercial facts.
     courtesy_only: bool = False
+    # Turn-scoped commercial questions from this inbound — never persist to Redis.
+    unanswered_questions: list[dict[str, Any]] = field(default_factory=list)
     # Turn-scoped: visual resolution ran on this inbound (do not persist).
     visual_applied_this_turn: bool = False
     # Unequivocal listing identity from inbound (id / url / media metadata).

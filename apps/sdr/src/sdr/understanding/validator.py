@@ -370,6 +370,24 @@ _INVENTED_FEATURE = re.compile(
     r"sim,?\s+tem\s+teto\s+solar|de\s+s[eé]rie\s+e\s+teto|pano?r[aâ]mico\s+de\s+s[eé]rie",
     re.I,
 )
+_ASSERTED_PRESENCE = re.compile(
+    r"sim,?\s+tem\b|vem de s[eé]rie|[eé] de s[eé]rie",
+    re.I,
+)
+_ASSERTED_ABSENCE = re.compile(
+    r"n[aã]o\s+tem\b|n[aã]o\s+possui\b|n[aã]o\s+vem(?:\s+de\s+s[eé]rie)?\b|n[aã]o\s+inclui\b",
+    re.I,
+)
+_HONEST_UNCERTAINTY = re.compile(
+    r"n[aã]o\s+tenho|n[aã]o\s+consigo\s+confirmar|n[aã]o\s+consegui\s+consultar|"
+    r"n[aã]o\s+est[aá]\s+confirmad|"
+    r"n[aã]o\s+consta|pedir ao vendedor|encaminhar|equipe|verificar",
+    re.I,
+)
+_VISIT_PIVOT = re.compile(
+    r"que tal .{0,48}\d{1,2}\s*h|passar na loja|9h30|conhecer o ve[ií]culo",
+    re.I,
+)
 
 
 def validate_dialogue_plan(
@@ -448,16 +466,41 @@ def validate_dialogue_plan(
                 _fail("missing_safety_disclaimer")
 
     kinds = {str(q.get("kind")) for q in parsed.direct_questions}
+    commercial = [
+        q
+        for q in parsed.direct_questions
+        if str(q.get("kind")) not in ("", DirectQuestionKind.WELLBEING.value)
+    ]
+    catalog_sensitive = [
+        q
+        for q in commercial
+        if str(q.get("kind"))
+        in (DirectQuestionKind.UNKNOWN.value, DirectQuestionKind.WARRANTY.value)
+    ]
+    needs_uncertainty = any(
+        str(q.get("certainty") or "unknown") in {"unknown", "unconfirmed"}
+        for q in catalog_sensitive
+    )
     if DirectQuestionKind.UNKNOWN.value in kinds:
         unknown_q = next(
             (q for q in parsed.direct_questions if q.get("kind") == DirectQuestionKind.UNKNOWN.value),
             None,
         )
         if unknown_q and not unknown_q.get("answerable", True):
-            if _INVENTED_FEATURE.search(joined) and not re.search(
-                r"n[aã]o\s+tenho|n[aã]o\s+consigo\s+confirmar|equipe", joined, re.I
-            ):
+            if _INVENTED_FEATURE.search(joined) and not _HONEST_UNCERTAINTY.search(joined):
                 _fail("invented_information")
+    if catalog_sensitive and needs_uncertainty:
+        if _ASSERTED_PRESENCE.search(joined) and not _HONEST_UNCERTAINTY.search(joined):
+            _fail("invented_information")
+        if _ASSERTED_ABSENCE.search(joined) and not _HONEST_UNCERTAINTY.search(joined):
+            _fail("unconfirmed_absence")
+        if not _HONEST_UNCERTAINTY.search(joined):
+            _fail("ignored_direct_question")
+        if _VISIT_PIVOT.search(joined):
+            _fail("ignored_direct_question")
+    elif catalog_sensitive and parsed.primary_action == "answer_direct_question":
+        if _VISIT_PIVOT.search(joined):
+            _fail("ignored_direct_question")
 
     if DirectQuestionKind.FINANCING_100.value in kinds:
         if not re.search(r"sem\s+entrada|simula|an[aá]lise|financeira", joined, re.I):
