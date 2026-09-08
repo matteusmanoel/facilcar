@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     sdr_worker_id: str = ""
     sdr_lock_ttl_seconds: int = Field(default=60)
     sdr_max_turns_in_context: int = Field(default=10)
+    # Private customer-document bucket. Never fall back to STORAGE_BUCKET_NAME.
+    sdr_documents_bucket: str = ""
+    sdr_document_storage_max_attempts: int = Field(default=3)
 
 
 @lru_cache

@@ -619,7 +619,7 @@ async def test_document_after_installment_invites_visit() -> None:
     result = await process_turn(state=state, inbound=inbound, understand=understand)
     assert result.action_plan.action == Action.REGISTER_VISIT_INTEREST
     joined = " ".join(result.outbound_texts).lower()
-    assert "documento" in joined or "ficha" in joined
+    assert "documento" in joined or "ficha" in joined or "cnh" in joined
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
     assert "quantos meses" not in joined

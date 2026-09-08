@@ -102,7 +102,7 @@ async def test_payment_question_is_avista_or_financed_not_both() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_ack_uses_name_and_ficha_not_financing_echo() -> None:
+async def test_document_ack_uses_name_and_neutral_receipt_not_financing_echo() -> None:
     bubbles = await compose_response(
         {
             "language": "pt-BR",
@@ -115,7 +115,8 @@ async def test_document_ack_uses_name_and_ficha_not_financing_echo() -> None:
     )
     joined = " ".join(bubbles)
     assert "Maria" in joined
-    assert "ficha" in joined.lower()
+    assert "Recebi" in joined
+    assert "salva na sua ficha" not in joined.lower()
     assert "anotei" not in joined.lower()
 
 

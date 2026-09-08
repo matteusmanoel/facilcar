@@ -71,6 +71,26 @@ def document_kind_from_inbound_text(text: str) -> str | None:
     return None
 
 
+def document_kind_from_inbound(inbound: Any) -> str | None:
+    """Prefer structured extraction over inbound text; CNH wins if present."""
+    kinds: list[str] = []
+    for seg in getattr(inbound, "segments", None) or []:
+        extracted = getattr(seg, "document_extracted", None) or {}
+        if isinstance(extracted, dict) and extracted.get("document_type"):
+            kinds.append(str(extracted["document_type"]).upper())
+    raw = getattr(inbound, "raw_message_ref", None) or {}
+    if isinstance(raw, dict):
+        extracted = raw.get("document_extracted")
+        if isinstance(extracted, dict) and extracted.get("document_type"):
+            kinds.append(str(extracted["document_type"]).upper())
+    if "CNH" in kinds:
+        return "CNH"
+    if kinds:
+        return kinds[0]
+    text = getattr(inbound, "effective_text", None) or getattr(inbound, "text", None) or ""
+    return document_kind_from_inbound_text(str(text))
+
+
 def document_extraction_status(*, extracted: bool) -> str:
     """OCR outcome is independent of object-storage upload."""
     return "DONE" if extracted else "FAILED"

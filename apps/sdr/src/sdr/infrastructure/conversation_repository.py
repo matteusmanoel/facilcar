@@ -714,6 +714,19 @@ class ConversationRepository:
         async with self._pool.acquire() as conn:
             await conn.execute(sql, message_id, transcription)
 
+    async def set_media_storage_key(self, message_id: str, key: str | None) -> None:
+        """Set Message.mediaStorageKey only after a successful private upload."""
+        if not message_id or not key:
+            return
+        sql = f'''
+            UPDATE "{SCHEMA}"."Message"
+            SET "mediaStorageKey" = $2
+            WHERE "id" = $1
+              AND ("mediaStorageKey" IS NULL OR "mediaStorageKey" = $2)
+        '''
+        async with self._pool.acquire() as conn:
+            await conn.execute(sql, message_id, key)
+
     async def list_recent_turns(
         self,
         conversation_id: str,

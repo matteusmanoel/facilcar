@@ -699,6 +699,16 @@ enum SdrDocumentExtractionStatus {
   @@schema("facilcar")
 }
 
+enum SdrDocumentStorageStatus {
+  PENDING
+  PROCESSING
+  STORED
+  RETRYABLE_FAILURE
+  PERMANENT_FAILURE
+
+  @@schema("facilcar")
+}
+
 enum SdrRetentionPolicy {
   PERMANENT
   DAYS_180
@@ -765,6 +775,7 @@ model Message {
   processingStatus  String?            @default("PENDING")
   createdAt         DateTime           @default(now())
   processedAt       DateTime?
+  sdrDocuments      SdrDocument[]
 
   @@unique([instanceName, providerMessageId])
   @@index([conversationId, createdAt])
@@ -793,8 +804,17 @@ model SdrDocument {
   lead             Lead?                        @relation(fields: [leadId], references: [id], onDelete: SetNull)
   conversationId   String?
   conversation     Conversation?                @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  messageId        String?
+  message          Message?                     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  providerMessageId String?
   documentType     SdrDocumentType
-  storageKey       String
+  storageKey       String?
+  storageBucket    String?
+  storageStatus    SdrDocumentStorageStatus     @default(PENDING)
+  storageAttempts  Int                          @default(0)
+  storageError     String?
+  storageUpdatedAt DateTime?
+  contentHash      String?
   mimeType         String?
   byteSize         Int?
   extractedJson    Json?
@@ -803,8 +823,11 @@ model SdrDocument {
   expiresAt        DateTime?
   createdAt        DateTime                     @default(now())
 
+  @@unique([conversationId, providerMessageId])
   @@index([leadId])
   @@index([conversationId])
+  @@index([messageId])
+  @@index([storageStatus])
   @@schema("facilcar")
 }
 

@@ -246,22 +246,14 @@ def _document_received_bubbles(
     es = lang == "es"
     if kind == "CNH":
         if es:
-            ack = (
-                f"Show, {name}! CNH guardada en tu ficha."
-                if name
-                else "Show! CNH guardada en tu ficha."
-            )
+            ack = f"Recibí tu CNH, {name}." if name else "Recibí tu CNH."
             extra = (
                 "Si tienes comprobante de ingresos, domicilio o acta de matrimonio, "
                 "también puedes enviármelos. Cuanta más información tenermos, "
                 "mejor margen tenemos para negociar una tasa menor para ti."
             )
         else:
-            ack = (
-                f"Show, {name}! CNH salva na sua ficha."
-                if name
-                else "Show! CNH salva na sua ficha."
-            )
+            ack = f"Recebi sua CNH, {name}." if name else "Recebi sua CNH."
             extra = "Se tiver comprovante de renda ou residência, pode me enviar também."
         # Split into separate bubbles for natural cadence. Limit to 3 total so the
         # caller (register_visit_interest) can append the visit question as bubble 3.
@@ -270,17 +262,9 @@ def _document_received_bubbles(
             bubbles.append(question)
         return bubbles[:3]
     if es:
-        ack = (
-            f"Show, {name}! Recibí tu documento y ya lo anexé a tu ficha."
-            if name
-            else "Show! Recibí tu documento y ya lo anexé a tu ficha."
-        )
+        ack = f"Recibí tu documento, {name}." if name else "Recibí tu documento."
     else:
-        ack = (
-            f"Show, {name}! Recebi seu documento e já anexei na sua ficha."
-            if name
-            else "Show! Recebi seu documento e já anexei na sua ficha."
-        )
+        ack = f"Recebi seu documento, {name}." if name else "Recebi seu documento."
     return [ack, question] if question else [ack]
 
 
@@ -962,8 +946,9 @@ async def compose_response(
         )
     elif ack_kind == "document_received":
         tone_rule += (
-            "\nDocumento recebido: agradeça pelo nome (se houver) e diga que anexou "
-            "na ficha para a simulação. NÃO reacuse 'financiado'."
+            "\nDocumento recebido: confirme o recebimento pelo nome (se houver). "
+            "NÃO diga que salvou no sistema, na ficha, no Storage ou que já está "
+            "disponível para o vendedor. NÃO peça reenvio por falha interna."
         )
     if next_q_text:
         intent_val = str(state.get("intent") or "")

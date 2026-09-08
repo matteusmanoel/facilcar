@@ -11,10 +11,12 @@ import pytest
 from sdr.config import get_settings
 from sdr.media.image_describer import contains_forbidden_claims, sanitize_description
 from sdr.media.processor import MediaContentType, process_media
+from sdr.domain.document_storage import build_document_storage_key, resolve_documents_bucket
 from sdr.infrastructure.storage_client import (
-    build_storage_key,
+    BotoObjectStore,
+    DocumentsBucketNotConfigured,
+    get_documents_bucket,
     is_storage_configured,
-    upload_document,
 )
 
 
@@ -133,7 +135,7 @@ async def test_document_pdf_routes_to_extractor(monkeypatch: pytest.MonkeyPatch)
     assert result.extracted.document_type == "CRLV"
 
 
-def test_storage_stub_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_storage_not_configured_without_private_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "STORAGE_ENDPOINT",
         "STORAGE_ACCESS_KEY",
@@ -142,35 +144,33 @@ def test_storage_stub_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.delenv(key, raising=False)
     assert not is_storage_configured()
-    uploaded = upload_document(
-        b"doc-bytes",
-        customer_id="lead_abc",
+    with pytest.raises(DocumentsBucketNotConfigured):
+        get_documents_bucket()
+    assert resolve_documents_bucket("vehicle-images") is None
+    assert resolve_documents_bucket("sdr-documents") == "sdr-documents"
+
+
+def test_build_document_storage_key_shape() -> None:
+    key = build_document_storage_key(
+        conversation_id="syn-conv-doc-1",
+        provider_message_id="syn-prov-doc-1",
         document_type="CNH",
-        mime_type="image/jpeg",
-    )
-    assert uploaded.stub is True
-    assert uploaded.storage_key.startswith("stub/customer-documents/lead_abc/cnh_")
-    assert uploaded.storage_key.endswith(".jpg")
-    assert uploaded.bucket == "vehicle-images"
-    assert uploaded.uploaded is False
-
-
-def test_build_storage_key_shape() -> None:
-    key = build_storage_key(
-        "cust1",
-        "INCOME_PROOF",
+        content_hash="abc123def456",
         extension="pdf",
-        timestamp=1724628000,
-        rand="a3b2c1",
     )
-    assert key == "customer-documents/cust1/income_proof_1724628000_a3b2c1.pdf"
+    assert key == "sdr-documents/syn-conv-doc-1/syn-prov-doc-1_cnh_abc123def456.pdf"
+    assert "customer-documents" not in key
+    assert "vehicle-images" not in key
 
 
-def test_configured_upload_failure_does_not_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_configured_upload_failure_does_not_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("STORAGE_ENDPOINT", "https://s3.example")
     monkeypatch.setenv("STORAGE_ACCESS_KEY", "ak")
     monkeypatch.setenv("STORAGE_SECRET_KEY", "sk")
     monkeypatch.setenv("STORAGE_BUCKET_NAME", "vehicle-images")
+    monkeypatch.setenv("SDR_DOCUMENTS_BUCKET", "sdr-documents")
 
     class Boom:
         def put_object(self, **kwargs):
@@ -180,13 +180,17 @@ def test_configured_upload_failure_does_not_stub(monkeypatch: pytest.MonkeyPatch
         "sdr.infrastructure.storage_client._s3_client",
         lambda: Boom(),
     )
-    uploaded = upload_document(
-        b"doc-bytes",
-        customer_id="cust_1",
-        document_type="CNH",
-        mime_type="application/pdf",
-    )
-    assert uploaded.stub is False
-    assert uploaded.uploaded is False
-    assert uploaded.storage_key == ""
-    assert uploaded.bucket == "vehicle-images"
+    store = BotoObjectStore()
+    with pytest.raises(RuntimeError, match="NoSuchBucket"):
+        store.put_object(
+            bucket="sdr-documents",
+            key="sdr-documents/syn/key.pdf",
+            body=b"doc-bytes",
+            content_type="application/pdf",
+        )
+    with pytest.raises(DocumentsBucketNotConfigured):
+        store.put_object(
+            bucket="vehicle-images",
+            key="customer-documents/x.pdf",
+            body=b"doc-bytes",
+        )

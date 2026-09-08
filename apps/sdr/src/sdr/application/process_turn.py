@@ -23,8 +23,10 @@ import asyncpg
 
 logger = logging.getLogger(__name__)
 
+from sdr.application.inbound_document import document_kind_from_inbound
 from sdr.application.tool_executor import execute_tool_calls, tool_results_to_context
 from sdr.domain.decision import decide, inventory_search_key
+from sdr.domain.document_storage import apply_commercial_document_receipt
 from sdr.domain.handoff import (
     compute_temperature,
     is_ai_silenced,
@@ -200,6 +202,7 @@ def _build_response_directive(
     inbound_content_type: str = "TEXT",
     turn_facts: TurnFacts | None = None,
     prev_pending_question: str | None = None,
+    inbound: InboundTurn | None = None,
 ) -> ResponseDirective:
     """Build ResponseDirective — single source of truth for Composer inputs."""
     should_introduce = merged.assistant_turn_count == 0
@@ -287,11 +290,9 @@ def _build_response_directive(
     elif plan.action == Action.REGISTER_VISIT_INTEREST:
         visit_cta = _visit_cta_style(merged)
 
-    from sdr.application.inbound_document import document_kind_from_inbound_text
-
     document_kind = (
-        document_kind_from_inbound_text(inbound_text)
-        if inbound_content_type == "DOCUMENT"
+        document_kind_from_inbound(inbound)
+        if inbound_content_type == "DOCUMENT" and inbound is not None
         else None
     )
 
@@ -655,8 +656,7 @@ async def process_turn(
 
     prev_pending = state.pending_question
     merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
-    if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
-        merged.document_received = True
+    apply_commercial_document_receipt(merged, inbound)
 
     # Extract visit time preference from this turn's facts before deciding.
     from sdr.domain.scheduling import (
@@ -774,6 +774,7 @@ async def process_turn(
             inbound_ctype,
             facts,
             prev_pending,
+            inbound,
         )
         state_map, plan_map, tool_ctx = _directive_to_state_and_plan_maps(directive, plan)
         state_map["offered_visit_slots"] = list(merged.offered_visit_slots or [])

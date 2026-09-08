@@ -20,6 +20,7 @@ from sdr.application.coalesce import (
     segment_from_row,
     utc_now_naive,
 )
+from sdr.application.document_storage import DocumentStorageService, StoreDocumentRequest
 from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
 from sdr.application.process_turn import ProcessTurnResult, process_turn
 from sdr.config import Settings, get_settings
@@ -28,6 +29,7 @@ from sdr.domain.commands import (
     RESET_MEMORY_CONFIRMATION_PT,
     is_reset_memory_command,
 )
+from sdr.domain.document_storage import STORAGE_STORED
 from sdr.domain.inbound import (
     ContentType,
     InboundTurn,
@@ -64,7 +66,7 @@ from sdr.infrastructure.customer_repository import CustomerRepository
 from sdr.infrastructure.document_repository import DocumentRepository
 from sdr.infrastructure.evolution_client import EvolutionError
 from sdr.infrastructure.lead_repository import LeadRepository
-from sdr.infrastructure.storage_client import upload_document
+from sdr.infrastructure.storage_client import BotoObjectStore
 from sdr.locks import phone_lock
 from sdr.trace import make_tracer
 
@@ -193,6 +195,12 @@ class Orchestrator:
         self.customers = CustomerRepository(pool)
         self.leads = LeadRepository(pool)
         self.documents = DocumentRepository(pool)
+        self.document_storage = DocumentStorageService(
+            object_store=BotoObjectStore(),
+            documents=self.documents,
+            messages=self.conversations,
+            settings=self.settings,
+        )
 
     # ------------------------------------------------------------------
     # Audio enrichment
@@ -323,45 +331,45 @@ class Orchestrator:
             processed = None
 
         extracted = processed.extracted if processed is not None else None
-        inbound_text = document_inbound_text(extracted, caption)
+        inbound_text = document_inbound_text(extracted, caption) or (caption or "").strip() or "documento"
         doc_type = "OTHER"
         if extracted is not None:
             doc_type = extracted.document_type or "OTHER"
 
         lead_id: str | None = None
-        customer_id: str | None = None
         conv = None
         if conversation_id:
             conv = await self.conversations.get_by_id(conversation_id)
             ids = list((conv["activeLeadIds"] if conv else None) or [])
             lead_id = str(ids[0]) if ids else None
-            phone = str((conv["phone"] if conv else "") or "")
-            if phone:
-                customer = await self.customers.upsert_by_phone(phone)
-                customer_id = str(customer["id"])
 
+        storage_outcome = None
         try:
-            uploaded = upload_document(
-                data,
-                customer_id=customer_id or conversation_id or "unknown",
-                document_type=doc_type,
-                mime_type=mime,
+            storage_outcome = await self.document_storage.store_inbound_document(
+                StoreDocumentRequest(
+                    data=data,
+                    mime_type=mime,
+                    document_type=doc_type,
+                    conversation_id=conversation_id or str(row.get("conversationId") or ""),
+                    message_id=message_id,
+                    provider_message_id=str(row.get("providerMessageId") or message_id),
+                    lead_id=lead_id,
+                    extracted_json=extracted.as_dict() if extracted is not None else None,
+                    extraction_ok=extracted is not None,
+                )
             )
-            extraction_status = "DONE" if extracted is not None else "FAILED"
-            await self.documents.insert(
-                storage_key=uploaded.storage_key,
-                document_type=doc_type,
-                lead_id=lead_id,
-                conversation_id=conversation_id or None,
-                mime_type=mime,
-                byte_size=uploaded.byte_size,
-                extracted_json=extracted.as_dict() if extracted is not None else None,
-                extraction_status=extraction_status,
-            )
-            if not uploaded.uploaded and lead_id:
-                await self.leads.notify_document_upload_failed(lead_id)
         except Exception:
-            logger.exception("document message %s: persist failed", message_id)
+            logger.exception("document message %s: internal storage failed", message_id)
+
+        if (
+            storage_outcome is not None
+            and storage_outcome.storage_status != STORAGE_STORED
+            and lead_id
+        ):
+            try:
+                await self.leads.notify_document_upload_failed(lead_id)
+            except Exception:
+                logger.exception("document message %s: upload-failed notify failed", message_id)
 
         # Flow safe fields from extracted document into the conversation state so
         # they appear in vendor summary and can be used by future turns.
@@ -387,13 +395,6 @@ class Orchestrator:
                         "document %s: failed to patch canonical facts", message_id
                     )
 
-        if not inbound_text:
-            return make_media_failed_inbound(
-                thread_id=message_id,
-                failure_code=MediaFailureCode.EXTRACTION_FAILED,
-                content_type=ContentType.DOCUMENT,
-                provider_message_id=str(row.get("providerMessageId") or ""),
-            )
         inbound = InboundTurn(
             thread_id=message_id,
             content_type=ContentType.DOCUMENT,
@@ -404,6 +405,8 @@ class Orchestrator:
         )
         if extracted is not None:
             inbound.raw_message_ref["document_extracted"] = extracted.as_dict()
+        if storage_outcome is not None:
+            inbound.raw_message_ref["storage_status"] = storage_outcome.storage_status
         return inbound
 
     # ------------------------------------------------------------------
