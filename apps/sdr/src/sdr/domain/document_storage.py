@@ -82,20 +82,35 @@ def commercial_status_patch(document_type: str | None) -> dict[str, str]:
 
 def _document_types_from_inbound(inbound: InboundTurn) -> list[str]:
     kinds: list[str] = []
+    seen: set[str] = set()
+
+    def _add(kind: str) -> None:
+        token = str(kind).strip().upper()
+        if not token or token in seen:
+            return
+        seen.add(token)
+        kinds.append(token)
+
     for seg in inbound.segments or []:
         if getattr(seg, "content_type", None) != ContentType.DOCUMENT:
             continue
         extracted = getattr(seg, "document_extracted", None) or {}
         if isinstance(extracted, dict) and extracted.get("document_type"):
-            kinds.append(str(extracted["document_type"]).upper())
+            _add(str(extracted["document_type"]))
         else:
-            kinds.append("OTHER")
+            _add("OTHER")
+    raw = inbound.raw_message_ref or {}
+    extra = raw.get("document_extracted_list")
+    if isinstance(extra, list):
+        for item in extra:
+            if isinstance(item, dict) and item.get("document_type"):
+                _add(str(item["document_type"]))
     if not kinds and inbound.content_type == ContentType.DOCUMENT:
-        extracted = (inbound.raw_message_ref or {}).get("document_extracted")
+        extracted = raw.get("document_extracted")
         if isinstance(extracted, dict) and extracted.get("document_type"):
-            kinds.append(str(extracted["document_type"]).upper())
+            _add(str(extracted["document_type"]))
         else:
-            kinds.append("OTHER")
+            _add("OTHER")
     return kinds
 
 

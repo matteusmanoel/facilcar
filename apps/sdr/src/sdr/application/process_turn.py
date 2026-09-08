@@ -669,17 +669,15 @@ async def process_turn(
 
         facts = overlay_pending_question(facts, state, inbound.effective_text)
         facts = overlay_consignment_acceptance(facts, state, inbound.effective_text)
-        doc_extracted = (
-            inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
-        )
-        if isinstance(doc_extracted, dict):
-            identity_patch: dict = {}
-            for key in ("cpf", "birth_date", "birth_city", "birth_state", "name"):
-                val = doc_extracted.get(key)
-                if val and key not in facts.facts:
-                    identity_patch[key] = val
-            if identity_patch:
-                facts.facts = {**facts.facts, **identity_patch}
+        from sdr.application.inbound_document import identity_fields_from_inbound
+
+        identity_patch = {
+            key: value
+            for key, value in identity_fields_from_inbound(inbound).items()
+            if key not in facts.facts
+        }
+        if identity_patch:
+            facts.facts = {**facts.facts, **identity_patch}
         merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
         apply_commercial_document_receipt(merged, inbound)
         from sdr.domain.vehicle_reference import apply_primary_from_inbound
@@ -803,17 +801,15 @@ async def process_turn(
     # Document extraction is authoritative for identity fields when present.
     # Inject into TurnFacts so merge + CRM persistence do not depend only on
     # the Understanding LLM re-reading the structured inbound text.
-    doc_extracted = (
-        inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
-    )
-    if isinstance(doc_extracted, dict):
-        identity_patch: dict = {}
-        for key in ("cpf", "birth_date", "birth_city", "birth_state", "name"):
-            val = doc_extracted.get(key)
-            if val and key not in facts.facts:
-                identity_patch[key] = val
-        if identity_patch:
-            facts.facts = {**facts.facts, **identity_patch}
+    from sdr.application.inbound_document import identity_fields_from_inbound
+
+    identity_patch = {
+        key: value
+        for key, value in identity_fields_from_inbound(inbound).items()
+        if key not in facts.facts
+    }
+    if identity_patch:
+        facts.facts = {**facts.facts, **identity_patch}
 
     prev_pending = state.pending_question
     prev_primary = state.primary_vehicle_id

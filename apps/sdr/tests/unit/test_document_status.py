@@ -92,7 +92,8 @@ def test_cnh_received_leaves_other_docs_missing() -> None:
     assert prev.profile_complete is False
 
 
-def test_no_documents_now_defers_pack() -> None:
-    parsed = parse_document_deferral("Não tenho agora")
-    assert parsed["cnh"] == "deferred"
+def test_bring_remaining_to_store_defers_unprovided_pack() -> None:
+    parsed = parse_document_deferral("Segue a CNH. Levo o restante na loja")
+    assert "cnh" not in parsed
     assert parsed["proof_of_income"] == "deferred"
+    assert parsed["proof_of_residence"] == "deferred"

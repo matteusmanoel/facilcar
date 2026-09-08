@@ -770,6 +770,12 @@ def build_dialogue_plan(
         elif action_val == Action.REGISTER_VISIT_INTEREST.value and not commercial_qs:
             primary_action = "invite_visit"
             forbidden_concurrent = ["ask_remaining_documents"]
+            received_now = bool(state.document_received) or any(
+                status == "received"
+                for status in (state.facts.get("document_status") or {}).values()
+            )
+            if received_now:
+                supporting_acts = ["acknowledge_document"]
 
     if commercial_qs:
         primary_action = PRIMARY_ANSWER_QUESTION
@@ -1139,12 +1145,16 @@ def fallback_bubbles(
         )
 
     if "documents" in plan.facts_to_acknowledge or document_kind:
-        kind = (document_kind or "CNH").upper()
-        if kind == "CNH":
-            ack = f"Recebi sua CNH{f', {name}' if name else ''}." if not es else f"Recibí tu CNH{f', {name}' if name else ''}."
-        else:
-            ack = "Recebi seu documento." if not es else "Recibí tu documento."
-        bubbles.append(ack)
+        from sdr.domain.document_status import (
+            components_from_document_kind,
+            format_received_document_ack,
+        )
+
+        received = components_from_document_kind(document_kind)
+        if not received and "documents" in plan.facts_to_acknowledge:
+            received = ["cnh"]
+        if received:
+            bubbles.append(format_received_document_ack(received, name=name, lang=language))
 
     if DialogueAct.ACKNOWLEDGE_FACT.value in plan.acts and "vehicle_choice" in plan.facts_to_acknowledge:
         label = plan.proven_vehicle_label

@@ -34,6 +34,23 @@ _DEFER_UTTERANCE = re.compile(
     re.I,
 )
 
+_REMAINDER_UTTERANCE = re.compile(
+    r"levo\s+(?:o\s+)?(?:resto|restante)|"
+    r"(?:o\s+)?(?:resto|restante).{0,24}loja",
+    re.I,
+)
+
+_ACK_LABELS_PT = {
+    "cnh": "CNH",
+    "proof_of_income": "comprovante de renda",
+    "proof_of_residence": "comprovante de residência",
+}
+_ACK_LABELS_ES = {
+    "cnh": "CNH",
+    "proof_of_income": "comprobante de ingresos",
+    "proof_of_residence": "comprobante de domicilio",
+}
+
 
 def empty_document_status() -> dict[str, str]:
     return {k: STATUS_MISSING for k in DOCUMENT_COMPONENTS}
@@ -51,6 +68,13 @@ def parse_document_deferral(text: str) -> dict[str, str]:
         mentioned.append("proof_of_residence")
     if re.search(r"renda|holerite|comprovante de renda", raw, re.I):
         mentioned.append("proof_of_income")
+    if _REMAINDER_UTTERANCE.search(raw):
+        provided = set(mentioned)
+        return {
+            name: STATUS_DEFERRED
+            for name in DOCUMENT_COMPONENTS
+            if name not in provided
+        }
     if mentioned:
         return {name: STATUS_DEFERRED for name in mentioned}
     return {name: STATUS_DEFERRED for name in DOCUMENT_COMPONENTS}
@@ -101,3 +125,96 @@ def missing_components(status: dict[str, Any] | None) -> list[str]:
         for k in DOCUMENT_COMPONENTS
         if status.get(k) not in {STATUS_RECEIVED, STATUS_DEFERRED}
     ]
+
+
+_ACK_DISPLAY_ORDER: tuple[str, ...] = (
+    "cnh",
+    "proof_of_income",
+    "proof_of_residence",
+)
+_KIND_TO_COMPONENT = {
+    "CNH": "cnh",
+    "INCOME_PROOF": "proof_of_income",
+    "RESIDENCE_PROOF": "proof_of_residence",
+}
+
+_PROOF_SHORT_PT = {
+    "proof_of_income": "renda",
+    "proof_of_residence": "residência",
+}
+_PROOF_SHORT_ES = {
+    "proof_of_income": "ingresos",
+    "proof_of_residence": "domicilio",
+}
+
+
+def components_from_document_kind(kind: str | None) -> list[str]:
+    component = _KIND_TO_COMPONENT.get(str(kind or "").strip().upper())
+    return [component] if component else []
+
+
+def _join_labels(labels: list[str], *, es: bool) -> str:
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    conjunction = " y " if es else " e "
+    if len(labels) == 2:
+        return conjunction.join(labels)
+    return f"{', '.join(labels[:-1])}{conjunction}{labels[-1]}"
+
+
+def format_received_document_ack(
+    received: list[str],
+    *,
+    name: str | None = None,
+    lang: str = "pt-BR",
+) -> str:
+    """Deterministic commercial receipt. Never implies Storage success."""
+    ordered = [c for c in _ACK_DISPLAY_ORDER if c in received]
+    es = str(lang or "").lower().startswith("es")
+    first = (name or "").strip().split()[0] if name else ""
+    if not ordered:
+        if es:
+            return f"Recibí tu documento, {first}." if first else "Recibí tu documento."
+        return f"Recebi seu documento, {first}." if first else "Recebi seu documento."
+    if ordered == ["cnh"]:
+        if es:
+            return f"Recibí tu CNH, {first}." if first else "Recibí tu CNH."
+        return f"Recebi sua CNH, {first}." if first else "Recebi sua CNH."
+
+    proofs = [c for c in ordered if c != "cnh"]
+    short = _PROOF_SHORT_ES if es else _PROOF_SHORT_PT
+    proof_text = _join_labels([short[c] for c in proofs], es=es)
+    plural = len(proofs) != 1
+    if es:
+        noun = "comprobantes" if plural else "comprobante"
+        article = "los" if plural else "el"
+        cnh_prefix = "Recibí tu CNH y " if "cnh" in ordered else "Recibí "
+        return f"{cnh_prefix}{article} {noun} de {proof_text}."
+    noun = "comprovantes" if plural else "comprovante"
+    article = "os" if plural else "o"
+    cnh_prefix = "Recebi sua CNH e " if "cnh" in ordered else "Recebi "
+    return f"{cnh_prefix}{article} {noun} de {proof_text}."
+
+
+def format_remaining_documents_ask(remaining: list[str], *, lang: str = "pt-BR") -> str | None:
+    ordered = [c for c in DOCUMENT_COMPONENTS if c in remaining]
+    if not ordered:
+        return None
+    es = str(lang or "").lower().startswith("es")
+    if set(ordered) == {"proof_of_income", "proof_of_residence"}:
+        joined = (
+            "los comprobantes de ingresos y domicilio"
+            if es
+            else "os comprovantes de renda e residência"
+        )
+    else:
+        labels = _ACK_LABELS_ES if es else _ACK_LABELS_PT
+        joined = _join_labels([labels[c] for c in ordered], es=es)
+    if es:
+        return f"Si puedes, envíame también {joined} para completar la simulación."
+    return (
+        f"Se conseguir, pode me enviar também {joined} "
+        "para completar a simulação."
+    )

@@ -352,6 +352,7 @@ def compose_inbound_turn(
     )
     has_document = any(s.content_type == ContentType.DOCUMENT for s in ordered)
     document_extracted = next((s.document_extracted for s in ordered if s.document_extracted), None)
+    document_extracted_list = [s.document_extracted for s in ordered if s.document_extracted]
     vehicle_hint = next((s.vehicle_hint for s in ordered if s.vehicle_hint), None)
 
     raw_message_ref: dict[str, Any] = {
@@ -383,6 +384,8 @@ def compose_inbound_turn(
     }
     if document_extracted:
         raw_message_ref["document_extracted"] = document_extracted
+    if len(document_extracted_list) > 1:
+        raw_message_ref["document_extracted_list"] = document_extracted_list
     if vehicle_hint:
         raw_message_ref["vehicle_hint"] = vehicle_hint
 

@@ -262,36 +262,31 @@ def _document_received_bubbles(
     *,
     question: str | None = None,
 ) -> list[str]:
-    name = _first_name(state)
-    kind = str(state.get("document_kind") or "").upper()
-    es = lang == "es"
-    plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), dict) else {}
-    remaining = list((plan or {}).get("remaining_documents") or [])
-    ask_remaining = (plan or {}).get("primary_action") == "ask_remaining_documents" or (
-        remaining and "cnh" not in remaining
+    from sdr.domain.document_status import (
+        components_from_document_kind,
+        format_received_document_ack,
+        format_remaining_documents_ask,
+        received_components,
     )
-    if kind == "CNH" or ask_remaining:
-        if es:
-            ack = f"Recibí tu CNH, {name}." if name else "Recibí tu CNH."
-            extra = (
-                "Si puedes, envíame también los comprobantes de ingresos y domicilio "
-                "para completar la simulación."
-            )
-        else:
-            ack = f"Recebi sua CNH, {name}." if name else "Recebi sua CNH."
-            extra = (
-                "Se conseguir, pode me enviar também os comprovantes de renda e residência "
-                "para completar a simulação."
-            )
-        bubbles = [ack]
-        if ask_remaining:
+
+    name = _first_name(state)
+    facts = state.get("facts") if isinstance(state.get("facts"), Mapping) else {}
+    status = facts.get("document_status") if isinstance(facts, Mapping) else {}
+    received = received_components(status if isinstance(status, Mapping) else None)
+    if not received:
+        received = components_from_document_kind(state.get("document_kind"))
+    ack = format_received_document_ack(received, name=name, lang=lang)
+    plan = state.get("dialogue_plan") if isinstance(state.get("dialogue_plan"), dict) else {}
+    ask_remaining = (plan or {}).get("primary_action") == "ask_remaining_documents"
+    bubbles = [ack]
+    if ask_remaining:
+        remaining = list((plan or {}).get("remaining_documents") or [])
+        extra = format_remaining_documents_ask(remaining, lang=lang)
+        if extra:
             bubbles.append(extra)
-        return bubbles[:2]
-    if es:
-        ack = f"Recibí tu documento, {name}." if name else "Recibí tu documento."
-    else:
-        ack = f"Recebi seu documento, {name}." if name else "Recebi seu documento."
-    return [ack, question] if question else [ack]
+    elif question:
+        bubbles.append(question)
+    return bubbles[:2]
 
 
 def _ack_followup_bubbles(
@@ -798,7 +793,8 @@ def _template_compose(
         plan = state.get("dialogue_plan") or {}
         if plan.get("primary_action") == "ask_remaining_documents":
             return _document_received_bubbles(state, lang, question=None)[:2]
-        if state.get("ack_kind") == "document_received":
+        supporting = plan.get("supporting_acts") or []
+        if state.get("ack_kind") == "document_received" or "acknowledge_document" in supporting:
             docs = _document_received_bubbles(state, lang)
             # Acknowledgment only — visit is the primary action, do not re-ask remaining docs.
             ack = docs[0] if docs else None
@@ -1134,10 +1130,22 @@ async def compose_response(
             "NÃO diga que as condições tendem a ser melhores."
         )
     elif ack_kind == "document_received":
+        from sdr.domain.document_status import received_components
+
+        facts = state.get("facts") or {}
+        status = facts.get("document_status") if isinstance(facts, Mapping) else {}
+        received = received_components(status if isinstance(status, Mapping) else None)
+        labels = {
+            "cnh": "CNH",
+            "proof_of_income": "comprovante de renda",
+            "proof_of_residence": "comprovante de residência",
+        }
+        named = ", ".join(labels[c] for c in received if c in labels) or "o documento enviado"
         tone_rule += (
-            "\nDocumento recebido: confirme o recebimento pelo nome (se houver). "
+            f"\nDocumento recebido: confirme exatamente {named}. "
             "NÃO diga que salvou no sistema, na ficha, no Storage ou que já está "
-            "disponível para o vendedor. NÃO peça reenvio por falha interna."
+            "disponível para o vendedor. NÃO peça reenvio por falha interna. "
+            "NÃO peça de novo o que já foi recebido ou ficou para a loja."
         )
     if next_q_text:
         intent_val = str(state.get("intent") or "")

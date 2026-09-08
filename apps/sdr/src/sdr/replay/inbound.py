@@ -125,7 +125,23 @@ def _apply_turn_metadata(inbound: InboundTurn, turn_def: dict[str, Any]) -> None
         ref["has_media"] = True
     extracted = turn_def.get("document_extracted")
     if isinstance(extracted, dict):
+        existing = ref.get("document_extracted_list")
+        collected = [item for item in existing if isinstance(item, dict)] if isinstance(existing, list) else []
+        if isinstance(ref.get("document_extracted"), dict):
+            collected.append(ref["document_extracted"])
+        collected.append(extracted)
+        # Preserve every distinct extracted payload; turn-level must not hide segments.
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in collected:
+            kind = str(item.get("document_type") or "")
+            if kind in seen:
+                continue
+            seen.add(kind)
+            deduped.append(item)
         ref["document_extracted"] = extracted
+        if deduped:
+            ref["document_extracted_list"] = deduped
         ref["has_document"] = True
     storage = turn_def.get("storage_simulated")
     if isinstance(storage, dict):

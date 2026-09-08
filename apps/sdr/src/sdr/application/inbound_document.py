@@ -73,22 +73,69 @@ def document_kind_from_inbound_text(text: str) -> str | None:
 
 def document_kind_from_inbound(inbound: Any) -> str | None:
     """Prefer structured extraction over inbound text; CNH wins if present."""
-    kinds: list[str] = []
-    for seg in getattr(inbound, "segments", None) or []:
-        extracted = getattr(seg, "document_extracted", None) or {}
-        if isinstance(extracted, dict) and extracted.get("document_type"):
-            kinds.append(str(extracted["document_type"]).upper())
-    raw = getattr(inbound, "raw_message_ref", None) or {}
-    if isinstance(raw, dict):
-        extracted = raw.get("document_extracted")
-        if isinstance(extracted, dict) and extracted.get("document_type"):
-            kinds.append(str(extracted["document_type"]).upper())
+    kinds = document_kinds_from_inbound(inbound)
     if "CNH" in kinds:
         return "CNH"
     if kinds:
         return kinds[0]
     text = getattr(inbound, "effective_text", None) or getattr(inbound, "text", None) or ""
     return document_kind_from_inbound_text(str(text))
+
+
+def document_kinds_from_inbound(inbound: Any) -> list[str]:
+    """Every extracted document type on this inbound, in segment order."""
+    kinds: list[str] = []
+    seen: set[str] = set()
+
+    def _add(kind: str | None) -> None:
+        if not kind:
+            return
+        token = str(kind).strip().upper()
+        if not token or token in seen:
+            return
+        seen.add(token)
+        kinds.append(token)
+
+    for seg in getattr(inbound, "segments", None) or []:
+        extracted = getattr(seg, "document_extracted", None) or {}
+        if isinstance(extracted, dict):
+            _add(extracted.get("document_type"))
+    raw = getattr(inbound, "raw_message_ref", None) or {}
+    if isinstance(raw, dict):
+        extracted = raw.get("document_extracted")
+        if isinstance(extracted, dict):
+            _add(extracted.get("document_type"))
+        extra = raw.get("document_extracted_list")
+        if isinstance(extra, list):
+            for item in extra:
+                if isinstance(item, dict):
+                    _add(item.get("document_type"))
+    return kinds
+
+
+def identity_fields_from_inbound(inbound: Any) -> dict[str, Any]:
+    """Identity extracted from every document segment. First non-empty wins."""
+    keys = ("cpf", "birth_date", "birth_city", "birth_state", "name")
+    payloads: list[Mapping[str, Any]] = []
+    for seg in getattr(inbound, "segments", None) or []:
+        extracted = getattr(seg, "document_extracted", None)
+        if isinstance(extracted, dict):
+            payloads.append(extracted)
+    raw = getattr(inbound, "raw_message_ref", None) or {}
+    if isinstance(raw, dict):
+        extracted = raw.get("document_extracted")
+        if isinstance(extracted, dict):
+            payloads.append(extracted)
+        extra = raw.get("document_extracted_list")
+        if isinstance(extra, list):
+            payloads.extend(item for item in extra if isinstance(item, dict))
+    out: dict[str, Any] = {}
+    for payload in payloads:
+        for key in keys:
+            value = payload.get(key)
+            if value and key not in out:
+                out[key] = value
+    return out
 
 
 def document_extraction_status(*, extracted: bool) -> str:
