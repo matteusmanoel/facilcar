@@ -135,7 +135,7 @@ async def test_d5_blank_provider_id_is_insufficient_and_gets_reserved_id() -> No
         provider_message_id="  ",
     )
     reserved = conn.fetchrow.await_args.args[3]
-    assert reserved.startswith("bot-")
+    assert reserved.startswith("bot-pending-")
 
 
 @pytest.mark.asyncio

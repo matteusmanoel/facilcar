@@ -64,6 +64,7 @@ from sdr.domain.inbound_batch import (
 from sdr.domain.phone import normalize_phone
 from sdr.domain.vendor_summary import is_placeholder_display_name
 from sdr.domain.vehicle_reference import PresentedVehicleBinding, upsert_presented_binding
+from sdr.domain.outbound_reservation import new_reserved_bot_provider_id
 from sdr.domain.types import (
     Action,
     ActionPlan,
@@ -294,6 +295,80 @@ class Orchestrator:
             return True
         applied = await save(conversation_id, state)
         return applied is not False
+
+    async def _deliver_reserved_outbound(
+        self,
+        *,
+        conversation_id: str,
+        instance: str,
+        text: str,
+        transport,
+        content_type: str = "TEXT",
+        presented_vehicle: dict[str, Any] | None = None,
+        presented_builder=None,
+        batch_id: str | None = None,
+    ) -> tuple[str | None, bool]:
+        """Persist bot intent, then send, then correlate the Evolution id.
+
+        A reserved ``bot-pending-*`` row with ``isBotSent=true`` exists before
+        transport. Timeout/fail keeps that row so a later echo can reconcile.
+        Retry reuses the open reservation instead of inserting a second outbound.
+        """
+        msg_id: str | None = None
+        reserved_pid: str | None = None
+        finder = getattr(self.conversations, "find_open_bot_reservation", None)
+        if finder is not None:
+            found = await finder(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                text=text,
+            )
+            if isinstance(found, dict) and found.get("id"):
+                msg_id = str(found["id"])
+                reserved_pid = str(found.get("providerMessageId") or "")
+        if not msg_id:
+            reserved_pid = new_reserved_bot_provider_id()
+            presented = presented_vehicle
+            if presented is None and presented_builder is not None:
+                presented = presented_builder(reserved_pid)
+            msg_id = await self.conversations.insert_bot_outbound(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                provider_message_id=reserved_pid,
+                text=text,
+                content_type=content_type,
+                presented_vehicle=presented,
+            )
+        provider_id: str | None = None
+        try:
+            maybe = await transport()
+            if isinstance(maybe, str) and maybe.strip():
+                provider_id = maybe.strip()
+        except Exception:
+            logger.exception(
+                "outbound transport failed conversation=%s batch=%s",
+                conversation_id,
+                batch_id,
+            )
+            return None, False
+        updater = getattr(self.conversations, "update_bot_provider_id", None)
+        if updater is not None and provider_id and msg_id:
+            try:
+                await updater(
+                    message_id=msg_id,
+                    instance_name=instance,
+                    provider_message_id=provider_id,
+                )
+            except Exception:
+                logger.exception(
+                    "update_bot_provider_id failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch_id,
+                )
+        if provider_id and presented_builder is not None:
+            presented_builder(provider_id)
+        return provider_id, True
+
 
     async def _record_human_active_skip(
         self,
@@ -858,12 +933,15 @@ class Orchestrator:
         send = getattr(self.evolution, "send_text", None)
         if send is not None:
             try:
-                maybe = await self.evolution.send_text(
-                    phone, confirmation, instance=instance
+                provider_id, send_ok = await self._deliver_reserved_outbound(
+                    conversation_id=batch.conversation_id,
+                    instance=instance,
+                    text=confirmation,
+                    transport=lambda: self.evolution.send_text(
+                        phone, confirmation, instance=instance
+                    ),
+                    batch_id=batch.batch_id,
                 )
-                if isinstance(maybe, str):
-                    provider_id = maybe
-                send_ok = True
             except Exception:
                 logger.exception(
                     "reset_memory confirmation send failed conversation=%s batch=%s "
@@ -871,19 +949,6 @@ class Orchestrator:
                     batch.conversation_id,
                     batch.batch_id,
                 )
-        try:
-            await self.conversations.insert_bot_outbound(
-                conversation_id=batch.conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id or f"bot-reset-{batch.batch_id}",
-                text=confirmation,
-            )
-        except Exception:
-            logger.exception(
-                "reset_memory outbound persist failed conversation=%s batch=%s",
-                batch.conversation_id,
-                batch.batch_id,
-            )
 
         batch_result = BatchResult(
             outbound_texts=[confirmation] if send_ok else [],
@@ -1529,42 +1594,37 @@ class Orchestrator:
             nonlocal turns_sent, send_failures
             if await _abort_if_human_assumed():
                 return
-            provider_id = None
             send = getattr(self.evolution, "send_text", None)
-            try:
-                if send is not None:
-                    maybe = await self.evolution.send_text(
-                        phone, outbound, instance=instance
-                    )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_text failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
+
+            async def _transport():
+                if send is None:
+                    return None
+                return await self.evolution.send_text(
+                    phone, outbound, instance=instance
                 )
-                return
-            # Residual TOCTOU: Evolution may echo this id before the row
-            # exists. Pre-insert would require a reserved provider id that
-            # Evolution does not accept; keep send-then-insert so B6
-            # (confirmed outbound stays) is unchanged.
-            await self.conversations.insert_bot_outbound(
+
+            # Reserve before send so B6 can complete this bubble; remaining
+            # texts still abort via the live HUMAN_ACTIVE check above.
+            provider_id, ok = await self._deliver_reserved_outbound(
                 conversation_id=conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id or f"bot-batch-{batch.batch_id}-{turns_sent}",
+                instance=instance,
                 text=outbound,
+                transport=_transport,
+                batch_id=batch.batch_id,
             )
+            if not ok:
+                send_failures += 1
+                return
             provider_ids.append(provider_id)
             sent_texts.append(outbound)
             turns_sent += 1
 
         if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
             if not await _abort_if_human_assumed():
-                provider_id = None
-                try:
-                    maybe = await send_pin(
+                pin_text = str(pin.get("address") or pin.get("name") or "location")
+
+                async def _pin_transport():
+                    return await send_pin(
                         phone,
                         latitude=float(pin["latitude"]),
                         longitude=float(pin["longitude"]),
@@ -1572,23 +1632,17 @@ class Orchestrator:
                         address=str(pin.get("address") or ""),
                         instance=instance,
                     )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-                except Exception:
+
+                provider_id, ok = await self._deliver_reserved_outbound(
+                    conversation_id=conversation_id,
+                    instance=instance,
+                    text=pin_text,
+                    transport=_pin_transport,
+                    batch_id=batch.batch_id,
+                )
+                if not ok:
                     send_failures += 1
-                    logger.exception(
-                        "send_location pin failed conversation=%s batch=%s",
-                        conversation_id,
-                        batch.batch_id,
-                    )
                 else:
-                    await self.conversations.insert_bot_outbound(
-                        conversation_id=conversation_id,
-                        instance_name=instance,
-                        provider_message_id=provider_id
-                        or f"bot-batch-{batch.batch_id}-location-{turns_sent}",
-                        text=str(pin.get("address") or pin.get("name") or "location"),
-                    )
                     provider_ids.append(provider_id)
                     turns_sent += 1
 
@@ -1600,42 +1654,39 @@ class Orchestrator:
         for media in result.outbound_media:
             if await _abort_if_human_assumed():
                 break
-            provider_id = None
-            try:
-                if send_media is not None:
-                    maybe = await self.evolution.send_media(
-                        phone,
-                        media.mediatype,
-                        media.url,
-                        media.mimetype,
-                        media.caption,
-                        instance=instance,
-                    )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_media failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
+
+            def _media_presented(provider_message_id: str, current=media):
+                return _presented_vehicle_payload(
+                    conversation_id=conversation_id,
+                    state=result.state,
+                    media=current,
+                    provider_message_id=provider_message_id,
                 )
-                continue
-            provider_id_final = provider_id or f"bot-batch-{batch.batch_id}-media-{turns_sent}"
-            presented = _presented_vehicle_payload(
+
+            async def _media_transport(current=media):
+                if send_media is None:
+                    return None
+                return await self.evolution.send_media(
+                    phone,
+                    current.mediatype,
+                    current.url,
+                    current.mimetype,
+                    current.caption,
+                    instance=instance,
+                )
+
+            provider_id, ok = await self._deliver_reserved_outbound(
                 conversation_id=conversation_id,
-                state=result.state,
-                media=media,
-                provider_message_id=provider_id_final,
-            )
-            await self.conversations.insert_bot_outbound(
-                conversation_id=conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id_final,
+                instance=instance,
                 text=media.caption or media.url,
+                transport=_media_transport,
                 content_type="IMAGE",
-                presented_vehicle=presented,
+                presented_builder=_media_presented,
+                batch_id=batch.batch_id,
             )
+            if not ok:
+                send_failures += 1
+                continue
             provider_ids.append(provider_id)
             turns_sent += 1
 

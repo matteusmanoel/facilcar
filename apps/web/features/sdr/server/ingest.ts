@@ -3,6 +3,7 @@ import { extractInboundMessages } from "@/features/catalog-import/server/evoluti
 import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
 import {
   classifyFromMeProvenance,
+  pendingBotReservationWhere,
   shouldAssumeHumanFromMe,
 } from "./fromme-provenance";
 import { humanFromMeOwnershipCas } from "./human-from-me-cas";
@@ -124,6 +125,9 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
       continue;
     }
 
+    // Human outbound only when provenance is sufficient: fromMe + a real
+    // provider id that does not match a known bot row or an open
+    // bot-pending reservation (same conversation + instance + text).
     const classification = classifyFromMeProvenance({
       fromMe: msg.fromMe,
       providerMessageId: msg.messageId,
@@ -151,12 +155,36 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     });
     conversationId = conversation.id;
 
-    // Human outbound only when provenance is sufficient: fromMe + a real
-    // provider id that does not match a known bot row. Missing/blank ids
-    // do not change ownership. Residual TOCTOU: send-then-insert can still
-    // let a real Evolution id arrive before insert_bot_outbound.
-    const assumeHuman = shouldAssumeHumanFromMe(classification);
-    const isHumanSent = assumeHuman;
+    let assumeHuman = shouldAssumeHumanFromMe(classification);
+    if (assumeHuman) {
+      const pendingWhere = pendingBotReservationWhere({
+        conversationId: conversation.id,
+        instanceName: msg.instance,
+        text: msg.text,
+      });
+      if (pendingWhere) {
+        const pending = await prisma.message.findFirst({
+          where: pendingWhere,
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        });
+        if (pending) {
+          try {
+            await prisma.message.update({
+              where: { id: pending.id },
+              data: { providerMessageId: msg.messageId },
+            });
+          } catch {
+            // Unique on instanceName+providerMessageId: worker already
+            // correlated this Evolution id. Treat as bot echo either way.
+          }
+          deduped++;
+          messageIds.push(pending.id);
+          continue;
+        }
+      }
+    }
+
     if (assumeHuman) {
       const cas = humanFromMeOwnershipCas({
         conversationId: conversation.id,
@@ -232,7 +260,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         text: msg.text,
         mediaMimeType,
         fromMe: msg.fromMe,
-        isHumanSent,
+        isHumanSent: assumeHuman,
         isBotSent: false,
         processingStatus: msg.fromMe ? "DONE" : "PENDING",
         createdAt: lastAt,

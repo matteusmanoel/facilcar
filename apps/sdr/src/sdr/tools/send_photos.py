@@ -66,8 +66,9 @@ async def send_vehicle_photos(
 ) -> list[str | None]:
     """Fetch up to ``max_photos`` VehicleImage URLs and send each via Evolution.
 
-    Returns provider message ids (or None) in send order. Caller persists
-    outbound ``Message`` rows with ``isBotSent=True`` after successful sends.
+    Returns provider message ids (or None) in send order. Orchestrator
+    persists reserved ``isBotSent`` rows before send; this helper only
+    talks to Evolution.
     """
     images = await fetch_vehicle_image_urls(pool, vehicle_id, limit=max_photos)
     images = select_images_for_send(images, limit=max_photos)

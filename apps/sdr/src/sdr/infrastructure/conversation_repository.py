@@ -34,6 +34,11 @@ from sdr.domain.pending_interaction import (
     parse_pending_interaction,
 )
 from sdr.domain.inbound_batch import BATCH_JSON_KEY, InboundBatch, BatchStatus, merge_turn_facts
+from sdr.domain.outbound_reservation import (
+    RESERVED_BOT_PROVIDER_LIKE,
+    is_reserved_bot_provider_id,
+    new_reserved_bot_provider_id,
+)
 
 SCHEMA = "facilcar"
 
@@ -47,6 +52,12 @@ def _new_id() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _is_unique_violation(exc: BaseException) -> bool:
+    if isinstance(exc, asyncpg.UniqueViolationError):
+        return True
+    return str(getattr(exc, "sqlstate", "") or "") == "23505"
 
 
 def _ts_to_iso(value: Any) -> str | None:
@@ -1158,19 +1169,15 @@ class ConversationRepository:
     ) -> str:
         """Persist Júlia outbound with isBotSent so fromMe echoes are not human.
 
-        Correlation key is ``(instanceName, providerMessageId)``. Duplicate
+        Correlation key is ``(instanceName, providerMessageId)``. Callers must
+        insert a reserved ``bot-pending-{uuid}`` id **before** Evolution send,
+        then ``update_bot_provider_id`` after the transport returns. Duplicate
         Evolution deliveries hit ON CONFLICT and must not be treated as a
-        seller. Empty provider ids are reserved as ``bot-{uuid}`` so the row
-        is still correlatable after insert.
-
-        Residual TOCTOU: callers that send_text then insert can lose the race
-        against an Evolution echo that already carries the real provider id.
-        Ingest refuses assume when that id is missing; it cannot close the
-        remaining send-then-insert window without reserving the id first.
+        seller. Empty provider ids are reserved so the row stays correlatable.
         """
         now = _now()
         msg_id = str(uuid.uuid4())
-        provider_id = (provider_message_id or "").strip() or f"bot-{msg_id}"
+        provider_id = (provider_message_id or "").strip() or new_reserved_bot_provider_id()
         ctype = (content_type or "TEXT").upper()
         if ctype not in {"TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "STICKER"}:
             ctype = "TEXT"
@@ -1206,6 +1213,100 @@ class ConversationRepository:
                 turn_facts,
             )
             return str(row["id"]) if row else msg_id
+
+    async def find_open_bot_reservation(
+        self,
+        *,
+        conversation_id: str,
+        instance_name: str,
+        text: str,
+    ) -> dict[str, str] | None:
+        """Reuse an in-flight reserved bot outbound so retry does not duplicate."""
+        sql = f'''
+            SELECT "id", "providerMessageId"
+            FROM "{SCHEMA}"."Message"
+            WHERE "conversationId" = $1
+              AND "instanceName" = $2
+              AND "isBotSent" = true
+              AND "text" = $3
+              AND "providerMessageId" LIKE $4
+            ORDER BY "createdAt" ASC
+            LIMIT 1
+        '''
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                sql,
+                conversation_id,
+                instance_name,
+                text,
+                RESERVED_BOT_PROVIDER_LIKE,
+            )
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "providerMessageId": str(row["providerMessageId"]),
+        }
+
+    async def update_bot_provider_id(
+        self,
+        *,
+        message_id: str,
+        instance_name: str,
+        provider_message_id: str | None,
+    ) -> str:
+        """Point a reserved bot row at the Evolution id after send.
+
+        Unique conflict means the echo already inserted that id — mark the
+        echo as bot and delete the pending duplicate. Blank / reserved ids
+        leave the reserved row in place so a later echo can still reconcile.
+        """
+        new_id = (provider_message_id or "").strip()
+        if not new_id or is_reserved_bot_provider_id(new_id):
+            return message_id
+        update_sql = f'''
+            UPDATE "{SCHEMA}"."Message"
+            SET "providerMessageId" = $2
+            WHERE "id" = $1
+              AND "instanceName" = $3
+              AND "isBotSent" = true
+              AND (
+                "providerMessageId" = $2
+                OR "providerMessageId" LIKE $4
+              )
+            RETURNING "id"
+        '''
+        mark_echo_sql = f'''
+            UPDATE "{SCHEMA}"."Message"
+            SET "isBotSent" = true, "isHumanSent" = false
+            WHERE "instanceName" = $1
+              AND "providerMessageId" = $2
+            RETURNING "id"
+        '''
+        delete_pending_sql = f'''
+            DELETE FROM "{SCHEMA}"."Message"
+            WHERE "id" = $1
+              AND "isBotSent" = true
+              AND "providerMessageId" LIKE $2
+        '''
+        async with self._pool.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    update_sql,
+                    message_id,
+                    new_id,
+                    instance_name,
+                    RESERVED_BOT_PROVIDER_LIKE,
+                )
+            except Exception as exc:
+                if not _is_unique_violation(exc):
+                    raise
+                echo = await conn.fetchrow(mark_echo_sql, instance_name, new_id)
+                await conn.execute(delete_pending_sql, message_id, RESERVED_BOT_PROVIDER_LIKE)
+                if echo and echo.get("id"):
+                    return str(echo["id"])
+                return message_id
+            return str(row["id"]) if row and row.get("id") else message_id
 
     async def has_bot_outbound_provider_id(
         self,

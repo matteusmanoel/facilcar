@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   classifyFromMeProvenance,
+  isReservedBotProviderId,
+  pendingBotReservationWhere,
   shouldAssumeHumanFromMe,
 } from "../fromme-provenance";
 
 const prisma = vi.hoisted(() => ({
   message: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
   },
   conversation: {
     upsert: vi.fn(),
@@ -106,6 +110,50 @@ describe("classifyFromMeProvenance", () => {
     ).toBe(false);
   });
 
+  it("F7 pending reservation is a bot echo, not an assume", () => {
+    const c = classifyFromMeProvenance({
+      fromMe: true,
+      providerMessageId: "wa-julia-echo",
+      pendingBotReservation: true,
+    });
+    expect(c).toEqual({ kind: "bot_echo", reason: "pending_reservation" });
+    expect(shouldAssumeHumanFromMe(c)).toBe(false);
+  });
+
+  it("F8 unmatched fromMe with a real id is still human", () => {
+    const c = classifyFromMeProvenance({
+      fromMe: true,
+      providerMessageId: "wa-seller-unmatched",
+    });
+    expect(c).toEqual({ kind: "human", reason: "unmatched_from_me" });
+    expect(shouldAssumeHumanFromMe(c)).toBe(true);
+  });
+
+  it("reserved bot-pending ids are distinguishable from Evolution ids", () => {
+    expect(isReservedBotProviderId("bot-pending-abc")).toBe(true);
+    expect(isReservedBotProviderId("wa-seller-1")).toBe(false);
+    expect(
+      pendingBotReservationWhere({
+        conversationId: CONV_A,
+        instanceName: "facilcar-sdr",
+        text: "Olá, sou a Júlia",
+      }),
+    ).toEqual({
+      conversationId: CONV_A,
+      instanceName: "facilcar-sdr",
+      isBotSent: true,
+      providerMessageId: { startsWith: "bot-pending-" },
+      text: "Olá, sou a Júlia",
+    });
+    expect(
+      pendingBotReservationWhere({
+        conversationId: CONV_A,
+        instanceName: "facilcar-sdr",
+        text: "  ",
+      }),
+    ).toBeNull();
+  });
+
   it("inbound is not fromMe human", () => {
     const c = classifyFromMeProvenance({
       fromMe: false,
@@ -127,6 +175,8 @@ describe("ingestSdrWebhook fromMe provenance", () => {
     process.env.SDR_API_URL = "http://sdr.test";
     prisma.conversation.updateMany.mockResolvedValue({ count: 1 });
     prisma.message.create.mockResolvedValue({ id: "msg-new" });
+    prisma.message.findFirst.mockResolvedValue(null);
+    prisma.message.update.mockResolvedValue({ id: "msg-pending" });
     prisma.conversation.upsert.mockResolvedValue(liveConversation(CONV_A));
   });
 
@@ -317,6 +367,64 @@ describe("ingestSdrWebhook fromMe provenance", () => {
           fromMe: false,
           isHumanSent: false,
           processingStatus: "PENDING",
+        }),
+      }),
+    );
+  });
+
+  it("F7 echo matching a bot-pending reservation does not assume HUMAN_ACTIVE", async () => {
+    prisma.message.findUnique.mockResolvedValue(null);
+    prisma.message.findFirst.mockResolvedValue({ id: "msg-pending" });
+    prisma.message.update.mockResolvedValue({ id: "msg-pending" });
+
+    const result = await ingestSdrWebhook(
+      fromMePayload({
+        messageId: "wa-julia-echo",
+        text: "Olá, sou a Júlia da FacilCar.",
+      }),
+    );
+
+    expect(result.deduped).toBe(1);
+    expect(result.handled).toBe(0);
+    expect(prisma.message.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          conversationId: CONV_A,
+          instanceName: "facilcar-sdr",
+          isBotSent: true,
+          providerMessageId: { startsWith: "bot-pending-" },
+          text: "Olá, sou a Júlia da FacilCar.",
+        }),
+      }),
+    );
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: "msg-pending" },
+      data: { providerMessageId: "wa-julia-echo" },
+    });
+    expect(prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it("F8 real human fromMe with unmatched id still assumes", async () => {
+    prisma.message.findUnique.mockResolvedValue(null);
+    prisma.message.findFirst.mockResolvedValue(null);
+
+    const result = await ingestSdrWebhook(
+      fromMePayload({
+        messageId: "wa-seller-real",
+        text: "vou atender daqui",
+      }),
+    );
+
+    expect(result.handled).toBe(1);
+    expect(prisma.conversation.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          fromMe: true,
+          isHumanSent: true,
+          isBotSent: false,
+          providerMessageId: "wa-seller-real",
         }),
       }),
     );

@@ -3,7 +3,7 @@
 Canonical source of truth is Conversation.botStatus + ownershipRevision
 (re-read from the persisted column), never canonicalStateJson lifecycle.
 JSON may mirror for dumps/observability; it must not authorize outbound.
-Already-confirmed outbound (Evolution send + insert_bot_outbound) stays
+Already-confirmed outbound (reserved insert + Evolution send) stays
 valid; remaining unsent bubbles are discarded.
 
 Assume cancels pending FollowUpTask rows (HUMAN_ASSUMED). Prefer an

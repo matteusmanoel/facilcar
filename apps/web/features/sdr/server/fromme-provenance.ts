@@ -6,17 +6,22 @@
  * known providerMessageId. Device/human outbound is fromMe without that
  * correlation — but only when a provider id was present to look up.
  *
- * Residual TOCTOU: the worker still send_text then insert_bot_outbound.
- * An echo that arrives before the bot row exists, carrying a real Evolution
- * id, can still look unmatched. Ingest must not invent ownership when the
- * provider id is missing; it cannot close the remaining send-then-insert race
- * without reserving the id before send.
+ * Worker reserves isBotSent under `bot-pending-{uuid}` before Evolution
+ * send, then updates providerMessageId. An echo whose text matches an
+ * open reservation is claimed (not assumed). Residual TOCTOU: Evolution
+ * cannot advertise the id before send returns, so an echo with empty or
+ * non-matching text still looks unmatched until that UPDATE (or claim).
  */
+
+export const RESERVED_BOT_PROVIDER_PREFIX = "bot-pending-";
 
 export type FromMeClassification =
   | { kind: "ignore"; reason: "not_from_me" }
   | { kind: "insufficient"; reason: "missing_provider_id" }
-  | { kind: "bot_echo"; reason: "is_bot_sent" | "known_provider_id" }
+  | {
+      kind: "bot_echo";
+      reason: "is_bot_sent" | "known_provider_id" | "pending_reservation";
+    }
   | { kind: "human"; reason: "unmatched_from_me" };
 
 export function normalizeProviderMessageId(
@@ -25,11 +30,42 @@ export function normalizeProviderMessageId(
   return (id ?? "").trim();
 }
 
+export function isReservedBotProviderId(
+  id: string | null | undefined,
+): boolean {
+  return normalizeProviderMessageId(id).startsWith(
+    RESERVED_BOT_PROVIDER_PREFIX,
+  );
+}
+
+export function pendingBotReservationWhere(input: {
+  conversationId: string;
+  instanceName: string;
+  text?: string | null;
+}): {
+  conversationId: string;
+  instanceName: string;
+  isBotSent: true;
+  providerMessageId: { startsWith: string };
+  text: string;
+} | null {
+  const text = (input.text ?? "").trim();
+  if (!text) return null;
+  return {
+    conversationId: input.conversationId,
+    instanceName: input.instanceName,
+    isBotSent: true,
+    providerMessageId: { startsWith: RESERVED_BOT_PROVIDER_PREFIX },
+    text,
+  };
+}
+
 export function classifyFromMeProvenance(input: {
   fromMe: boolean;
   providerMessageId?: string | null;
   existingIsBotSent?: boolean | null;
   knownBotProviderId?: boolean | null;
+  pendingBotReservation?: boolean | null;
 }): FromMeClassification {
   if (!input.fromMe) return { kind: "ignore", reason: "not_from_me" };
   if (!normalizeProviderMessageId(input.providerMessageId)) {
@@ -40,6 +76,9 @@ export function classifyFromMeProvenance(input: {
   }
   if (input.knownBotProviderId) {
     return { kind: "bot_echo", reason: "known_provider_id" };
+  }
+  if (input.pendingBotReservation) {
+    return { kind: "bot_echo", reason: "pending_reservation" };
   }
   return { kind: "human", reason: "unmatched_from_me" };
 }

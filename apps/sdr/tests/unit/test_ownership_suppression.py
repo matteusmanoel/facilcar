@@ -205,8 +205,30 @@ def _wire_repos(orch: Orchestrator, store: LiveStore) -> None:
             store.messages[message_id]["processingStatus"] = f"SKIPPED:{reason}"[:64]
 
     async def insert_bot_outbound(**kwargs):
-        store.outbound.append(dict(kwargs))
-        return f"out-{len(store.outbound)}"
+        row = dict(kwargs)
+        row["_id"] = f"out-{len(store.outbound) + 1}"
+        store.outbound.append(row)
+        return row["_id"]
+
+    async def find_open_bot_reservation(*, conversation_id, instance_name, text):
+        for row in store.outbound:
+            pid = str(row.get("provider_message_id") or "")
+            if (
+                pid.startswith("bot-pending-")
+                and row.get("text") == text
+                and row.get("conversation_id") == conversation_id
+                and row.get("instance_name") == instance_name
+            ):
+                return {"id": row["_id"], "providerMessageId": pid}
+        return None
+
+    async def update_bot_provider_id(*, message_id, instance_name, provider_message_id):
+        for row in store.outbound:
+            if row.get("_id") == message_id:
+                if provider_message_id:
+                    row["provider_message_id"] = provider_message_id
+                return message_id
+        return message_id
 
     async def save_canonical_state(_cid: str, state: ConversationCanonicalState) -> bool:
         expected = int(getattr(state, "ownership_revision", 0) or 0)
@@ -232,6 +254,8 @@ def _wire_repos(orch: Orchestrator, store: LiveStore) -> None:
     conv.finalize_batch_messages = AsyncMock(side_effect=finalize_batch_messages)
     conv.mark_message_skipped = AsyncMock(side_effect=mark_message_skipped)
     conv.insert_bot_outbound = AsyncMock(side_effect=insert_bot_outbound)
+    conv.find_open_bot_reservation = AsyncMock(side_effect=find_open_bot_reservation)
+    conv.update_bot_provider_id = AsyncMock(side_effect=update_bot_provider_id)
     conv.save_canonical_state = AsyncMock(side_effect=save_canonical_state)
     conv.list_recent_turns = AsyncMock(return_value=[])
     conv.merge_message_turn_facts = AsyncMock()
