@@ -64,7 +64,7 @@ from sdr.domain.inbound_batch import (
 from sdr.domain.phone import normalize_phone
 from sdr.domain.vendor_summary import is_placeholder_display_name
 from sdr.domain.vehicle_reference import PresentedVehicleBinding, upsert_presented_binding
-from sdr.domain.outbound_reservation import new_reserved_bot_provider_id
+from sdr.domain.outbound_reservation import async_attr, new_reserved_bot_provider_id
 from sdr.domain.types import (
     Action,
     ActionPlan,
@@ -316,7 +316,7 @@ class Orchestrator:
         """
         msg_id: str | None = None
         reserved_pid: str | None = None
-        finder = getattr(self.conversations, "find_open_bot_reservation", None)
+        finder = async_attr(self.conversations, "find_open_bot_reservation")
         if finder is not None:
             found = await finder(
                 conversation_id=conversation_id,
@@ -351,7 +351,7 @@ class Orchestrator:
                 batch_id,
             )
             return None, False
-        updater = getattr(self.conversations, "update_bot_provider_id", None)
+        updater = async_attr(self.conversations, "update_bot_provider_id")
         if updater is not None and provider_id and msg_id:
             try:
                 await updater(
