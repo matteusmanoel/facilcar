@@ -16,6 +16,7 @@ Conversational affordances:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -409,24 +410,19 @@ def _update_inventory_search_key(
     plan: ActionPlan,
     tool_results: list[dict[str, Any]],
 ) -> None:
-    """Update search key only on semantic success (FOUND or EMPTY)."""
+    """Update search key only on semantic success (FOUND or EMPTY).
+
+    After vehicles are recorded on the state, the key must include
+    ``last_shown_vehicle_ids`` so the next turn's continuity hash matches.
+    """
     outcome = extract_inventory_outcome(tool_results)
     if not is_semantic_inventory_success(outcome):
         return
-    for tc in plan.tool_calls:
-        if tc.get("tool") == "inventory_search":
-            key = tc.get("_search_key") or inventory_search_key(
-                merged.facts,
-                alternative_scope=merged.alternative_scope,
-                budget_status=merged.budget_status,
-            )
-            merged.last_inventory_search_key = key
-            merged.last_inventory_outcome = outcome.value
-            return
     merged.last_inventory_search_key = inventory_search_key(
         merged.facts,
         alternative_scope=merged.alternative_scope,
         budget_status=merged.budget_status,
+        last_shown_vehicle_ids=merged.last_shown_vehicle_ids or [],
     )
     merged.last_inventory_outcome = outcome.value
 
@@ -483,6 +479,11 @@ def _record_shown_vehicles(
         ids = shown_vehicle_ids(vehicles)
         if ids:
             merged.last_shown_vehicle_ids = ids
+            merged.current_offer_set_id = str(uuid.uuid4())
+            primary = merged.primary_vehicle_id
+            if primary and primary not in ids:
+                merged.primary_vehicle_id = None
+                merged.primary_vehicle_chosen_at = None
         if vehicles:
             first = vehicles[0] if isinstance(vehicles[0], dict) else {}
             price = first.get("priceCash") if isinstance(first, dict) else None
@@ -658,6 +659,25 @@ async def process_turn(
     merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
     apply_commercial_document_receipt(merged, inbound)
 
+    from sdr.domain.vehicle_reference import apply_primary_from_inbound
+
+    listing_id = None
+    media_url = None
+    if inbound.raw_message_ref:
+        listing_id = inbound.raw_message_ref.get("listing_id") or inbound.raw_message_ref.get(
+            "listing_url"
+        )
+        media_url = inbound.raw_message_ref.get("media_url") or inbound.raw_message_ref.get("url")
+    apply_primary_from_inbound(
+        merged,
+        conversation_id=merged.thread_id,
+        quoted=inbound.quoted,
+        inbound_text=inbound.effective_text,
+        listing_id=str(listing_id) if listing_id else merged.listing_reference,
+        inbound_media_url=str(media_url) if media_url else None,
+        inbound_timestamp=inbound.timestamp,
+    )
+
     # Extract visit time preference from this turn's facts before deciding.
     from sdr.domain.scheduling import (
         is_concrete_visit_slot,
@@ -726,8 +746,8 @@ async def process_turn(
     if plan.action == Action.HANDOFF_VENDOR and plan.handoff:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
-            _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _update_inventory_search_key(merged, plan, tool_results)
             _record_inventory_match(merged, tool_results)
             # Extract location pin so the orchestrator sends it before the handoff text.
             outbound_location = _location_pin_from_tools(tool_results)
@@ -740,8 +760,8 @@ async def process_turn(
     else:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
-            _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _update_inventory_search_key(merged, plan, tool_results)
             _record_inventory_match(merged, tool_results)
 
         if _should_silence_tool_failure(plan, tool_results):

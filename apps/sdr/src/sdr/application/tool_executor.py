@@ -201,7 +201,7 @@ async def _run_send_photos(
     from sdr.tools.inventory import get_vehicle_by_id
     from sdr.tools.send_photos import fetch_vehicle_image_urls
 
-    vid = (vehicle_id or "").strip() or (
+    vid = (vehicle_id or "").strip() or (state.primary_vehicle_id or "").strip() or (
         state.last_shown_vehicle_ids[0] if state.last_shown_vehicle_ids else ""
     )
     if not vid:

@@ -14,7 +14,7 @@ import { LeadFinancingEditor } from "./LeadFinancingEditor";
 import { LeadSellEditor } from "./LeadSellEditor";
 import { LeadDetailField as Field } from "./LeadDetailField";
 import { toDateInputValue } from "@/features/lead/lib/edit-values";
-import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
+import { leadVehicleLabel, selectExplicitPrimary } from "@/features/lead/lib/vehicle-label";
 import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -132,7 +132,7 @@ export default async function AdminLeadDetailPage({
         ? [{ ...lead.vehicle, isPrimary: true }]
         : [];
 
-  const primaryVehicle = interestVehicles.find((v) => v.isPrimary) ?? interestVehicles[0] ?? null;
+  const primaryVehicle = selectExplicitPrimary(interestVehicles);
 
   const vehicleLabel =
     primaryVehicle?.title ??

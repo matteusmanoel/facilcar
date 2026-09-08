@@ -20,6 +20,7 @@ import {
   parseOptionalNumber,
 } from "@/features/lead/lib/edit-values";
 import { interpretClaimCount } from "./claim-result";
+import { nextPrimaryVehicleId } from "@/features/lead/lib/vehicle-label";
 
 const NOT_DELETED = { deletedAt: null } as const;
 
@@ -465,7 +466,10 @@ export async function updateLeadVehicleInterestsAction(leadId: string, vehicleId
   const uniqueIds = Array.from(new Set(vehicleIds.filter(Boolean)));
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, ...NOT_DELETED },
-    select: { id: true },
+    select: {
+      id: true,
+      vehicleInterests: { select: { vehicleId: true, isPrimary: true } },
+    },
   });
   if (!lead) {
     return { ok: false as const, error: "Lead não encontrado" };
@@ -481,16 +485,18 @@ export async function updateLeadVehicleInterestsAction(leadId: string, vehicleId
     }
   }
 
-  const primaryId = uniqueIds[0] ?? null;
+  const currentPrimary =
+    lead.vehicleInterests.find((item) => item.isPrimary)?.vehicleId ?? null;
+  const primaryId = nextPrimaryVehicleId(uniqueIds, currentPrimary);
 
   await prisma.$transaction(async (tx) => {
     await tx.leadVehicleInterest.deleteMany({ where: { leadId } });
     if (uniqueIds.length > 0) {
       await tx.leadVehicleInterest.createMany({
-        data: uniqueIds.map((vehicleId, index) => ({
+        data: uniqueIds.map((vehicleId) => ({
           leadId,
           vehicleId,
-          isPrimary: index === 0,
+          isPrimary: vehicleId === primaryId,
         })),
       });
     }

@@ -45,7 +45,11 @@ def _make_deterministic_understand(
 
         facts: dict[str, Any] = {}
         for entry in stub.get("facts_entries") or []:
-            facts[entry["key"]] = entry["value"]
+            key = entry["key"]
+            value = entry["value"]
+            if key in {"desired_engine_flexible", "desired_engine_any"} and isinstance(value, str):
+                value = value.strip().lower() in {"true", "1", "yes", "sim"}
+            facts[key] = value
 
         signals_raw = stub.get("signals") or {}
         valid_fields = {f.name for f in HandoffSignals.__dataclass_fields__.values()}
@@ -98,6 +102,23 @@ def _make_deterministic_understand(
     return _understand, stubs
 
 
+def _facts_equal(actual: Any, expected: Any) -> bool:
+    if actual is None:
+        return False
+    if isinstance(actual, (list, tuple)):
+        if isinstance(expected, (list, tuple)):
+            return len(actual) == len(expected) and all(
+                _facts_equal(a, e) for a, e in zip(actual, expected)
+            )
+        return any(_facts_equal(item, expected) for item in actual)
+    if str(actual).lower() == str(expected).lower():
+        return True
+    try:
+        return float(actual) == float(expected)
+    except (TypeError, ValueError):
+        return False
+
+
 def _check_turn_assertions(
     customer_turn: int,
     ta: dict[str, Any],
@@ -112,11 +133,12 @@ def _check_turn_assertions(
     plan = result.action_plan
     state = result.state
     outbound = " ".join(result.outbound_texts or []).lower()
+    prefix = f"turn {customer_turn}"
 
     intent_expected = ta.get("intent")
     if intent_expected and state.intent.value != intent_expected.lower():
         failures.append(
-            f"turn {customer_turn}: intent expected {intent_expected!r}, got {state.intent.value!r}"
+            f"{prefix}: intent expected {intent_expected!r}, got {state.intent.value!r}"
         )
 
     action_not = ta.get("action_not")
@@ -124,7 +146,7 @@ def _check_turn_assertions(
         got_action = plan.action.value if hasattr(plan.action, "value") else str(plan.action)
         if got_action.lower() == action_not.lower():
             failures.append(
-                f"turn {customer_turn}: action should not be {action_not!r}, but it is"
+                f"{prefix}: action should not be {action_not!r}, but it is"
             )
 
     reason_not = ta.get("reason_not")
@@ -132,17 +154,38 @@ def _check_turn_assertions(
         got_reason = plan.reason_code or ""
         if reason_not.lower() in got_reason.lower():
             failures.append(
-                f"turn {customer_turn}: reason_code should not contain {reason_not!r}, got {got_reason!r}"
+                f"{prefix}: reason_code should not contain {reason_not!r}, got {got_reason!r}"
             )
 
     facts_include = ta.get("facts_include") or {}
     for k, v in facts_include.items():
         actual = state.facts.get(k)
-        if actual is None:
-            failures.append(f"turn {customer_turn}: expected facts[{k!r}]={v!r} but key missing")
-        elif str(actual).lower() != str(v).lower():
+        if not _facts_equal(actual, v):
+            failures.append(f"{prefix}: expected facts[{k!r}]={v!r}, got {actual!r}")
+
+    prior_facts = ta.get("prior_facts_preserved") or {}
+    for k, v in prior_facts.items():
+        actual = state.facts.get(k)
+        if not _facts_equal(actual, v):
+            failures.append(f"{prefix}: prior fact {k!r}={v!r} was lost; got {actual!r}")
+
+    if ta.get("inventory_outcome"):
+        expected_out = ta["inventory_outcome"]
+        actual_out = None
+        for tr in result.tool_results:
+            if tr.get("tool") == "inventory_search":
+                actual_out = tr.get("outcome")
+                break
+        if actual_out != expected_out:
             failures.append(
-                f"turn {customer_turn}: expected facts[{k!r}]={v!r}, got {actual!r}"
+                f"{prefix}: expected inventory_outcome={expected_out!r}, got {actual_out!r}"
+            )
+
+    if ta.get("search_key_changed"):
+        if state.last_inventory_search_key == getattr(before, "last_inventory_search_key", None):
+            failures.append(
+                f"{prefix}: expected inventory search key to change; "
+                f"got {state.last_inventory_search_key!r}"
             )
 
     no_greeting = ta.get("no_greeting_in_response")
@@ -150,8 +193,18 @@ def _check_turn_assertions(
         for phrase in ("sou a júlia", "sou júlia", "aqui é a júlia"):
             if phrase in outbound:
                 failures.append(
-                    f"turn {customer_turn}: greeting phrase {phrase!r} found in outbound"
+                    f"{prefix}: greeting phrase {phrase!r} found in outbound"
                 )
+
+    if ta.get("no_generic_restart"):
+        for phrase in (
+            "como posso te ajudar hoje",
+            "como posso ajudar você hoje",
+            "como posso ajudar",
+            "em que posso te ajudar",
+        ):
+            if phrase in outbound:
+                failures.append(f"{prefix}: generic restart {phrase!r} found in outbound")
 
     return failures
 
@@ -201,13 +254,20 @@ def inbound_from_fixture_turn(
     )
 
 
-async def run_replay(fixture_path: str, *, mode: str = "deterministic") -> bool:
+async def run_replay(
+    fixture_path: str,
+    *,
+    mode: str = "deterministic",
+    with_db: bool = False,
+    pool: Any = None,
+) -> bool:
     """Run a YAML fixture file end-to-end in deterministic mode.
 
-    Returns True if all assertions pass, False otherwise.
+    ``with_db`` opts into passing a DB pool to ``process_turn``. When ``pool``
+    is already provided, it is used as-is (no implicit connection). When
+    ``with_db=True`` and ``pool is None``, a pool is initialized from settings.
+    Default ``with_db=False`` never opens a remote connection.
     """
-    import asyncio
-    import json
     from pathlib import Path
 
     import yaml
@@ -215,11 +275,12 @@ async def run_replay(fixture_path: str, *, mode: str = "deterministic") -> bool:
     from sdr.application.process_turn import process_turn
     from sdr.domain.types import ConversationCanonicalState, CustomerState
 
-    data = yaml.safe_load(Path(fixture_path).read_text())
+    path = _resolve_fixture(fixture_path)
+    data = yaml.safe_load(Path(path).read_text())
     turns = data["turns"]
     understand, _ = _make_deterministic_understand(turns)
     state = ConversationCanonicalState(
-        thread_id=f"replay_{Path(fixture_path).stem}",
+        thread_id=f"replay_{Path(path).stem}",
         customer=CustomerState(phone="5541999999999"),
     )
 
@@ -230,57 +291,100 @@ async def run_replay(fixture_path: str, *, mode: str = "deterministic") -> bool:
 
     customer_turn = 0
     all_failures: list[str] = []
-    previous_state = state
 
-    for turn in turns:
-        if turn.get("role") != "customer":
-            continue
-        if turn.get("command") == "reset_memory":
-            state = ConversationCanonicalState(
-                thread_id=state.thread_id,
-                customer=state.customer,
-            )
-            continue
-
-        customer_turn += 1
-        coalesce = turn.get("coalesce")
-        if isinstance(coalesce, list) and coalesce:
-            text = "\n".join(str(p.get("text") or "") for p in coalesce)
+    owned_pool = False
+    effective_pool = None
+    if with_db:
+        if pool is not None:
+            effective_pool = pool
         else:
-            text = str(turn.get("text") or "")
+            from sdr.config import get_settings
+            from sdr.db import init_pool
 
-        before = state
-        inbound = inbound_from_fixture_turn(turn, text, state.thread_id)
+            effective_pool = await init_pool(get_settings())
+            owned_pool = True
 
-        try:
-            if inbound is not None:
-                result = await process_turn(
-                    state=state,
-                    inbound=inbound,
-                    understand=understand,
+    try:
+        for turn in turns:
+            if turn.get("role") != "customer":
+                continue
+            if turn.get("command") == "reset_memory":
+                state = ConversationCanonicalState(
+                    thread_id=state.thread_id,
+                    customer=state.customer,
                 )
+                continue
+
+            customer_turn += 1
+            coalesce = turn.get("coalesce")
+            if isinstance(coalesce, list) and coalesce:
+                text = "\n".join(str(p.get("text") or "") for p in coalesce)
             else:
-                result = await process_turn(
-                    state=state,
-                    inbound_text=text,
-                    understand=understand,
+                text = str(turn.get("text") or "")
+
+            before = state
+            inbound = inbound_from_fixture_turn(turn, text, state.thread_id)
+
+            try:
+                if inbound is not None:
+                    result = await process_turn(
+                        state=state,
+                        inbound=inbound,
+                        understand=understand,
+                        pool=effective_pool,
+                    )
+                else:
+                    result = await process_turn(
+                        state=state,
+                        inbound_text=text,
+                        understand=understand,
+                        pool=effective_pool,
+                    )
+            except Exception as exc:
+                all_failures.append(
+                    f"turn {customer_turn}: process_turn raised {type(exc).__name__}: {exc}"
                 )
-        except Exception as exc:
-            all_failures.append(f"turn {customer_turn}: process_turn raised {type(exc).__name__}: {exc}")
-            break
+                break
 
-        if result.outbound_texts:
-            result.state.assistant_turn_count = state.assistant_turn_count + 1
-        state = result.state
+            if result.outbound_texts:
+                result.state.assistant_turn_count = state.assistant_turn_count + 1
+            state = result.state
 
-        ta = turn_assertions.get(customer_turn)
-        if ta:
-            failures = _check_turn_assertions(customer_turn, ta, result, before)
-            all_failures.extend(failures)
+            ta = turn_assertions.get(customer_turn)
+            if ta:
+                failures = _check_turn_assertions(customer_turn, ta, result, before)
+                all_failures.extend(failures)
+    finally:
+        if owned_pool:
+            from sdr.db import close_pool
 
-    # Global assertion: first-contact must not reopen after first turn
+            await close_pool()
+
     if global_assertions.get("no_reintro_after_first_turn"):
-        pass  # enforced per-turn via no_greeting_in_response in turn_assertions
+        pass
 
+    if all_failures:
+        print("\n".join(all_failures))
     return len(all_failures) == 0
+
+
+def _resolve_fixture(name_or_path: str) -> str:
+    from pathlib import Path
+
+    given = Path(name_or_path)
+    if given.exists():
+        return str(given)
+    fixtures_dir = Path(__file__).resolve().parents[3] / "tests" / "fixtures"
+    candidates = [
+        fixtures_dir / f"{name_or_path}.yaml",
+        fixtures_dir / f"{name_or_path}.yml",
+        Path(f"{name_or_path}.yaml"),
+        Path(f"{name_or_path}.yml"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    raise FileNotFoundError(
+        f"Fixture not found: {name_or_path!r}\nSearched: {[str(c) for c in candidates]}"
+    )
 

@@ -185,7 +185,12 @@ class LeadRepository:
                 now,
             )
             await self._upsert_side_tables(conn, lead_id, state)
-            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
+            await self._sync_shown_vehicles(
+                conn,
+                lead_id,
+                list(state.last_shown_vehicle_ids),
+                primary_vehicle_id=state.primary_vehicle_id,
+            )
             if not is_placeholder_display_name(name):
                 await self._sync_lead_name(conn, lead_id, name.strip())
             return lead
@@ -228,7 +233,12 @@ class LeadRepository:
                 sql, lead_id, summary, temperature, now, city, uf
             )
             await self._upsert_side_tables(conn, lead_id, state)
-            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
+            await self._sync_shown_vehicles(
+                conn,
+                lead_id,
+                list(state.last_shown_vehicle_ids),
+                primary_vehicle_id=state.primary_vehicle_id,
+            )
             if not is_placeholder_display_name(state.customer.name):
                 await self._sync_lead_name(conn, lead_id, state.customer.name.strip())
             if lead is not None:
@@ -335,8 +345,10 @@ class LeadRepository:
         conn: asyncpg.Connection,
         lead_id: str,
         vehicle_ids: list[str],
+        *,
+        primary_vehicle_id: str | None = None,
     ) -> None:
-        """Persist published vehicles Júlia actually presented — never string-guess."""
+        """Persist presented vehicles. Primary is explicit — never list position."""
         ids = [str(v).strip() for v in vehicle_ids if str(v).strip()]
         if not ids:
             return
@@ -356,7 +368,8 @@ class LeadRepository:
         ordered = [vid for vid in ids if vid in published_set]
         if not ordered:
             return
-        primary = ordered[0]
+        explicit = (primary_vehicle_id or "").strip() or None
+        primary = explicit if explicit in published_set and explicit in ordered else None
         await conn.execute(
             f'''
             UPDATE "{SCHEMA}"."Lead"
@@ -376,7 +389,7 @@ class LeadRepository:
                 ''',
                 lead_id,
             )
-            for index, vid in enumerate(ordered):
+            for vid in ordered:
                 await conn.execute(
                     f'''
                     INSERT INTO "{SCHEMA}"."LeadVehicleInterest"
@@ -388,7 +401,7 @@ class LeadRepository:
                     _new_id(),
                     lead_id,
                     vid,
-                    index == 0,
+                    vid == primary,
                     _now(),
                 )
         except asyncpg.UndefinedTableError:

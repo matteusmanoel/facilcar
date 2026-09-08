@@ -262,9 +262,12 @@ def inventory_search_key_from_request(
     vehicle_text_for_hash = (
         None if (has_model and has_shown) else req.original_vehicle_text
     )
+    # Catalog brand is derived from the model — it must not look like a new
+    # preference (or a new search after vehicles were already presented).
+    brand_for_hash = None if has_model else req.original_brand
     payload = {
         "original_model": req.original_model,
-        "original_brand": req.original_brand,
+        "original_brand": brand_for_hash,
         "original_vehicle_text": vehicle_text_for_hash,
         "category": req.category,
         "vehicle_type": req.vehicle_type,
@@ -288,6 +291,7 @@ def inventory_search_key(
     *,
     alternative_scope: AlternativeScope = AlternativeScope.NONE,
     budget_status: BudgetStatus = BudgetStatus.UNKNOWN,
+    last_shown_vehicle_ids: list[str] | None = None,
 ) -> str:
     """Hash search criteria — prefer this over hashing raw facts alone."""
     req = build_inventory_search_request(
@@ -295,4 +299,6 @@ def inventory_search_key(
         alternative_scope=alternative_scope,
         budget_status=budget_status,
     )
-    return inventory_search_key_from_request(req)
+    return inventory_search_key_from_request(
+        req, last_shown_vehicle_ids=last_shown_vehicle_ids
+    )

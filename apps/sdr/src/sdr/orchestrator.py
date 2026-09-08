@@ -49,6 +49,7 @@ from sdr.domain.inbound_batch import (
 )
 from sdr.domain.phone import normalize_phone
 from sdr.domain.vendor_summary import is_placeholder_display_name
+from sdr.domain.vehicle_reference import PresentedVehicleBinding, upsert_presented_binding
 from sdr.domain.types import (
     Action,
     ActionPlan,
@@ -71,6 +72,36 @@ from sdr.locks import phone_lock
 from sdr.trace import make_tracer
 
 logger = logging.getLogger(__name__)
+
+
+def _presented_vehicle_payload(
+    *,
+    conversation_id: str,
+    state: ConversationCanonicalState,
+    media: Any,
+    provider_message_id: str,
+) -> dict[str, Any] | None:
+    vehicle_id = getattr(media, "vehicle_id", None)
+    if not vehicle_id:
+        return None
+    shown = list(getattr(state, "last_shown_vehicle_ids", None) or [])
+    try:
+        position = shown.index(str(vehicle_id))
+    except ValueError:
+        position = 0
+    caption = getattr(media, "caption", "") or ""
+    binding = PresentedVehicleBinding(
+        conversation_id=conversation_id,
+        provider_message_id=provider_message_id,
+        vehicle_id=str(vehicle_id),
+        presentation_type="CAPTION" if caption else "IMAGE",
+        position=position,
+        offer_set_id=getattr(state, "current_offer_set_id", None),
+        media_url=getattr(media, "url", None),
+        created_at=utc_now_naive().timestamp(),
+    )
+    upsert_presented_binding(state, binding)
+    return binding.as_dict()
 
 
 class EvolutionSender(Protocol):
@@ -1304,13 +1335,20 @@ class Orchestrator:
                     batch.batch_id,
                 )
                 continue
+            provider_id_final = provider_id or f"bot-batch-{batch.batch_id}-media-{turns_sent}"
+            presented = _presented_vehicle_payload(
+                conversation_id=conversation_id,
+                state=result.state,
+                media=media,
+                provider_message_id=provider_id_final,
+            )
             await self.conversations.insert_bot_outbound(
                 conversation_id=conversation_id,
                 instance_name=instance,
-                provider_message_id=provider_id
-                or f"bot-batch-{batch.batch_id}-media-{turns_sent}",
+                provider_message_id=provider_id_final,
                 text=media.caption or media.url,
                 content_type="IMAGE",
+                presented_vehicle=presented,
             )
             provider_ids.append(provider_id)
             turns_sent += 1

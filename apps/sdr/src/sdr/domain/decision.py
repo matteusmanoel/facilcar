@@ -118,6 +118,18 @@ def _needs_inventory_search(state: ConversationCanonicalState) -> bool:
     key = _state_search_key(state)
     if key == state.last_inventory_search_key:
         return False
+    if state.last_shown_vehicle_ids:
+        # Tests and older turns may have stored the hash before last_shown
+        # was recorded (vehicle_text still in the payload). Treat that as
+        # the same search unless identity fields actually changed.
+        req = build_inventory_search_request(
+            state.facts,
+            alternative_scope=state.alternative_scope,
+            budget_status=state.budget_status,
+        )
+        legacy = inventory_search_key_from_request(req, last_shown_vehicle_ids=None)
+        if legacy == state.last_inventory_search_key:
+            return False
     # Vehicle already presented: answering the financing roteiro must not
     # reopen inventory because an LLM leaked engine/budget into the hash.
     if (
@@ -268,7 +280,7 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
 
     # Explicit photo request of a vehicle already presented — execute, don't ask permission.
     if state.photo_request and state.last_shown_vehicle_ids:
-        vehicle_id = state.last_shown_vehicle_ids[0]
+        vehicle_id = state.primary_vehicle_id or state.last_shown_vehicle_ids[0]
         ask = next_ask_field(state)
         follow = ask if ask and ask not in (None, "intent") else None
         return ActionPlan(

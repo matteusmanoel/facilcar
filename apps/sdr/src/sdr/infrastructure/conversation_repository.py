@@ -71,6 +71,13 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "alternative_scope": state.alternative_scope.value,
         "budget_status": state.budget_status.value,
         "last_shown_vehicle_ids": list(state.last_shown_vehicle_ids),
+        "primary_vehicle_id": state.primary_vehicle_id,
+        "primary_vehicle_chosen_at": state.primary_vehicle_chosen_at,
+        "presented_vehicle_bindings": [
+            b.as_dict() if hasattr(b, "as_dict") else dict(b)
+            for b in (state.presented_vehicle_bindings or [])
+        ],
+        "current_offer_set_id": state.current_offer_set_id,
         "photo_request": bool(state.photo_request),
         "pending_question": state.pending_question,
         "engagement_low_streak": int(state.engagement_low_streak),
@@ -183,6 +190,14 @@ def canonical_state_from_json(
         last_shown_vehicle_ids=[
             str(v) for v in (data.get("last_shown_vehicle_ids") or []) if v
         ],
+        primary_vehicle_id=(str(data["primary_vehicle_id"]) if data.get("primary_vehicle_id") else None),
+        primary_vehicle_chosen_at=(
+            float(data["primary_vehicle_chosen_at"])
+            if data.get("primary_vehicle_chosen_at") is not None
+            else None
+        ),
+        presented_vehicle_bindings=list(data.get("presented_vehicle_bindings") or []),
+        current_offer_set_id=(str(data["current_offer_set_id"]) if data.get("current_offer_set_id") else None),
         photo_request=bool(data.get("photo_request") or False),
         pending_question=data.get("pending_question") or None,
         engagement_low_streak=int(data.get("engagement_low_streak") or 0),
@@ -794,33 +809,45 @@ class ConversationRepository:
         text: str,
         provider_message_id: str | None = None,
         content_type: str = "TEXT",
+        presented_vehicle: dict[str, Any] | None = None,
     ) -> str:
         """Persist bot outbound before/after Evolution send for fromMe dedupe."""
-        import uuid
-
         now = _now()
         msg_id = str(uuid.uuid4())
         provider_id = provider_message_id or f"bot-{msg_id}"
         ctype = (content_type or "TEXT").upper()
         if ctype not in {"TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "STICKER"}:
             ctype = "TEXT"
+        turn_facts = None
+        if presented_vehicle:
+            turn_facts = json.dumps({"_sdr_presented_vehicle": presented_vehicle}, ensure_ascii=False)
         sql = f'''
             INSERT INTO "{SCHEMA}"."Message"
               ("id", "conversationId", "providerMessageId", "instanceName",
                "direction", "contentType", "text", "fromMe", "isHumanSent",
-               "isBotSent", "processingStatus", "createdAt", "processedAt")
+               "isBotSent", "processingStatus", "createdAt", "processedAt",
+               "turnFactsJson")
             VALUES (
               $1, $2, $3, $4,
               'OUTBOUND'::"{SCHEMA}"."MessageDirection",
               $7::"{SCHEMA}"."MessageContentType",
-              $5, true, false, true, 'DONE', $6, $6
+              $5, true, false, true, 'DONE', $6, $6,
+              $8::jsonb
             )
             ON CONFLICT ("instanceName", "providerMessageId") DO NOTHING
             RETURNING "id"
         '''
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                sql, msg_id, conversation_id, provider_id, instance_name, text, now, ctype
+                sql,
+                msg_id,
+                conversation_id,
+                provider_id,
+                instance_name,
+                text,
+                now,
+                ctype,
+                turn_facts,
             )
             return str(row["id"]) if row else msg_id
 

@@ -182,6 +182,11 @@ class ConversationCanonicalState:
     budget_status: BudgetStatus = BudgetStatus.UNKNOWN
     # Last published vehicles presented this thread (ids only).
     last_shown_vehicle_ids: list[str] = field(default_factory=list)
+    # Explicit customer-chosen primary — never inferred from list position.
+    primary_vehicle_id: str | None = None
+    primary_vehicle_chosen_at: float | None = None
+    presented_vehicle_bindings: list[Any] = field(default_factory=list)
+    current_offer_set_id: str | None = None
     # Turn-scoped protocol flag — True only when this inbound asked for photos.
     photo_request: bool = False
     # Turn-scoped protocol flag — True only when this inbound asked for the store.
