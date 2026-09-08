@@ -131,7 +131,11 @@ def test_seed_cards_identify_vehicle_and_translate_transmission() -> None:
     assert "HB20" in hb20
     assert "Cronos" in cronos
     assert "Civic" in sold
-    models = {row["model"].lower() for row in load_seed()}
+    models = {
+        row["model"].lower()
+        for row in load_seed()
+        if row.get("match_policy") != "id_only"
+    }
     assert "gol" not in models
     assert "fox" not in models
 

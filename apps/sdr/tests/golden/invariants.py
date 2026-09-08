@@ -88,7 +88,47 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: ka_not_preserved",
     "SCENARIO: fines_cleared_all_debts",
     "SCENARIO: summary_validation",
+    "SCENARIO: expected_primary_vehicle",
+    "SCENARIO: expected_handoff_count",
+    "SCENARIO: expected_crm_status",
+    "SCENARIO: expected_crm_monthly_payment",
+    "SCENARIO: expected_crm_installments_not_money",
+    "SCENARIO: expected_crm_reread",
+    "SCENARIO: expected_summary_contains",
+    "SCENARIO: location_sent_once",
+    "SCENARIO: original_message_repeats_summary",
+    "TURN: expected_inventory_search",
+    "TURN: expected_runtime_calls",
+    "TURN: expected_segment_count",
+    "TURN: expected_primary_vehicle_id",
+    "TURN: require_explicit_availability",
+    "TURN: expected_docs_not_received",
+    "TURN: storage_failure_must_not_block",
 ]
+
+
+_EXPLICIT_AVAILABILITY = re.compile(
+    r"\b(?:dispon[ií]vel|vendid[oa]|reservad[oa]|n[aã]o\s+confirmad[oa]|amb[ií]gu[oa]|"
+    r"n[aã]o\s+est[aá]\s+mais|j[aá]\s+foi\s+vendid)\w*\b",
+    re.I,
+)
+_GENERIC_STRADA_RAPPORT = re.compile(
+    r"legal que gostou da strada(?!\s+20)",
+    re.I,
+)
+_INTERNAL_LEAK = re.compile(
+    r"\b(?:storage|bucket|s3|handoff|triagem|orchestrator|inboundturn)\b",
+    re.I,
+)
+_QUESTIONNAIRE_CUES = (
+    "envie tamb",
+    "me envie",
+    "pode enviar",
+    "qual hor",
+    "quando voc",
+    "qual sua parcela",
+    "qual o valor",
+)
 
 
 def check_turn(
@@ -97,6 +137,8 @@ def check_turn(
     turn_idx: int,
     turn_def: dict[str, Any],
     result: Any,  # ProcessTurnResult
+    inbound: Any = None,
+    runtime_calls: int = 1,
 ) -> list[InvariantViolation]:
     """Validate a single turn against its spec. Returns list of violations (empty = pass)."""
     violations: list[InvariantViolation] = []
@@ -119,7 +161,9 @@ def check_turn(
         )
 
     # Must never reopen as first contact after the assistant has already spoken.
-    if turn_idx > 0:
+    # Canonical gate is assistant_turn_count, not JSON turn index: an isolated
+    # ``/deletar`` is a protocol turn, and the next customer line is first contact.
+    if getattr(state, "assistant_turn_count", 0) > 1:
         from sdr.domain.introduction import is_first_contact_reopen
 
         if is_first_contact_reopen(outbound_texts):
@@ -401,6 +445,82 @@ def check_turn(
             f"ask_field={plan.ask_field} missing installment after difference financing",
         )
 
+    expected_runtime = turn_def.get("expected_runtime_calls")
+    if expected_runtime is not None and int(expected_runtime) != int(runtime_calls):
+        fail(
+            "TURN: expected_runtime_calls",
+            f"expected {expected_runtime} runtime call(s), got {runtime_calls}",
+        )
+
+    expected_segments = turn_def.get("expected_segment_count")
+    if expected_segments is not None and inbound is not None:
+        ref = getattr(inbound, "raw_message_ref", None) or {}
+        got_seg = int(ref.get("segment_count") or len(getattr(inbound, "segments", None) or []) or 1)
+        if got_seg != int(expected_segments):
+            fail(
+                "TURN: expected_segment_count",
+                f"expected {expected_segments} inbound segments, got {got_seg}",
+            )
+
+    expected_search = turn_def.get("expected_inventory_search")
+    if expected_search is not None:
+        searched = any(
+            (tr.get("tool") == "inventory_search") for tr in (result.tool_results or [])
+        )
+        if bool(expected_search) != searched:
+            fail(
+                "TURN: expected_inventory_search",
+                f"expected inventory_search={expected_search!r}, got {searched}",
+            )
+
+    expected_primary = turn_def.get("expected_primary_vehicle_id")
+    if expected_primary:
+        got_primary = getattr(state, "primary_vehicle_id", None)
+        if got_primary != expected_primary:
+            fail(
+                "TURN: expected_primary_vehicle_id",
+                f"expected {expected_primary!r}, got {got_primary!r}",
+            )
+        shown = list(getattr(state, "last_shown_vehicle_ids", None) or [])
+        extras_primary = [
+            vid for vid in shown if vid != expected_primary and vid == got_primary
+        ]
+        _ = extras_primary
+
+    if turn_def.get("require_explicit_availability"):
+        if not _EXPLICIT_AVAILABILITY.search(outbound_joined):
+            fail(
+                "TURN: require_explicit_availability",
+                f"no explicit availability stance in: {outbound_joined[:180]}",
+            )
+
+    not_received = turn_def.get("expected_docs_not_received") or []
+    if not_received and state is not None:
+        status = state.facts.get("document_status") if isinstance(state.facts.get("document_status"), dict) else {}
+        for component in not_received:
+            if status.get(component) == "received":
+                fail(
+                    "TURN: expected_docs_not_received",
+                    f"{component} marked received after this turn: {status}",
+                )
+
+    if turn_def.get("storage_simulated") or (
+        inbound is not None
+        and isinstance(getattr(inbound, "raw_message_ref", None), dict)
+        and inbound.raw_message_ref.get("storage_simulated")
+    ):
+        action_u = plan.action.value.upper() if hasattr(plan.action, "value") else str(plan.action).upper()
+        if action_u in {"NO_REPLY", "MEDIA_FAILED"}:
+            fail(
+                "TURN: storage_failure_must_not_block",
+                f"simulated Storage result blocked the conversation: action={action_u}",
+            )
+        if _INTERNAL_LEAK.search(outbound_joined):
+            fail(
+                "TURN: storage_failure_must_not_block",
+                f"internal Storage leak in outbound: {outbound_joined[:160]}",
+            )
+
     return violations
 
 
@@ -647,6 +767,83 @@ def check_scenario(
         if gol_outcomes and any(o != "SUCCESS_EMPTY" for o in gol_outcomes):
             fail("SCENARIO: gol_must_be_empty", str(gol_outcomes))
 
+    expected_primary = scenario.get("expected_primary_vehicle_id")
+    if expected_primary and state is not None:
+        if getattr(state, "primary_vehicle_id", None) != expected_primary:
+            fail(
+                "SCENARIO: expected_primary_vehicle",
+                f"expected {expected_primary!r}, got {getattr(state, 'primary_vehicle_id', None)!r}",
+            )
+
+    expected_handoffs = scenario.get("expected_handoff_count")
+    if expected_handoffs is not None:
+        handoffs = sum(
+            1
+            for t in (result.turns or [])
+            if str(t.get("action") or "").upper() == "HANDOFF_VENDOR"
+        )
+        if int(handoffs) != int(expected_handoffs):
+            fail(
+                "SCENARIO: expected_handoff_count",
+                f"expected {expected_handoffs} handoff(s), got {handoffs}",
+            )
+
+    crm = getattr(result, "crm_report", None) or {}
+    stored = crm.get("record_reread") or crm.get("payload_sent") or {}
+    expected_crm_status = scenario.get("expected_crm_status")
+    if expected_crm_status and stored.get("status") != expected_crm_status:
+        fail(
+            "SCENARIO: expected_crm_status",
+            f"expected {expected_crm_status!r}, got {stored.get('status')!r}",
+        )
+    expected_monthly = scenario.get("expected_crm_monthly_payment")
+    if expected_monthly is not None:
+        fin = stored.get("financingRequest") or {}
+        monthly = fin.get("desiredMonthlyPayment")
+        try:
+            monthly_n = float(monthly) if monthly is not None else None
+        except (TypeError, ValueError):
+            monthly_n = None
+        if monthly_n != float(expected_monthly):
+            fail(
+                "SCENARIO: expected_crm_monthly_payment",
+                f"desiredMonthlyPayment expected {expected_monthly!r}, got {monthly!r}",
+            )
+        prazo = fin.get("desiredInstallments")
+        if prazo is not None:
+            try:
+                prazo_n = float(prazo)
+            except (TypeError, ValueError):
+                prazo_n = None
+            if prazo_n == float(expected_monthly):
+                fail(
+                    "SCENARIO: expected_crm_installments_not_money",
+                    f"desiredInstallments received monetary {prazo!r}",
+                )
+    if scenario.get("expected_crm_reread_matches") and crm and not crm.get("matches_payload"):
+        fail("SCENARIO: expected_crm_reread", str(crm.get("matches_payload")))
+    summary_needles = scenario.get("expected_summary_contains_any") or []
+    if summary_needles:
+        blob = (result.vendor_summary or "").lower()
+        if not any(str(n).lower() in blob for n in summary_needles):
+            fail(
+                "SCENARIO: expected_summary_contains",
+                f"none of {summary_needles!r} in summary: {(result.vendor_summary or '')[:180]}",
+            )
+    max_locations = scenario.get("expected_location_sends_max")
+    if max_locations is not None:
+        sends = int(getattr(result, "location_sends", 0) or 0)
+        if getattr(state, "location_sent", False):
+            sends = max(sends, 1)
+        if sends > int(max_locations):
+            fail("SCENARIO: location_sent_once", f"location sends={sends}")
+    if stored.get("message") and stored.get("summary"):
+        if str(stored.get("message") or "").strip() == str(stored.get("summary") or "").strip():
+            fail(
+                "SCENARIO: original_message_repeats_summary",
+                "CRM message copied juliaSummary",
+            )
+
     if llm_real:
         if getattr(result, "fallback_count", 0):
             fail("SCENARIO: llm_fallback", f"fallbacks={result.fallback_count}")
@@ -671,3 +868,58 @@ def _obtained_terminal(result: Any) -> str:
     if turns[-1].get("ask_field"):
         return "INCOMPLETE"
     return last_action or "INCOMPLETE"
+
+
+def collect_commercial_observations(
+    *,
+    scenario: dict[str, Any],
+    result: Any,
+    turn_def: dict[str, Any] | None = None,
+    outbound_joined: str = "",
+    action: str = "",
+) -> list[dict[str, Any]]:
+    """Mark known commercial behaviors without changing production or failing the freeze."""
+    marks: list[dict[str, Any]] = []
+    text = (outbound_joined or "").lower()
+    if turn_def and turn_def.get("observe_availability") and text:
+        if not _EXPLICIT_AVAILABILITY.search(text):
+            marks.append(
+                {
+                    "code": "availability_implicit",
+                    "severity": "commercial",
+                    "detail": "Availability question was not answered with an explicit stance.",
+                }
+            )
+    if _GENERIC_STRADA_RAPPORT.search(text):
+        marks.append(
+            {
+                "code": "generic_vehicle_recognition",
+                "severity": "commercial",
+                "detail": "Primary vehicle referred to generically as Strada.",
+            }
+        )
+    after_cnh = bool(turn_def and turn_def.get("observe_cnh_actions"))
+    if after_cnh:
+        actions = sum(1 for cue in _QUESTIONNAIRE_CUES if cue in text)
+        bubbles = 0
+        if result is not None:
+            bubbles = len(getattr(result, "outbound_texts", None) or [])
+        if bubbles >= 3 or actions >= 2:
+            marks.append(
+                {
+                    "code": "cnh_multi_action",
+                    "severity": "commercial",
+                    "detail": f"bubbles={bubbles} questionnaire_cues={actions}",
+                }
+            )
+    if re.search(r"como posso te ajudar hoje|em que posso te ajudar", text):
+        marks.append(
+            {
+                "code": "artificial_rapport",
+                "severity": "commercial",
+                "detail": "Generic helper menu after intent was already known.",
+            }
+        )
+    _ = scenario
+    _ = action
+    return marks

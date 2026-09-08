@@ -10,7 +10,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sdr.domain.commercial_snapshot import INTENT_TO_LEAD_TYPE, build_commercial_snapshot
+from sdr.domain.commercial_snapshot import (
+    INTENT_TO_LEAD_TYPE,
+    build_commercial_snapshot,
+    original_message_from,
+)
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_roles import get_customer_vehicle, get_desired_vehicle
 from sdr.domain.vendor_summary import compose_vendor_summary
@@ -140,11 +144,46 @@ class IsolatedCrmStore:
         self.qualified_notifications: int = 0
         self.handoff_count: int = 0
 
-    def persist_handoff(self, state: ConversationCanonicalState, composed: Any = None) -> dict[str, Any]:
+    def persist_handoff(
+        self,
+        state: ConversationCanonicalState,
+        composed: Any = None,
+        *,
+        first_inbound: str | None = None,
+    ) -> dict[str, Any]:
         payload = build_crm_payload(state, composed=composed)
-        self._payloads_sent[state.thread_id] = copy.deepcopy(payload)
-        stored = copy.deepcopy(payload)
-        self._records[state.thread_id] = stored
+        snapshot = build_commercial_snapshot(
+            state,
+            first_inbound=first_inbound,
+            qualify=True,
+        )
+        rec = _record_from_snapshot(
+            lead_id=str(payload["id"]),
+            thread_id=state.thread_id,
+            snapshot=snapshot,
+        )
+        message = rec.get("message") or original_message_from(
+            first_inbound, payload.get("summary") or ""
+        )
+        stored = {
+            **payload,
+            "vehicleId": rec.get("vehicleId"),
+            "vehicleInterests": rec.get("vehicleInterests"),
+            "interest_ids": rec.get("interest_ids"),
+            "financingRequest": rec.get("financingRequest"),
+            "visitInterest": rec.get("visitInterest"),
+            "documents": rec.get("documents"),
+            "message": message,
+            "commercialRevision": rec.get("commercialRevision"),
+            "type": rec.get("type") or payload.get("lead_type"),
+            "temperature": rec.get("temperature"),
+            "juliaSummary": rec.get("juliaSummary") or payload.get("juliaSummary"),
+        }
+        self._payloads_sent[state.thread_id] = copy.deepcopy(stored)
+        self._records[state.thread_id] = copy.deepcopy(stored)
+        self._by_id[str(stored["id"])] = self._records[state.thread_id]
+        self.handoff_count += 1
+        self.qualified_notifications += 1
         return stored
 
     def create_from_state(

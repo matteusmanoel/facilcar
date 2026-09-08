@@ -14,7 +14,7 @@ TZ_BRT = ZoneInfo("America/Sao_Paulo")
 
 _fixed: datetime | None = None
 
-# Canonical freeze for the 15-scenario LLM round.
+# Canonical freeze for the 17-scenario LLM round.
 GOLDEN_CLOCK_ISO = "2026-09-07T10:00:00-03:00"
 
 

@@ -1,0 +1,192 @@
+{
+  "name": "whatsapp_strada_quoted_primary_financing_visit",
+  "description": "Sanitized WhatsApp-derived: three Stradas, reply on 2018, financing 100% as simulation, CNH, Tuesday 9h30, single handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase_financing",
+  "expected_primary_vehicle_id": "VH-STRADA-2018",
+  "expected_handoff_count": 1,
+  "expected_crm_status": "QUALIFIED",
+  "expected_crm_monthly_payment": 1500,
+  "expected_crm_reread_matches": true,
+  "expected_location_sends_max": 1,
+  "expected_summary_contains_any": ["Strada", "2018"],
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero mais informações da Strada",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Strada",
+          "desired_vehicle_text": "Strada"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": ["SUCCESS_FOUND"],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "seria compra ou troca",
+        "storage",
+        "bucket"
+      ]
+    },
+    {
+      "inbound": "Gostei dessa opção. Financia 100%?",
+      "quoted_message_id": "replay-img-VH-STRADA-2018",
+      "events": [
+        {
+          "content_type": "TEXT",
+          "text": "Gostei dessa opção. Financia 100%?",
+          "quoted_message_id": "replay-img-VH-STRADA-2018",
+          "delay_ms": 0,
+          "message_id": "syn-strada-quote-1"
+        }
+      ],
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "payment_method": "financing",
+          "down_payment": 0
+        }
+      },
+      "expected_primary_vehicle_id": "VH-STRADA-2018",
+      "expected_inventory_search": false,
+      "expected_runtime_calls": 1,
+      "response_mode": "voluntary_fact",
+      "forbidden_action": "SHOW_OFFERS",
+      "expected_facts_after": {
+        "payment_method": "financing",
+        "down_payment": 0
+      },
+      "required_in_outbound_any": [
+        "simula",
+        "financeira",
+        "sujeito",
+        "análise",
+        "analise",
+        "crédito",
+        "credito"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "taxa",
+        "storage",
+        "bucket"
+      ]
+    },
+    {
+      "inbound": "Parcela de uns 1500",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_installment": 1500
+        }
+      },
+      "expected_facts_after": {
+        "desired_installment": 1500
+      },
+      "expected_inventory_search": false,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "quanto de entrada",
+        "storage",
+        "bucket"
+      ]
+    },
+    {
+      "inbound": "Segue a CNH",
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Bruno Azevedo"
+      },
+      "storage_simulated": {
+        "status": "retryable_failure",
+        "bucket_kind": "private",
+        "public": false
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "Segue a CNH",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Bruno Azevedo"
+          },
+          "delay_ms": 0,
+          "message_id": "syn-strada-cnh-1"
+        }
+      ],
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "name": "Bruno Azevedo"
+        }
+      },
+      "expected_facts_after": {
+        "document_status.cnh": "received"
+      },
+      "expected_docs_not_received": [
+        "proof_of_income",
+        "proof_of_residence"
+      ],
+      "observe_cnh_actions": true,
+      "forbidden_in_outbound": [
+        "storage",
+        "bucket",
+        "s3",
+        "salvo no",
+        "salva no sistema",
+        "disponível para download",
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "terça-feira às 9h30",
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "expected_inventory_search": false,
+      "required_in_outbound_any": [
+        "encaminh"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "confirmação do vendedor",
+        "confirmacao do vendedor",
+        "handoff",
+        "triagem",
+        "storage",
+        "bucket"
+      ]
+    }
+  ]
+}

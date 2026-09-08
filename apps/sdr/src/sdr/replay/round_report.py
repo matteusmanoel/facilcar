@@ -64,8 +64,22 @@ def build_round_report(results: Iterable[Any]) -> dict[str, Any]:
         "fallbacks": sum(int(getattr(r, "fallback_count", 0) or 0) for r in rows),
         "clock": getattr(rows[0], "clock_iso", None) if rows else None,
         "seed_version": getattr(rows[0], "seed_version", None) if rows else None,
+        "seed_sha256": getattr(rows[0], "seed_sha256", None) if rows else None,
+        "inventory_source": getattr(rows[0], "inventory_source", None) if rows else None,
         "understanding_model": getattr(rows[0], "understanding_model", None) if rows else None,
         "composer_model": getattr(rows[0], "composer_model", None) if rows else None,
+        "runtime_calls": sum(int(getattr(r, "runtime_calls", 0) or 0) for r in rows),
+        "location_sends": sum(int(getattr(r, "location_sends", 0) or 0) for r in rows),
+        "inbound_batches": sum(len(getattr(r, "inbound_batches", None) or []) for r in rows),
+        "visual_turns": sum(int(getattr(r, "visual_turns", 0) or 0) for r in rows),
+        "identification_source_by_scenario": {
+            r.name: getattr(r, "identification_source", None) for r in rows
+        },
+        "commercial_observations": {
+            r.name: list(getattr(r, "commercial_observations", None) or [])
+            for r in rows
+        },
+        "human_review_status": "PENDING_HUMAN_REVIEW",
     }
 
 

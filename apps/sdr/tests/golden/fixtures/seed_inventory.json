@@ -159,5 +159,86 @@
     "images": [
       {"url": "https://example.com/argo-001.jpg", "isCover": true, "sortOrder": 0}
     ]
+  },
+  {
+    "id": "VH-STRADA-2021",
+    "title": "Fiat Strada Freedom 1.3 2021",
+    "brand": "Fiat",
+    "model": "Strada",
+    "version": "Freedom 1.3",
+    "year": 2021,
+    "yearModel": 2021,
+    "year_model": 2021,
+    "price": 78900,
+    "priceCash": 78900,
+    "status": "PUBLISHED",
+    "color": "Branco",
+    "mileage": 42000,
+    "fuel_type": "Flex",
+    "transmission": "manual",
+    "images": [
+      {"url": "https://example.com/strada-2021.jpg", "isCover": true, "sortOrder": 0}
+    ]
+  },
+  {
+    "id": "VH-STRADA-2017",
+    "title": "Fiat Strada Working 1.4 2017",
+    "brand": "Fiat",
+    "model": "Strada",
+    "version": "Working 1.4",
+    "year": 2017,
+    "yearModel": 2017,
+    "year_model": 2017,
+    "price": 52900,
+    "priceCash": 52900,
+    "status": "PUBLISHED",
+    "color": "Prata",
+    "mileage": 89000,
+    "fuel_type": "Flex",
+    "transmission": "manual",
+    "images": [
+      {"url": "https://example.com/strada-2017.jpg", "isCover": true, "sortOrder": 0}
+    ]
+  },
+  {
+    "id": "VH-STRADA-2018",
+    "title": "Fiat Strada Freedom 1.4 2018",
+    "brand": "Fiat",
+    "model": "Strada",
+    "version": "Freedom 1.4",
+    "year": 2018,
+    "yearModel": 2018,
+    "year_model": 2018,
+    "price": 58900,
+    "priceCash": 58900,
+    "status": "PUBLISHED",
+    "color": "Branco",
+    "mileage": 64000,
+    "fuel_type": "Flex",
+    "transmission": "manual",
+    "images": [
+      {"url": "https://example.com/strada-2018.jpg", "isCover": true, "sortOrder": 0}
+    ]
+  },
+  {
+    "id": "VH-FOX-2014-001",
+    "title": "Volkswagen Fox 1.6 2014",
+    "brand": "Volkswagen",
+    "model": "Fox",
+    "version": "1.6",
+    "year": 2014,
+    "yearModel": 2014,
+    "year_model": 2014,
+    "price": 42900,
+    "priceCash": 42900,
+    "status": "PUBLISHED",
+    "color": "Prata",
+    "mileage": 98000,
+    "fuel_type": "Flex",
+    "transmission": "manual",
+    "match_policy": "id_only",
+    "images": [
+      {"url": "https://example.com/fox-2014.jpg", "isCover": true, "sortOrder": 0}
+    ]
   }
 ]

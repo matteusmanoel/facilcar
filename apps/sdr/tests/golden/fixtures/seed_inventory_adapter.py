@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 _SEED_FILE = Path(__file__).parent / "seed_inventory.json"
-SEED_VERSION = "2026-09-07-v2"
+SEED_VERSION = "2026-09-08-v3-phase8"
+
+
+def seed_sha256() -> str:
+    return hashlib.sha256(_SEED_FILE.read_bytes()).hexdigest()
 
 
 def load_seed() -> list[dict[str, Any]]:
@@ -26,6 +31,8 @@ def _normalize(text: str) -> str:
 
 
 def _vehicle_matches(vehicle: dict[str, Any], model: str, brand: str) -> bool:
+    if str(vehicle.get("match_policy") or "") == "id_only":
+        return False
     v_model = _normalize(vehicle.get("model") or "")
     v_brand = _normalize(vehicle.get("brand") or "")
     combined = f"{v_brand} {v_model}"
@@ -34,6 +41,16 @@ def _vehicle_matches(vehicle: dict[str, Any], model: str, brand: str) -> bool:
     if brand and brand in v_brand:
         return True
     return False
+
+
+def get_seed_by_id(vehicle_id: str | None) -> dict[str, Any] | None:
+    vid = (vehicle_id or "").strip()
+    if not vid:
+        return None
+    for vehicle in load_seed():
+        if vehicle.get("id") == vid:
+            return vehicle
+    return None
 
 
 def _resolve_listing(
@@ -100,7 +117,11 @@ def search_seed(
             }
 
     if not model_q and not brand_q:
-        published = [v for v in vehicles if v.get("status") == "PUBLISHED"]
+        published = [
+            v
+            for v in vehicles
+            if v.get("status") == "PUBLISHED" and v.get("match_policy") != "id_only"
+        ]
         if published:
             return {
                 "outcome": "SUCCESS_FOUND",

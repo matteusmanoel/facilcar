@@ -75,6 +75,15 @@ class ScenarioRunResult:
     summary_used_llm: bool = False
     dialogue_misaligned: int = 0
     invariants_executed: list[str] = field(default_factory=list)
+    runtime_calls: int = 0
+    location_sends: int = 0
+    inbound_batches: list[dict[str, Any]] = field(default_factory=list)
+    commercial_observations: list[dict[str, Any]] = field(default_factory=list)
+    seed_sha256: str | None = None
+    inventory_source: str = "seed_isolated"
+    identification_source: str | None = None
+    first_inbound: str | None = None
+    visual_turns: int = 0
 
 
 
@@ -88,9 +97,13 @@ def _initial_state(scenario: dict[str, Any]) -> Any:
 
     name = scenario.get("name", "unknown")
     init = scenario.get("initial_state") or {}
+    customer = scenario.get("customer") or {}
     state = ConversationCanonicalState(
         thread_id=f"replay_{name}",
-        customer=CustomerState(phone="5541999999999"),
+        customer=CustomerState(
+            phone=str(customer.get("phone") or "5541999999999"),
+            name=customer.get("name"),
+        ),
     )
     for k, v in init.items():
         if not hasattr(state, k):
@@ -130,6 +143,61 @@ def _stub_understand(turns: list[dict[str, Any]]):
     return _understand, turn_idx_ref, understand_stubs
 
 
+def _is_reset_turn(turn_def: dict[str, Any], inbound_text: str) -> bool:
+    from sdr.domain.commands import is_reset_memory_command
+
+    if str(turn_def.get("command") or "").strip() == "reset_memory":
+        return True
+    return is_reset_memory_command(inbound_text)
+
+
+def _upsert_show_offer_bindings(state: Any, result: Any) -> None:
+    from sdr.domain.vehicle_reference import PresentedVehicleBinding, upsert_presented_binding
+
+    vehicles: list[dict[str, Any]] = []
+    for tr in result.tool_results or []:
+        if tr.get("tool") == "inventory_search":
+            vehicles = list(tr.get("vehicles") or [])
+            break
+    if not vehicles:
+        for item in getattr(result, "outbound_media", None) or []:
+            vid = getattr(item, "vehicle_id", None)
+            if vid:
+                vehicles.append({"id": vid})
+    offer = f"replay-offer-{state.thread_id}"
+    seen: set[str] = set()
+    position = 0
+    for veh in vehicles:
+        vid = str((veh or {}).get("id") or "").strip()
+        if not vid or vid in seen:
+            continue
+        seen.add(vid)
+        upsert_presented_binding(
+            state,
+            PresentedVehicleBinding(
+                conversation_id=state.thread_id,
+                provider_message_id=f"replay-img-{vid}",
+                vehicle_id=vid,
+                presentation_type="IMAGE",
+                position=position,
+                offer_set_id=offer,
+            ),
+        )
+        position += 1
+
+
+def _reset_state(state: Any) -> Any:
+    from sdr.domain.types import ConversationCanonicalState, CustomerState
+
+    return ConversationCanonicalState(
+        thread_id=state.thread_id,
+        customer=CustomerState(
+            phone=getattr(state.customer, "phone", None),
+            name=getattr(state.customer, "name", None),
+        ),
+    )
+
+
 async def run_scenario(
     scenario: dict[str, Any],
     *,
@@ -167,11 +235,10 @@ async def run_scenario_detailed(
 
     from sdr.application.process_turn import process_turn
     from sdr.domain.clock import GOLDEN_CLOCK_ISO, set_clock
-    from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
     from sdr.domain.types import Action
     from sdr.infrastructure.isolated_crm import IsolatedCrmStore
-    from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION
-    from tests.golden.invariants import INVARIANT_CATALOG, check_scenario, check_turn
+    from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION, seed_sha256
+    from tests.golden.invariants import INVARIANT_CATALOG, check_scenario, check_turn, collect_commercial_observations
 
     name = scenario.get("name", "unknown")
     turns = scenario.get("turns", [])
@@ -193,6 +260,13 @@ async def run_scenario_detailed(
     summary_origin = ""
     summary_used_llm = False
     dialogue_misaligned = 0
+    runtime_calls = 0
+    location_sends = 0
+    inbound_batches: list[dict[str, Any]] = []
+    commercial_observations: list[dict[str, Any]] = []
+    first_inbound: str | None = None
+    visual_turns = 0
+    identification_source: str | None = None
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
 
@@ -210,8 +284,14 @@ async def run_scenario_detailed(
         )
         model = getattr(req, "original_model", None) or ""
         brand = getattr(req, "original_brand", None) or ""
-        listing_id = getattr(search_state, "listing_reference", None) or search_state.facts.get(
-            "_seed_vehicle_hint"
+        vis = getattr(search_state, "last_visual_resolution", None)
+        vis_id = vis.get("matched_vehicle_id") if isinstance(vis, dict) else None
+        listing_id = (
+            getattr(search_state, "listing_reference", None)
+            or vis_id
+            or getattr(search_state, "primary_vehicle_id", None)
+            or (search_state.facts or {}).get("visual_match_vehicle_id")
+            or (search_state.facts or {}).get("_seed_vehicle_hint")
         )
         listing_url = None
         if isinstance(listing_id, str) and listing_id.startswith("http"):
@@ -282,7 +362,14 @@ async def run_scenario_detailed(
 
     for idx, turn_def in enumerate(turns):
         turn_idx_ref[0] = idx
-        inbound_text = turn_def.get("inbound", "")
+        from sdr.replay.inbound import build_replay_inbound
+
+        inbound, image_bytes, delays = build_replay_inbound(
+            turn_def,
+            thread_id=state.thread_id,
+            turn_idx=idx,
+        )
+        inbound_text = inbound.effective_text or str(turn_def.get("inbound") or "")
         listing_id = turn_def.get("listing_id")
         listing_url = turn_def.get("listing_url")
         alignment: dict[str, Any] = {
@@ -330,50 +417,97 @@ async def run_scenario_detailed(
             "collected_fields": list(state.collected_fields or []),
             "visit_preferred_time": state.visit_preferred_time,
         }
-        inbound = InboundTurn(
-            thread_id=state.thread_id,
-            content_type=ContentType.TEXT,
-            text=inbound_text,
-            media_status=MediaStatus.NONE,
-            raw_message_ref={
-                k: v
-                for k, v in {
-                    "listing_id": listing_id,
-                    "listing_url": listing_url,
-                    "media_metadata": turn_def.get("media_metadata"),
-                }.items()
-                if v
-            },
-        )
+        if listing_id or listing_url:
+            ref = dict(inbound.raw_message_ref or {})
+            if listing_id:
+                ref["listing_id"] = listing_id
+            if listing_url:
+                ref["listing_url"] = listing_url
+            inbound.raw_message_ref = ref
         if show_trace:
             print(f"\n{'='*60}")
             print(f"  Turn {idx}: {inbound_text!r}")
             print(f"  listing_id: {listing_id}")
+            print(f"  segments: {(inbound.raw_message_ref or {}).get('segment_count')}")
             print(f"  assistant_turn_count: {state.assistant_turn_count}")
             print(f"  State facts before: {dict(state.facts)}")
 
         started = time.perf_counter()
+        runtime_calls += 1
+        inbound_batches.append(
+            {
+                "turn_id": idx,
+                "batch_id": (inbound.raw_message_ref or {}).get("batch_id"),
+                "segment_count": (inbound.raw_message_ref or {}).get("segment_count")
+                or len(inbound.segments or [])
+                or 1,
+                "delays_ms": delays,
+                "quoted": [
+                    {"stanza_id": q.stanza_id, "quoted_text": q.quoted_text}
+                    for q in (inbound.quoted or [])
+                ],
+                "content_type": inbound.content_type.value
+                if hasattr(inbound.content_type, "value")
+                else str(inbound.content_type),
+                "runtime_calls": 1,
+            }
+        )
+        if first_inbound is None and not _is_reset_turn(turn_def, inbound_text):
+            first_inbound = inbound_text
         try:
-            ctx = (
-                mock.patch.dict(
-                    "sdr.application.tool_executor._TOOL_REGISTRY",
-                    {"inventory_search": _seed_run_inventory_search},
-                )
-                if not use_live_inventory
-                else contextlib.nullcontext()
-            )
-            with ctx:
-                result = await process_turn(
+            if _is_reset_turn(turn_def, inbound_text):
+                from sdr.application.process_turn import ProcessTurnResult
+                from sdr.domain.commands import RESET_MEMORY_CONFIRMATION_PT
+                from sdr.domain.types import Action, ActionPlan, TurnFacts
+
+                state = _reset_state(state)
+                result = ProcessTurnResult(
+                    action_plan=ActionPlan(
+                        action=Action.NO_REPLY,
+                        reason_code="reset_memory",
+                        reason="Isolated /deletar command",
+                    ),
                     state=state,
-                    inbound=inbound,
-                    inbound_text=inbound_text,
-                    understand=understand,
-                    pool=process_pool,
+                    outbound_texts=[RESET_MEMORY_CONFIRMATION_PT],
+                    turn_facts=TurnFacts(),
+                    tool_results=[],
                 )
+            else:
+                ctx = (
+                    mock.patch.dict(
+                        "sdr.application.tool_executor._TOOL_REGISTRY",
+                        {"inventory_search": _seed_run_inventory_search},
+                    )
+                    if not use_live_inventory
+                    else contextlib.nullcontext()
+                )
+                with ctx:
+                    result = await process_turn(
+                        state=state,
+                        inbound=inbound,
+                        inbound_text=inbound_text,
+                        understand=understand,
+                        pool=process_pool,
+                        image_bytes=image_bytes,
+                    )
+                _upsert_show_offer_bindings(result.state, result)
         except Exception as exc:
             errors.append(f"[{name}] turn {idx}: process_turn raised {type(exc).__name__}: {exc}")
             break
         latency_ms = int((time.perf_counter() - started) * 1000)
+
+        if getattr(result, "outbound_location", None):
+            location_sends += 1
+        vis = getattr(result.state, "last_visual_resolution", None) or {}
+        ctype = (
+            inbound.content_type.value
+            if hasattr(inbound.content_type, "value")
+            else str(inbound.content_type)
+        )
+        if image_bytes or str(ctype).upper() == "IMAGE":
+            visual_turns += 1
+            if isinstance(vis, dict) and vis.get("resolution_source"):
+                identification_source = vis.get("resolution_source")
 
         plan = result.action_plan
         action_val = plan.action.value if hasattr(plan.action, "value") else str(plan.action)
@@ -436,6 +570,9 @@ async def run_scenario_detailed(
             "matched_inventory_id": inv_tr.get("matched_inventory_id"),
             "question_adherence": adherence,
             "dialogue_alignment": alignment,
+            "runtime_calls": 1,
+            "segment_count": (inbound.raw_message_ref or {}).get("segment_count"),
+            "primary_vehicle_id": result.state.primary_vehicle_id,
         })
         trace_row = {
             "scenario_id": name,
@@ -463,6 +600,9 @@ async def run_scenario_detailed(
                 "collected_fields": list(result.state.collected_fields or []),
                 "visit_preferred_time": result.state.visit_preferred_time,
                 "last_inventory_match": result.state.last_inventory_match,
+                "primary_vehicle_id": result.state.primary_vehicle_id,
+                "location_sent": bool(getattr(result.state, "location_sent", False)),
+                "document_received": bool(getattr(result.state, "document_received", False)),
             },
             "applicable_fields": list(result.state.collected_fields or [])
             + list(result.state.missing_fields or []),
@@ -515,11 +655,25 @@ async def run_scenario_detailed(
             turn_idx=idx,
             turn_def=turn_for_check,
             result=result,
+            inbound=inbound,
+            runtime_calls=1,
         )
         inv_msgs = [str(v) for v in violations]
         for v in inv_msgs:
             errors.append(v)
+        obs = collect_commercial_observations(
+            scenario=scenario,
+            result=result,
+            turn_def=turn_def,
+            outbound_joined=" ".join(result.outbound_texts or []),
+            action=action_val,
+        )
+        if obs:
+            commercial_observations.extend({"turn": idx, **item} for item in obs)
         trace_row["invariant_results"] = inv_msgs or ["pass"]
+        trace_row["commercial_observations"] = obs
+        trace_row["runtime_calls"] = 1
+        trace_row["inbound_batch"] = inbound_batches[-1]
 
         if plan.action == Action.HANDOFF_VENDOR or plan.handoff:
             from sdr.domain.vendor_summary import compose_vendor_summary
@@ -543,7 +697,11 @@ async def run_scenario_detailed(
                 summary_llm_rejected = False
                 summary_used_fallback = True
                 summary_origin = "error"
-            stored = crm_store.persist_handoff(result.state, composed=composed)
+            stored = crm_store.persist_handoff(
+                result.state,
+                composed=composed,
+                first_inbound=first_inbound,
+            )
             crm_report = crm_store.verify(result.state.thread_id)
             trace_row["crm_payload"] = stored
             trace_row["crm_persist"] = crm_report
@@ -609,6 +767,15 @@ async def run_scenario_detailed(
         summary_used_llm=summary_used_llm,
         dialogue_misaligned=dialogue_misaligned,
         invariants_executed=list(INVARIANT_CATALOG),
+        runtime_calls=runtime_calls,
+        location_sends=location_sends,
+        inbound_batches=inbound_batches,
+        commercial_observations=commercial_observations,
+        seed_sha256=seed_sha256(),
+        inventory_source="seed_isolated",
+        identification_source=identification_source,
+        first_inbound=first_inbound,
+        visual_turns=visual_turns,
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
         errors.append(str(v))
@@ -701,15 +868,16 @@ def _print_report(results: dict[str, ScenarioRunResult]) -> None:
             print(f"       {e}")
 
 
-def write_transcripts(results: list[ScenarioRunResult]) -> Path:
-    _TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _TRANSCRIPTS_DIR / "latest.md"
+def write_transcripts(results: list[ScenarioRunResult], *, output_dir: Path | None = None) -> Path:
+    dest = output_dir or _TRANSCRIPTS_DIR
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / "latest.md"
     chunks = ["# Golden scenarios — histórico bruto\n"]
     for r in results:
         chunks.append(format_conversation(r))
         chunks.append("---\n")
     path.write_text("\n".join(chunks), encoding="utf-8")
-    traces_dir = _TRANSCRIPTS_DIR / "traces"
+    traces_dir = dest / "traces"
     traces_dir.mkdir(parents=True, exist_ok=True)
     crm_rows = []
     for r in results:
@@ -724,15 +892,23 @@ def write_transcripts(results: list[ScenarioRunResult]) -> Path:
             "persist": r.crm_report,
             "technical_status": r.technical_status,
             "obtained_terminal": r.obtained_terminal,
+            "runtime_calls": r.runtime_calls,
+            "inbound_batches": r.inbound_batches,
+            "commercial_observations": r.commercial_observations,
+            "identification_source": r.identification_source,
+            "human_review": "PENDING_HUMAN_REVIEW",
         })
-    (_TRANSCRIPTS_DIR / "crm_persist.json").write_text(
+        from sdr.replay.artifacts import human_rubric_markdown
+
+        (dest / f"rubric_{r.name}.md").write_text(human_rubric_markdown(r.name), encoding="utf-8")
+    (dest / "crm_persist.json").write_text(
         json.dumps(crm_rows, indent=2, default=str, ensure_ascii=False),
         encoding="utf-8",
     )
     from sdr.replay.round_report import build_round_report
 
     report = build_round_report(results)
-    (_TRANSCRIPTS_DIR / "round_report.json").write_text(
+    (dest / "round_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -756,19 +932,43 @@ async def _main(argv: list[str]) -> int:
     run_all = "--all" in argv
     show_trace = "--show-trace" in argv
     llm_real = "--llm-real" in argv
-    names = [a for a in argv if not a.startswith("-")]
+    repeat = 1
+    run_id = None
+    filtered: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--repeat" and i + 1 < len(argv):
+            repeat = max(1, int(argv[i + 1]))
+            i += 2
+            continue
+        if arg.startswith("--repeat="):
+            repeat = max(1, int(arg.split("=", 1)[1]))
+            i += 1
+            continue
+        if arg == "--run-id" and i + 1 < len(argv):
+            run_id = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--run-id="):
+            run_id = arg.split("=", 1)[1]
+            i += 1
+            continue
+        if not arg.startswith("-"):
+            filtered.append(arg)
+        i += 1
+    names = filtered
 
     if not run_all and not names:
         print("Usage: python -m sdr.replay <scenario_name|path> [--show-trace] [--llm-real]")
         print("       python -m sdr.replay --all [--show-trace] [--llm-real]")
+        print("       python -m sdr.replay --llm-real --repeat 3 <scenario> [<scenario>...]")
         return 1
 
     if llm_real:
-        from sdr.config import get_settings
+        from sdr.replay.artifacts import restore_openai_key
 
-        get_settings.cache_clear()
-        key = (get_settings().openai_api_key or "").strip()
-        if not key:
+        if not restore_openai_key():
             print("ERROR: --llm-real requires OPENAI_API_KEY in apps/sdr/.env", file=sys.stderr)
             return 1
 
@@ -793,23 +993,56 @@ async def _main(argv: list[str]) -> int:
     results: dict[str, ScenarioRunResult] = {}
     ordered: list[ScenarioRunResult] = []
     for scenario in scenarios_to_run:
-        # Fresh canonical state per scenario == /deletar between conversations.
-        run = await run_scenario_detailed(
-            scenario,
-            show_trace=show_trace or llm_real,
-            pool=live_pool,
-            llm_real=llm_real,
-            use_live_inventory=use_live_inventory,
-        )
-        results[run.name] = run
-        ordered.append(run)
-        if llm_real:
-            print("\n" + format_conversation(run))
+        for rep in range(repeat):
+            run = await run_scenario_detailed(
+                scenario,
+                show_trace=show_trace or llm_real,
+                pool=live_pool,
+                llm_real=llm_real,
+                use_live_inventory=use_live_inventory,
+            )
+            key = run.name if repeat == 1 else f"{run.name}__rep{rep + 1}"
+            if repeat > 1:
+                run.name = key
+            results[key] = run
+            ordered.append(run)
+            if llm_real:
+                print("\n" + format_conversation(run))
 
     _print_report(results)
     if llm_real:
-        path = write_transcripts(ordered)
+        from datetime import datetime
+
+        from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION, seed_sha256
+        from sdr.replay.artifacts import GATE_ROOT, git_head, new_run_id, write_meta
+
+        rid = run_id or new_run_id()
+        dest = GATE_ROOT / rid
+        meta = {
+            "run_id": rid,
+            "commit": git_head(),
+            "started_at": datetime.now().isoformat(),
+            "timezone": "America/Sao_Paulo",
+            "clock": ordered[0].clock_iso if ordered else None,
+            "models": {
+                "understanding": ordered[0].understanding_model if ordered else None,
+                "composer": ordered[0].composer_model if ordered else None,
+                "summary_llm": False,
+            },
+            "inventory": {
+                "source": "seed_isolated",
+                "seed_version": SEED_VERSION,
+                "seed_sha256": seed_sha256(),
+                "remote_consulted": False,
+            },
+            "repeat": repeat,
+            "scenario_count": len(ordered),
+        }
+        write_meta(dest, meta)
+        path = write_transcripts(ordered, output_dir=dest)
+        write_transcripts(ordered, output_dir=_TRANSCRIPTS_DIR)
         print(f"\nTranscripts written to {path}")
+        print(f"Run directory: {dest}")
     failed_count = sum(1 for r in results.values() if not r.ok)
     return 0 if failed_count == 0 else 1
 

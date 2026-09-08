@@ -1,0 +1,252 @@
+{
+  "name": "whatsapp_fox_image_financing_burst_visit",
+  "description": "Sanitized WhatsApp-derived: isolated /deletar, Fox image identity, financing burst, CNH, visit tomorrow 9h30, single handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase_financing",
+  "expected_primary_vehicle_id": "VH-FOX-2014-001",
+  "expected_handoff_count": 1,
+  "expected_crm_status": "QUALIFIED",
+  "expected_crm_monthly_payment": 1200,
+  "expected_crm_reread_matches": true,
+  "expected_location_sends_max": 1,
+  "expected_summary_contains_any": ["Fox", "2014"],
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "/deletar",
+      "command": "reset_memory",
+      "expected_action": "NO_REPLY",
+      "expected_runtime_calls": 1,
+      "required_in_outbound_any": ["limpei o contexto"],
+      "forbidden_in_outbound": ["storage", "bucket", "handoff"]
+    },
+    {
+      "inbound": "Tudo bem?",
+      "understand_return": {
+        "intent": "SMALLTALK",
+        "facts": {}
+      },
+      "expected_action": "SMALLTALK",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket"
+      ]
+    },
+    {
+      "inbound": "Esse Fox ainda tem?",
+      "content_type": "IMAGE",
+      "image_fixture": "synthetic_fox",
+      "mime_type": "image/png",
+      "events": [
+        {
+          "content_type": "IMAGE",
+          "caption": "Esse Fox ainda tem?",
+          "image_fixture": "synthetic_fox",
+          "mime_type": "image/png",
+          "delay_ms": 0,
+          "message_id": "syn-fox-img-1"
+        }
+      ],
+      "visual_resolution": {
+        "resolution_source": "exact_media",
+        "matched_vehicle_id": "VH-FOX-2014-001",
+        "confidence": 1.0,
+        "catalog_status": "PUBLISHED",
+        "confirmed_label": "Volkswagen Fox",
+        "candidate_vehicle_ids": ["VH-FOX-2014-001"],
+        "vision_attempted": false,
+        "vision_calls": 0
+      },
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Fox",
+          "desired_vehicle_text": "Fox",
+          "budget": 45000
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": ["SUCCESS_FOUND"],
+      "expected_primary_vehicle_id": "VH-FOX-2014-001",
+      "require_explicit_availability": true,
+      "observe_availability": true,
+      "expected_facts_after": {
+        "visual_match_secure": true,
+        "visual_match_vehicle_id": "VH-FOX-2014-001"
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "seria compra ou troca"
+      ]
+    },
+    {
+      "inbound": "Compra financiada.\nFinancia 100%?",
+      "events": [
+        {
+          "content_type": "TEXT",
+          "text": "Compra financiada.",
+          "delay_ms": 0,
+          "message_id": "syn-fox-burst-1"
+        },
+        {
+          "content_type": "TEXT",
+          "text": "Financia 100%?",
+          "delay_ms": 1800,
+          "message_id": "syn-fox-burst-2"
+        }
+      ],
+      "batch_id": "syn-fox-fin-burst",
+      "expected_segment_count": 2,
+      "expected_runtime_calls": 1,
+      "expected_inventory_search": false,
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "payment_method": "financing",
+          "down_payment": 0
+        }
+      },
+      "expected_facts_after": {
+        "payment_method": "financing",
+        "down_payment": 0
+      },
+      "forbidden_action": "SHOW_OFFERS",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "taxa",
+        "storage",
+        "bucket"
+      ],
+      "required_in_outbound_any": [
+        "simula",
+        "financeira",
+        "sujeito",
+        "análise",
+        "analise",
+        "crédito",
+        "credito"
+      ]
+    },
+    {
+      "inbound": "Parcela de 1200",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "desired_installment": 1200
+        }
+      },
+      "expected_facts_after": {
+        "desired_installment": 1200
+      },
+      "expected_inventory_search": false,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "quanto de entrada",
+        "storage",
+        "bucket"
+      ]
+    },
+    {
+      "inbound": "Segue minha CNH",
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Carla Mendes"
+      },
+      "storage_simulated": {
+        "status": "retryable_failure",
+        "bucket_kind": "private",
+        "public": false
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "Segue minha CNH",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Carla Mendes"
+          },
+          "delay_ms": 0,
+          "message_id": "syn-fox-cnh-1"
+        }
+      ],
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {
+          "name": "Carla Mendes"
+        }
+      },
+      "expected_facts_after": {
+        "document_status.cnh": "received"
+      },
+      "expected_docs_not_received": [
+        "proof_of_income",
+        "proof_of_residence"
+      ],
+      "observe_cnh_actions": true,
+      "forbidden_in_outbound": [
+        "storage",
+        "bucket",
+        "s3",
+        "salvo no",
+        "salva no sistema",
+        "disponível para download",
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "amanhã às 9h30",
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "expected_inventory_search": false,
+      "required_in_outbound_any": [
+        "encaminh"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "confirmação do vendedor",
+        "confirmacao do vendedor",
+        "handoff",
+        "triagem",
+        "storage",
+        "bucket"
+      ]
+    }
+  ]
+}
