@@ -123,8 +123,7 @@ def test_visit_pending_versus_marked() -> None:
     assert bad["pass"] is False
     assert "visit_described_as_confirmed" in bad["violations"]
     good = validate_summary_against_authorized(
-        "A preferência de visita foi registrada para terça-feira, 8/09, às 9h30, "
-        "pendente de confirmação do vendedor.",
+        "Pretende visitar a loja na terça-feira, 8/09, às 9h30.",
         authorized,
     )
     assert "visit_described_as_confirmed" not in good["violations"]

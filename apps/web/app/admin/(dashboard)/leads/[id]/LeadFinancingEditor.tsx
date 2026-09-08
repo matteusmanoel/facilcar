@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/cn";
 import { LeadDetailField } from "./LeadDetailField";
 import { LeadEditToolbar } from "./LeadEditToolbar";
+import { desiredMonthlyPaymentLabel } from "@/features/lead/lib/desired-monthly-payment";
 
 const INSTALLMENTS = [12, 24, 36, 48, 60, 72, 84];
 const LICENSE_NONE = "__none__";
@@ -51,6 +52,7 @@ type Props = {
   monthlyIncome: string;
   downPayment: string;
   desiredInstallments: string;
+  desiredMonthlyPayment?: string;
   hasDriverLicense: boolean | null;
   occupation: string | null;
   notes: string | null;
@@ -61,6 +63,7 @@ export function LeadFinancingEditor({
   monthlyIncome,
   downPayment,
   desiredInstallments,
+  desiredMonthlyPayment = "",
   hasDriverLicense,
   occupation,
   notes,
@@ -199,6 +202,9 @@ export function LeadFinancingEditor({
             </LeadDetailField>
             <LeadDetailField label="Prazo desejado">
               {desiredInstallments ? `${desiredInstallments} meses` : "—"}
+            </LeadDetailField>
+            <LeadDetailField label="Parcela pretendida">
+              {desiredMonthlyPaymentLabel(desiredMonthlyPayment) ?? "—"}
             </LeadDetailField>
             <LeadDetailField label="CNH">
               {hasDriverLicense == null ? "—" : hasDriverLicense ? "Sim" : "Não"}

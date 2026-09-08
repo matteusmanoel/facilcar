@@ -64,8 +64,8 @@ def test_sale_omits_documents() -> None:
     assert "documentos" not in low
     assert "proof_of" not in result.text
     assert "marcada" not in low
-    assert "preferência de visita" in low or "preferencia de visita" in low
-    assert "pendente de confirmação" in low or "pendente de confirmacao" in low
+    assert "preferência de visita" in low or "preferencia de visita" in low or "pretende visitar" in low
+    assert "pendente de confirmação" not in low and "pendente de confirmacao" not in low
     assert result.validation.get("pass") is True
 
 
@@ -135,7 +135,7 @@ def test_trade_financed_includes_desired_installment_and_deferred_docs() -> None
     assert "cnh" in low
     assert "comprovante de residência" in low or "comprovante de residencia" in low
     assert "envio posterior" in low
-    assert "preferência" in low or "preferencia" in low
+    assert "pretende visitar" in low or "preferência" in low or "preferencia" in low
     assert result.validation.get("pass") is True, result.validation.get("violations")
 
 
@@ -155,7 +155,8 @@ def test_visit_preference_is_pending() -> None:
     low = result.text.lower()
     assert "marcada" not in low
     assert "agendada" not in low
-    assert "pendente de confirmação" in low or "pendente de confirmacao" in low
+    assert "pretende visitar" in low
+    assert "pendente de confirmação" not in low and "pendente de confirmacao" not in low
 
 
 def test_cnh_singular_agreement() -> None:

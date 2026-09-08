@@ -363,6 +363,7 @@ def deterministic_merge(
         offered_visit_slots=list(prev.offered_visit_slots),
         listing_reference=prev.listing_reference,
         last_inventory_match=deepcopy(prev.last_inventory_match) if prev.last_inventory_match else None,
+        crm_revision=int(getattr(prev, "crm_revision", 0) or 0),
         handoff_ready=prev.handoff_ready,
         profile_complete=prev.profile_complete,
         missing_fields=list(prev.missing_fields),

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from sdr.domain.age import compute_age
 from sdr.domain.debts import compute_debt_status, persistable_checks
 from sdr.domain.document_status import deferred_components
 from sdr.domain.qualifications import field_is_applicable
@@ -42,6 +43,8 @@ class AuthorizedFacts:
     document_status: dict[str, str] = field(default_factory=dict)
     visit_preferred_time: str | None = None
     visit_pending_vendor_confirm: bool = False
+    age: int | None = None
+    birth_date: str | None = None
     missing_fields: list[str] = field(default_factory=list)
     deferred_fields: list[str] = field(default_factory=list)
     handoff_reason: str | None = None
@@ -73,6 +76,8 @@ class AuthorizedFacts:
             "document_status": dict(self.document_status),
             "visit_preferred_time": self.visit_preferred_time,
             "visit_pending_vendor_confirm": self.visit_pending_vendor_confirm,
+            "age": self.age,
+            "birth_date": self.birth_date,
             "missing_fields": list(self.missing_fields),
             "deferred_fields": list(self.deferred_fields),
             "handoff_reason": self.handoff_reason,
@@ -122,6 +127,8 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
     applicable_missing = [
         f for f in (state.missing_fields or []) if field_is_applicable(state, f)
     ]
+    birth_raw = facts.get("birth_date")
+    birth = str(birth_raw).strip() if birth_raw else None
     return AuthorizedFacts(
         name=name,
         intent=intent,
@@ -141,6 +148,8 @@ def build_authorized_facts(state: ConversationCanonicalState) -> AuthorizedFacts
         document_status=dict(doc_status) if docs_ok else {},
         visit_preferred_time=visit,
         visit_pending_vendor_confirm=bool(visit),
+        age=compute_age(birth),
+        birth_date=birth,
         missing_fields=applicable_missing,
         deferred_fields=list(state.deferred_fields or []) if docs_ok else [],
         handoff_reason=state.lifecycle.handoff_reason,

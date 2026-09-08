@@ -236,6 +236,8 @@ class ConversationCanonicalState:
     # Unequivocal listing identity from inbound (id / url / media metadata).
     listing_reference: str | None = None
     last_inventory_match: dict[str, Any] | None = None
+    # Compare-and-set for CRM sync — stale revisions must not overwrite newer.
+    crm_revision: int = 0
 
 
 @dataclass(slots=True)

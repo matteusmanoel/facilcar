@@ -609,15 +609,8 @@ class Orchestrator:
                 },
             )
             return None
-        if bot_status in (
-            LifecycleStatus.HUMAN_ACTIVE.value,
-            LifecycleStatus.HANDOFF_SENT.value,
-        ):
-            skip_reason = (
-                "human_active"
-                if bot_status == LifecycleStatus.HUMAN_ACTIVE.value
-                else "handoff_sent"
-            )
+        if bot_status == LifecycleStatus.HUMAN_ACTIVE.value:
+            skip_reason = "human_active"
             await self.conversations.finalize_batch_messages(
                 batch.message_ids,
                 status=f"SKIPPED:{skip_reason.upper()}"[:64],
@@ -1019,15 +1012,8 @@ class Orchestrator:
             ):
                 state.customer.name = existing_name
 
-        if state.lifecycle.status in (
-            LifecycleStatus.HUMAN_ACTIVE,
-            LifecycleStatus.HANDOFF_SENT,
-        ):
-            skip_reason = (
-                "human_active"
-                if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
-                else "handoff_sent"
-            )
+        if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
+            skip_reason = "human_active"
             await self.conversations.finalize_batch_messages(
                 batch.message_ids,
                 status=f"SKIPPED:{skip_reason.upper()}"[:64],
@@ -1185,34 +1171,58 @@ class Orchestrator:
             await self.leads.sync_names_for_customer(
                 customer["id"], result.state.customer.name
             )
-        if result.action_plan.handoff or result.state.intent not in (
+        first_inbound = None
+        try:
+            first_inbound = await self.conversations.fetch_first_customer_text(conversation_id)
+        except Exception:
+            logger.exception("first inbound lookup failed conversation=%s", conversation_id)
+        if not first_inbound:
+            first_inbound = (inbound.effective_text or "").strip() or None
+
+        lead_id = result.state.active_lead_ids[0] if result.state.active_lead_ids else None
+        commercial = result.action_plan.handoff or result.state.intent not in (
             BusinessIntent.UNKNOWN,
             BusinessIntent.SMALLTALK,
-        ):
-            lead_id = result.state.active_lead_ids[0] if result.state.active_lead_ids else None
-            if lead_id is None:
-                display_name = result.state.customer.name
-                if is_placeholder_display_name(display_name):
-                    display_name = customer["name"]
-                lead = await self.leads.create_from_state(
-                    result.state,
-                    customer_id=customer["id"],
-                    conversation_id=conversation_id,
-                    name=display_name,
-                )
-                if lead is not None:
-                    lead_id = lead["id"]
-                    result.state.active_lead_ids = [lead_id]
-            if lead_id:
-                await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
-            if lead_id and result.action_plan.handoff:
-                try:
-                    await self.leads.mark_qualified_for_handoff(lead_id, result.state)
-                except Exception:
-                    logger.exception(
-                        "handoff persist failed lead=%s — still sending confirmation",
+        )
+        if lead_id is None and commercial:
+            display_name = result.state.customer.name
+            if is_placeholder_display_name(display_name):
+                display_name = customer["name"]
+            lead = await self.leads.create_from_state(
+                result.state,
+                customer_id=customer["id"],
+                conversation_id=conversation_id,
+                name=display_name,
+                first_inbound=first_inbound,
+            )
+            if lead is not None:
+                lead_id = lead["id"]
+                result.state.active_lead_ids = [lead_id]
+        if lead_id:
+            await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
+            result.state.crm_revision = int(getattr(result.state, "crm_revision", 0) or 0) + 1
+            try:
+                if result.action_plan.handoff:
+                    await self.leads.mark_qualified_for_handoff(
                         lead_id,
+                        result.state,
+                        first_inbound=first_inbound,
+                        conversation_id=conversation_id,
                     )
+                else:
+                    await self.leads.sync_from_state(
+                        lead_id,
+                        result.state,
+                        qualify=False,
+                        first_inbound=first_inbound,
+                        conversation_id=conversation_id,
+                    )
+            except Exception:
+                logger.exception(
+                    "CRM persist failed lead=%s handoff=%s",
+                    lead_id,
+                    bool(result.action_plan.handoff),
+                )
 
         # Persist pending_question before Evolution I/O so an overlapping inbound
         # (photos take seconds) does not re-ask the same field.

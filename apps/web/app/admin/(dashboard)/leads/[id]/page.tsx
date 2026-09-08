@@ -16,6 +16,9 @@ import { LeadDetailField as Field } from "./LeadDetailField";
 import { toDateInputValue } from "@/features/lead/lib/edit-values";
 import { leadVehicleLabel, selectExplicitPrimary } from "@/features/lead/lib/vehicle-label";
 import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
+import { originalCustomerMessage } from "@/features/lead/lib/original-message";
+import { ageFromBirthDate } from "@/features/lead/lib/age-from-birth";
+import { documentCrmView } from "@/features/lead/lib/document-crm";
 
 const SOURCE_LABELS: Record<string, string> = {
   HOME: "Página inicial",
@@ -101,6 +104,8 @@ export default async function AdminLeadDetailPage({
         },
         financingRequest: true,
         sellRequest: true,
+        visitInterests: { orderBy: { createdAt: "desc" }, take: 1 },
+        sdrDocuments: { orderBy: { createdAt: "asc" } },
         assignedToUser: { select: { id: true, name: true } },
       },
     }),
@@ -118,6 +123,24 @@ export default async function AdminLeadDetailPage({
   ]);
 
   if (!lead) notFound();
+
+  const firstInboundRow = lead.conversationId
+    ? await prisma.message.findFirst({
+        where: {
+          conversationId: lead.conversationId,
+          direction: "INBOUND",
+          fromMe: false,
+          isBotSent: false,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { text: true, transcription: true },
+      })
+    : null;
+  const originalMessage = originalCustomerMessage({
+    message: lead.message,
+    juliaSummary: lead.juliaSummary,
+    firstInbound: firstInboundRow?.text || firstInboundRow?.transcription,
+  });
 
   const phone = lead.phone.replace(/\D/g, "");
   const fr = lead.financingRequest;
@@ -234,6 +257,7 @@ export default async function AdminLeadDetailPage({
                 ? {
                     cpf: fr.cpf,
                     birthDate: toDateInputValue(fr.birthDate),
+                    age: ageFromBirthDate(fr.birthDate),
                   }
                 : null
             }
@@ -321,6 +345,9 @@ export default async function AdminLeadDetailPage({
               monthlyIncome={fr.monthlyIncome != null ? String(fr.monthlyIncome) : ""}
               downPayment={fr.downPayment != null ? String(fr.downPayment) : ""}
               desiredInstallments={fr.desiredInstallments != null ? String(fr.desiredInstallments) : ""}
+              desiredMonthlyPayment={
+                fr.desiredMonthlyPayment != null ? String(fr.desiredMonthlyPayment) : ""
+              }
               hasDriverLicense={fr.hasDriverLicense}
               occupation={fr.occupation}
               notes={fr.notes}
@@ -346,9 +373,55 @@ export default async function AdminLeadDetailPage({
             />
           ) : null}
 
-          {lead.message ? (
+          {lead.visitInterests[0] ? (
+            <Card title="Visita">
+              {(() => {
+                const visit = lead.visitInterests[0];
+                const when = [visit.preferredDate ? new Date(visit.preferredDate).toLocaleDateString("pt-BR") : visit.dateHint, visit.preferredTime || visit.period]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                    <Field label="Interesse">{visit.interest ? "Sim" : visit.declined ? "Recusou" : "—"}</Field>
+                    <Field label="Preferência">{when || visit.notes || "—"}</Field>
+                    <Field label="Agendamento formal">
+                      {visit.accepted ? "Aceitou horário oferecido" : "Preferência do cliente — não confirmado pelo vendedor"}
+                    </Field>
+                    <Field label="Localização enviada">{visit.locationSent ? "Sim" : "Não"}</Field>
+                    {visit.originalText ? (
+                      <Field label="Texto original">{visit.originalText}</Field>
+                    ) : null}
+                  </dl>
+                );
+              })()}
+            </Card>
+          ) : null}
+
+          {lead.sdrDocuments.length > 0 ? (
+            <Card title="Documentos">
+              <ul className="space-y-2">
+                {lead.sdrDocuments.map((doc) => {
+                  const view = documentCrmView({
+                    storageStatus: doc.storageStatus,
+                    storageKey: doc.storageKey,
+                    commerciallyReceived: true,
+                  });
+                  return (
+                    <li key={doc.id} className="text-sm text-foreground">
+                      <span className="font-medium">{doc.documentType}</span>
+                      {" · "}
+                      {view.label}
+                      {view.downloadable ? "" : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : null}
+
+          {originalMessage ? (
             <Card title="Mensagem original">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{lead.message}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{originalMessage}</p>
             </Card>
           ) : null}
 

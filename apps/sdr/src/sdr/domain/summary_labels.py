@@ -119,3 +119,16 @@ def docs_received_sentence(fields: list[str]) -> str | None:
         return f"{cap} já foi recebida."
     verb = "foi recebido" if len(keys) == 1 else "foram recebidos"
     return f"{cap} já {verb}."
+
+
+def docs_pending_sentence(fields: list[str]) -> str | None:
+    keys = [k for k in fields if k]
+    if not keys:
+        return None
+    phrases = [document_phrase(k) for k in keys]
+    cap = join_pt(phrases)
+    if not cap:
+        return None
+    cap = cap[0].upper() + cap[1:]
+    verb = "segue pendente" if len(keys) == 1 else "seguem pendentes"
+    return f"{cap} {verb}."

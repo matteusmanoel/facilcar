@@ -63,6 +63,7 @@ const STATE_NONE = "__none__";
 type FinancingIdentity = {
   cpf: string | null;
   birthDate: string;
+  age?: number | null;
 };
 
 type Props = {
@@ -307,6 +308,9 @@ export function LeadContactEditor({
                     ? new Date(`${financing.birthDate}T12:00:00`).toLocaleDateString("pt-BR")
                     : "—"}
                 </LeadDetailField>
+                {financing.age != null ? (
+                  <LeadDetailField label="Idade">{financing.age} anos</LeadDetailField>
+                ) : null}
               </>
             ) : null}
           </dl>

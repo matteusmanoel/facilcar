@@ -543,21 +543,70 @@ async def process_turn(
 
     reset_compose_meta()
 
-    # HANDOFF_SENT / HUMAN_ACTIVE: never reopen the roteiro or inventory.
-    # Late visit preference may still update canonical state for the vendor.
+    # HANDOFF_SENT / HUMAN_ACTIVE: never reopen the roteiro, inventory, or
+    # customer replies. Late commercial facts (visit, documents, primary,
+    # financing) still merge so the CRM can refresh without a second handoff.
     if is_ai_silenced(state):
+        if inbound.is_media_failed:
+            return ProcessTurnResult(
+                action_plan=ActionPlan(
+                    action=Action.NO_REPLY,
+                    reason_code="ai_silenced",
+                    reason="Thread already handed off or with human",
+                ),
+                state=state,
+                outbound_texts=[],
+                turn_facts=TurnFacts(),
+                tool_results=[],
+            )
+        facts = await understand(inbound.effective_text, state)
+        from sdr.domain.pending_question import overlay_consignment_acceptance, overlay_pending_question
+
+        facts = overlay_pending_question(facts, state, inbound.effective_text)
+        facts = overlay_consignment_acceptance(facts, state, inbound.effective_text)
+        doc_extracted = (
+            inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
+        )
+        if isinstance(doc_extracted, dict):
+            identity_patch: dict = {}
+            for key in ("cpf", "birth_date", "birth_city", "birth_state", "name"):
+                val = doc_extracted.get(key)
+                if val and key not in facts.facts:
+                    identity_patch[key] = val
+            if identity_patch:
+                facts.facts = {**facts.facts, **identity_patch}
+        merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
+        apply_commercial_document_receipt(merged, inbound)
+        from sdr.domain.vehicle_reference import apply_primary_from_inbound
+
+        listing_id = None
+        media_url = None
+        if inbound.raw_message_ref:
+            listing_id = inbound.raw_message_ref.get("listing_id") or inbound.raw_message_ref.get(
+                "listing_url"
+            )
+            media_url = inbound.raw_message_ref.get("media_url") or inbound.raw_message_ref.get("url")
+        apply_primary_from_inbound(
+            merged,
+            conversation_id=merged.thread_id,
+            quoted=inbound.quoted,
+            inbound_text=inbound.effective_text,
+            listing_id=str(listing_id) if listing_id else merged.listing_reference,
+            inbound_media_url=str(media_url) if media_url else None,
+            inbound_timestamp=inbound.timestamp,
+        )
         from sdr.domain.visit import apply_visit_from_inbound
 
-        apply_visit_from_inbound(state, inbound.effective_text)
+        apply_visit_from_inbound(merged, inbound.effective_text)
         return ProcessTurnResult(
             action_plan=ActionPlan(
                 action=Action.NO_REPLY,
                 reason_code="ai_silenced",
                 reason="Thread already handed off or with human",
             ),
-            state=state,
+            state=merged,
             outbound_texts=[],
-            turn_facts=TurnFacts(),
+            turn_facts=facts,
             tool_results=[],
         )
 

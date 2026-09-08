@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date
 from typing import Any
 
+from sdr.domain.age import compute_age
 from sdr.domain.authorized_facts import build_authorized_facts
 from sdr.domain.summary_labels import (
     as_int,
     docs_deferred_sentence,
+    docs_pending_sentence,
     docs_received_sentence,
     format_km,
     format_money,
@@ -25,6 +26,7 @@ from sdr.domain.summary_propositions import (
     build_propositions,
     validate_text_against_propositions,
 )
+from sdr.domain.age import compute_age
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_catalog import brands_compatible
 
@@ -57,26 +59,7 @@ def _forma_comercial(state: ConversationCanonicalState) -> str | None:
 
 
 def _compute_age(birth_date_str: str | None) -> int | None:
-    """Return age in years from a birth date string (DD/MM/AAAA or AAAA-MM-DD)."""
-    if not birth_date_str:
-        return None
-    try:
-        text = birth_date_str.strip()
-        # Try BR format: DD/MM/AAAA
-        m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
-        if m:
-            day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        else:
-            # Try ISO: AAAA-MM-DD
-            m2 = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", text)
-            if not m2:
-                return None
-            year, month, day = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
-        today = date.today()
-        age = today.year - year - ((today.month, today.day) < (month, day))
-        return age if 0 < age < 130 else None
-    except Exception:
-        return None
+    return compute_age(birth_date_str)
 
 
 ORIGIN_DETERMINISTIC = "deterministic"
@@ -250,6 +233,25 @@ def _own_vehicle_phrase(customer: dict[str, Any]) -> str:
     return label
 
 
+def _display_who(name: str | None, age: int | None) -> str:
+    if not name:
+        return "O cliente"
+    display = name
+    if display.isupper() and len(display) > 1:
+        display = display.title()
+    if age is not None:
+        first = display.split()[0]
+        return f"{first}, {age} anos,"
+    return display
+
+
+def _handoff_reason_clause(reason: str | None) -> str | None:
+    text = (reason or "").strip()
+    if not text or "_" in text:
+        return None
+    return text
+
+
 def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> str:
     """Production Portuguese narrative from authorized facts only."""
     from sdr.domain.vehicle_roles import format_vehicle_label
@@ -260,7 +262,7 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     auth = build_authorized_facts(state)
     facts = state.facts
     name = (auth.name or "").strip()
-    who = name if name else "O cliente"
+    who = _display_who(name, auth.age)
     intent = state.intent.value
     customer = dict(auth.customer_vehicle or {})
     desired = dict(auth.desired_vehicle or {})
@@ -272,7 +274,8 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
     sentences: list[str] = []
 
     if intent == "sale":
-        lead = f"{who} deseja vender seu {own}" if own else f"{who} deseja vender o veículo"
+        subject = who.rstrip(",")
+        lead = f"{subject} deseja vender seu {own}" if own else f"{subject} deseja vender o veículo"
         bits: list[str] = []
         if auth.financing_status == "paid_off":
             bits.append("quitado")
@@ -291,7 +294,8 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
                 f"A expectativa informada é receber aproximadamente {expect} pelo veículo."
             )
     elif intent == "consignment":
-        lead = f"{who} deseja deixar em consignação seu {own}" if own else f"{who} deseja consignar o veículo"
+        subject = who.rstrip(",")
+        lead = f"{subject} deseja deixar em consignação seu {own}" if own else f"{subject} deseja consignar o veículo"
         if auth.financing_status == "paid_off":
             lead += ", quitado"
         sentences.append(lead + ".")
@@ -301,10 +305,11 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
         if auth.leave_at_store is True or str(auth.leave_at_store).strip().lower() in {"true", "1", "sim"}:
             sentences.append("O cliente aceita deixar o veículo na loja para consignação.")
     elif intent == "refinancing":
+        subject = who.rstrip(",")
         lead = (
-            f"{who} busca refinanciamento de seu {own}"
+            f"{subject} busca refinanciamento de seu {own}"
             if own
-            else f"{who} busca refinanciamento"
+            else f"{subject} busca refinanciamento"
         )
         needed = format_money(auth.amount_needed)
         if needed:
@@ -359,9 +364,12 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             sentences.append(pay_clause[0].upper() + pay_clause[1:] + ".")
     elif intent in {"purchase", "purchase_financing"}:
         verb = "pretende comprar via financiamento" if intent == "purchase_financing" else "pretende comprar"
-        lead = f"{who} {verb}"
-        if wanted:
-            lead += f" um {wanted}"
+        if intent == "purchase_financing" and wanted and state.primary_vehicle_id:
+            lead = f"{who} demonstrou interesse principal na {wanted}"
+        else:
+            lead = f"{who} {verb}"
+            if wanted:
+                lead += f" um {wanted}"
         if intent == "purchase" and str(auth.payment_method or "").lower() == "cash":
             lead += " à vista"
         sentences.append(lead + ".")
@@ -397,8 +405,10 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             f
             for f in (auth.missing_fields or [])
             if f in {"cnh", "proof_of_residence", "proof_of_income", "documents"}
+            and f not in received
+            and f not in deferred
         ]
-        if received and not deferred:
+        if received:
             received_sent = docs_received_sentence(received)
             if received_sent:
                 sentences.append(received_sent)
@@ -406,14 +416,17 @@ def _build_vendor_summary_deterministic(state: ConversationCanonicalState) -> st
             deferred_sent = docs_deferred_sentence(deferred)
             if deferred_sent:
                 sentences.append(deferred_sent)
-        elif missing_docs and not received:
-            sentences.append("Os documentos da simulação ainda precisam ser fornecidos.")
+        elif missing_docs:
+            pending_sent = docs_pending_sentence(missing_docs)
+            if pending_sent:
+                sentences.append(pending_sent)
 
     if auth.visit_preferred_time:
-        sentences.append(
-            f"A preferência de visita foi registrada para {auth.visit_preferred_time}, "
-            "pendente de confirmação do vendedor."
-        )
+        sentences.append(f"Pretende visitar a loja na {auth.visit_preferred_time}.")
+
+    reason = _handoff_reason_clause(auth.handoff_reason)
+    if reason:
+        sentences.append(reason if reason.endswith(".") else reason + ".")
 
     return " ".join(s for s in sentences if s)
 
@@ -470,8 +483,8 @@ def _build_vendor_summary_llm(authorized: dict[str, Any]) -> str:
         "Se leave_at_store for true em consignação, diga que aceita deixar o veículo na loja para consignação — não reduza a 'avaliação'.\n"
         "Não escreva flags internas: perfil completo, atendimento pronto, handoff_ready, perfil precisa ser complementado.\n"
         "Se debt_status não for clear, não diga sem dívidas/sem débitos.\n"
-        "Se visit_pending_vendor_confirm, diga preferência registrada pendente de confirmação do vendedor — "
-        "nunca que a visita está marcada, agendada, confirmada ou garantida.\n"
+        "Se houver preferência de visita, diga que o cliente pretende visitar na data/hora informada — "
+        "nunca que a visita está marcada, agendada, confirmada ou garantida pelo vendedor.\n"
         "Se payment_applies_to=difference e method=cash, diga exatamente: pretende pagar a diferença à vista.\n"
         "Se payment_applies_to=difference e method=financing, diga exatamente: pretende financiar a diferença "
         "e inclua a parcela desejada se desired_installment existir.\n"

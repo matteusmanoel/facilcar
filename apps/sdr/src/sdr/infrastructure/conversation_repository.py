@@ -100,6 +100,7 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "deferred_fields": list(state.deferred_fields),
         "offered_visit_slots": list(state.offered_visit_slots),
         "listing_reference": state.listing_reference,
+        "crm_revision": int(getattr(state, "crm_revision", 0) or 0),
         "handoff_ready": state.handoff_ready,
         "profile_complete": state.profile_complete,
         "missing_fields": list(state.missing_fields),
@@ -241,6 +242,7 @@ def canonical_state_from_json(
         deferred_fields=list(data.get("deferred_fields") or []),
         offered_visit_slots=list(data.get("offered_visit_slots") or []),
         listing_reference=data.get("listing_reference") or None,
+        crm_revision=int(data.get("crm_revision") or 0),
         handoff_ready=bool(data.get("handoff_ready") or False),
         profile_complete=bool(data.get("profile_complete") or False),
         missing_fields=list(data.get("missing_fields") or []),
@@ -822,6 +824,25 @@ class ConversationRepository:
                 role = "customer"
             turns.append({"role": role, "text": text})
         return turns
+
+    async def fetch_first_customer_text(self, conversation_id: str) -> str | None:
+        """First real customer inbound — never a bot/outbound bubble."""
+        sql = f'''
+            SELECT COALESCE(NULLIF(btrim(m."text"), ''), NULLIF(btrim(m."transcription"), '')) AS body
+            FROM "{SCHEMA}"."Message" m
+            WHERE m."conversationId" = $1
+              AND m."direction" = 'INBOUND'
+              AND m."fromMe" = false
+              AND COALESCE(m."isBotSent", false) = false
+            ORDER BY m."createdAt" ASC, m."id" ASC
+            LIMIT 1
+        '''
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(sql, conversation_id)
+        if row is None:
+            return None
+        body = str(row["body"] or "").strip()
+        return body or None
 
     async def insert_bot_outbound(
         self,
