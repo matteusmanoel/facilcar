@@ -1,8 +1,11 @@
-"""Handoff rules — irreversible silence after confirmation.
+"""Handoff rules — commercial event, not automation shutdown.
 
 LLM may extract handoff-related signals. Deterministic code owns the final
 decision. ``high_purchase_intent`` must already be gated by the extractor
 (``gate_handoff_signals``) before reaching this module.
+
+``HANDOFF_SENT`` means the vendor was notified and the AI stays active.
+Silence begins only on explicit ``HUMAN_ACTIVE`` (assume).
 
 Evidence classes
 ----------------
@@ -152,6 +155,7 @@ def should_handoff_now(state: ConversationCanonicalState) -> bool:
     if state.lifecycle.status in (
         LifecycleStatus.HANDOFF_SENT,
         LifecycleStatus.HUMAN_ACTIVE,
+        LifecycleStatus.AI_RESUMED,
     ):
         return False
     sig = state.signals
@@ -172,20 +176,21 @@ def should_handoff_now(state: ConversationCanonicalState) -> bool:
 
 
 def is_ai_silenced(state: ConversationCanonicalState) -> bool:
-    """HUMAN_ACTIVE and HANDOFF_SENT forbid further AI replies."""
-    return state.lifecycle.status in (
-        LifecycleStatus.HANDOFF_SENT,
-        LifecycleStatus.HUMAN_ACTIVE,
-    )
+    """Only HUMAN_ACTIVE forbids further AI replies."""
+    return state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
 
 
 def mark_handoff_sent(state: ConversationCanonicalState, reason: str | None = None) -> None:
-    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (exactly one auto message)."""
+    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (vendor notified, AI still active)."""
     if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
         return
     state.lifecycle.status = LifecycleStatus.HANDOFF_SENT
     if reason:
         state.lifecycle.handoff_reason = reason
+    if not state.handoff_at:
+        from sdr.domain.clock import now_brt
+
+        state.handoff_at = now_brt().isoformat()
 
 
 def mark_human_active(state: ConversationCanonicalState) -> None:

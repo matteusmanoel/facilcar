@@ -22,6 +22,11 @@ from sdr.domain.types import (
     LifecycleStatus,
 )
 from sdr.domain.budget_status import BudgetStatus, parse_budget_status
+from sdr.domain.ownership import (
+    StaleOwnershipRevision,
+    assume_human as apply_assume_human,
+    resume_ai as apply_resume_ai,
+)
 from sdr.domain.pending_interaction import (
     AlternativeScope,
     PendingInteraction,
@@ -39,6 +44,68 @@ def _new_id() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _ts_to_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def _iso_to_naive(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(text)
+    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _overlay(column: Any, json_value: Any) -> Any:
+    """Postgres columns win over canonicalStateJson when a column is present."""
+    return json_value if column is None else column
+
+
+def _row_get(row: Any, key: str) -> Any:
+    try:
+        keys = row.keys()
+        if key in keys:
+            return row[key]
+    except Exception:
+        pass
+    return None
+
+
+def _row_int(row: Any, key: str) -> int | None:
+    value = _row_get(row, key)
+    if value is None:
+        return None
+    return int(value)
+
+
+def state_from_conversation_row(row: Any) -> ConversationCanonicalState:
+    return canonical_state_from_json(
+        row["canonicalStateJson"],
+        thread_id=row["id"],
+        phone=row["phone"],
+        bot_status=row["botStatus"],
+        active_lead_ids=list(row["activeLeadIds"] or []),
+        ownership_revision=_row_int(row, "ownershipRevision"),
+        assumed_by_user_id=_row_get(row, "assumedByUserId"),
+        assumed_at=_row_get(row, "assumedAt"),
+        resumed_by_user_id=_row_get(row, "resumedByUserId"),
+        resumed_at=_row_get(row, "resumedAt"),
+        resume_reason=_row_get(row, "resumeReason"),
+        handoff_at=_row_get(row, "handoffAt"),
+    )
 
 
 def canonical_state_to_json(state: ConversationCanonicalState) -> str:
@@ -106,6 +173,13 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "last_inventory_match": state.last_inventory_match,
         "last_visual_resolution": getattr(state, "last_visual_resolution", None),
         "crm_revision": int(getattr(state, "crm_revision", 0) or 0),
+        "ownership_revision": int(getattr(state, "ownership_revision", 0) or 0),
+        "assumed_by_user_id": state.assumed_by_user_id,
+        "assumed_at": state.assumed_at,
+        "resumed_by_user_id": state.resumed_by_user_id,
+        "resumed_at": state.resumed_at,
+        "resume_reason": state.resume_reason,
+        "handoff_at": state.handoff_at,
         "handoff_ready": state.handoff_ready,
         "profile_complete": state.profile_complete,
         "missing_fields": list(state.missing_fields),
@@ -121,6 +195,13 @@ def canonical_state_from_json(
     phone: str,
     bot_status: str | None = None,
     active_lead_ids: list[str] | None = None,
+    ownership_revision: int | None = None,
+    assumed_by_user_id: str | None = None,
+    assumed_at: Any = None,
+    resumed_by_user_id: str | None = None,
+    resumed_at: Any = None,
+    resume_reason: str | None = None,
+    handoff_at: Any = None,
 ) -> ConversationCanonicalState:
     data: dict[str, Any]
     if raw is None:
@@ -138,7 +219,7 @@ def canonical_state_from_json(
     lifecycle_raw = data.get("lifecycle") or {}
     signals_raw = data.get("signals") or {}
 
-    status_value = lifecycle_raw.get("status") or bot_status or LifecycleStatus.BOT_ACTIVE.value
+    status_value = _overlay(bot_status, lifecycle_raw.get("status")) or LifecycleStatus.BOT_ACTIVE.value
     try:
         status = LifecycleStatus(status_value)
     except ValueError:
@@ -261,6 +342,15 @@ def canonical_state_from_json(
             else None
         ),
         crm_revision=int(data.get("crm_revision") or 0),
+        ownership_revision=int(
+            _overlay(ownership_revision, data.get("ownership_revision")) or 0
+        ),
+        assumed_by_user_id=_overlay(assumed_by_user_id, data.get("assumed_by_user_id")),
+        assumed_at=_ts_to_iso(_overlay(assumed_at, data.get("assumed_at"))),
+        resumed_by_user_id=_overlay(resumed_by_user_id, data.get("resumed_by_user_id")),
+        resumed_at=_ts_to_iso(_overlay(resumed_at, data.get("resumed_at"))),
+        resume_reason=_overlay(resume_reason, data.get("resume_reason")),
+        handoff_at=_ts_to_iso(_overlay(handoff_at, data.get("handoff_at"))),
         handoff_ready=bool(data.get("handoff_ready") or False),
         profile_complete=bool(data.get("profile_complete") or False),
         missing_fields=list(data.get("missing_fields") or []),
@@ -326,10 +416,16 @@ class ConversationRepository:
                 "language" = $4,
                 "activeLeadIds" = $5,
                 "handoffAt" = CASE
-                    WHEN $3::text IN ('HANDOFF_SENT', 'HUMAN_ACTIVE')
+                    WHEN $3::text IN ('HANDOFF_SENT', 'HUMAN_ACTIVE', 'AI_RESUMED')
                          AND "handoffAt" IS NULL THEN $6
                     ELSE "handoffAt"
                 END,
+                "ownershipRevision" = $7,
+                "assumedByUserId" = $8,
+                "assumedAt" = $9,
+                "resumedByUserId" = $10,
+                "resumedAt" = $11,
+                "resumeReason" = $12,
                 "updatedAt" = $6
             WHERE "id" = $1
         '''
@@ -342,6 +438,12 @@ class ConversationRepository:
                 state.language if state.language != "unknown" else None,
                 state.active_lead_ids,
                 now,
+                int(state.ownership_revision or 0),
+                state.assumed_by_user_id,
+                _iso_to_naive(state.assumed_at),
+                state.resumed_by_user_id,
+                _iso_to_naive(state.resumed_at),
+                state.resume_reason,
             )
 
     async def load_canonical_state(
@@ -350,13 +452,99 @@ class ConversationRepository:
         row = await self.get_by_id(conversation_id)
         if row is None:
             return None
-        return canonical_state_from_json(
-            row["canonicalStateJson"],
-            thread_id=row["id"],
-            phone=row["phone"],
-            bot_status=row["botStatus"],
-            active_lead_ids=list(row["activeLeadIds"] or []),
+        return state_from_conversation_row(row)
+
+    async def assume_human(
+        self,
+        conversation_id: str,
+        *,
+        actor_user_id: str,
+        expected_revision: int,
+    ) -> ConversationCanonicalState:
+        """CAS assume: HUMAN_ACTIVE. Never mutates Lead.status."""
+        state = await self.load_canonical_state(conversation_id)
+        if state is None:
+            raise StaleOwnershipRevision(f"conversation {conversation_id} not found")
+        next_state = apply_assume_human(
+            state, actor_user_id=actor_user_id, expected_revision=expected_revision
         )
+        if next_state.ownership_revision == expected_revision:
+            return next_state
+        sql = f'''
+            UPDATE "{SCHEMA}"."Conversation"
+            SET "canonicalStateJson" = $2::jsonb,
+                "botStatus" = 'HUMAN_ACTIVE'::"{SCHEMA}"."ConversationBotStatus",
+                "ownershipRevision" = "ownershipRevision" + 1,
+                "assumedByUserId" = $3,
+                "assumedAt" = $4,
+                "updatedAt" = $4
+            WHERE "id" = $1 AND "ownershipRevision" = $5
+            RETURNING *
+        '''
+        now = _iso_to_naive(next_state.assumed_at) or _now()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                sql,
+                conversation_id,
+                canonical_state_to_json(next_state),
+                actor_user_id,
+                now,
+                expected_revision,
+            )
+        if row is None:
+            raise StaleOwnershipRevision(
+                f"stale ownershipRevision={expected_revision} for {conversation_id}"
+            )
+        return state_from_conversation_row(row)
+
+    async def resume_ai(
+        self,
+        conversation_id: str,
+        *,
+        actor_user_id: str,
+        reason: str,
+        expected_revision: int,
+    ) -> ConversationCanonicalState:
+        """CAS resume: AI_RESUMED. Never mutates Lead.status or re-sends handoff."""
+        state = await self.load_canonical_state(conversation_id)
+        if state is None:
+            raise StaleOwnershipRevision(f"conversation {conversation_id} not found")
+        next_state = apply_resume_ai(
+            state,
+            actor_user_id=actor_user_id,
+            reason=reason,
+            expected_revision=expected_revision,
+        )
+        if next_state.ownership_revision == expected_revision:
+            return next_state
+        sql = f'''
+            UPDATE "{SCHEMA}"."Conversation"
+            SET "canonicalStateJson" = $2::jsonb,
+                "botStatus" = 'AI_RESUMED'::"{SCHEMA}"."ConversationBotStatus",
+                "ownershipRevision" = "ownershipRevision" + 1,
+                "resumedByUserId" = $3,
+                "resumedAt" = $4,
+                "resumeReason" = $5,
+                "updatedAt" = $4
+            WHERE "id" = $1 AND "ownershipRevision" = $6
+            RETURNING *
+        '''
+        now = _iso_to_naive(next_state.resumed_at) or _now()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                sql,
+                conversation_id,
+                canonical_state_to_json(next_state),
+                actor_user_id,
+                now,
+                reason,
+                expected_revision,
+            )
+        if row is None:
+            raise StaleOwnershipRevision(
+                f"stale ownershipRevision={expected_revision} for {conversation_id}"
+            )
+        return state_from_conversation_row(row)
 
     async def reset_conversation_memory(
         self,
@@ -382,6 +570,12 @@ class ConversationRepository:
                 "accumulatedSummary" = NULL,
                 "activeLeadIds" = ARRAY[]::TEXT[],
                 "handoffAt" = NULL,
+                "ownershipRevision" = 0,
+                "assumedByUserId" = NULL,
+                "assumedAt" = NULL,
+                "resumedByUserId" = NULL,
+                "resumedAt" = NULL,
+                "resumeReason" = NULL,
                 "updatedAt" = $3
             WHERE "id" = $1
         '''

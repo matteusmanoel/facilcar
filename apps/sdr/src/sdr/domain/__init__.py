@@ -9,6 +9,15 @@ from sdr.domain.handoff import (
     mark_human_active,
 )
 from sdr.domain.merge import deterministic_merge
+from sdr.domain.ownership import (
+    OwnershipConflict,
+    StaleOwnershipRevision,
+    assume_human,
+    automation_enabled,
+    handoff_sent,
+    human_active,
+    resume_ai,
+)
 from sdr.domain.phone import normalize_phone, phone_from_jid
 from sdr.domain.qualifications import is_seller_actionable, next_ask_field
 from sdr.domain.types import (
@@ -31,10 +40,16 @@ __all__ = [
     "HandoffSignals",
     "LeadTemperature",
     "LifecycleStatus",
+    "OwnershipConflict",
+    "StaleOwnershipRevision",
     "TurnFacts",
+    "assume_human",
+    "automation_enabled",
     "confirmation_message",
     "decide",
     "deterministic_merge",
+    "handoff_sent",
+    "human_active",
     "is_ai_silenced",
     "is_seller_actionable",
     "mark_handoff_sent",
@@ -42,4 +57,5 @@ __all__ = [
     "next_ask_field",
     "normalize_phone",
     "phone_from_jid",
+    "resume_ai",
 ]

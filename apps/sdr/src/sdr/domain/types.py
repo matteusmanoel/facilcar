@@ -62,8 +62,10 @@ class LifecycleStatus(str, Enum):
     BOT_ACTIVE = "BOT_ACTIVE"
     QUALIFYING = "QUALIFYING"
     READY_FOR_HANDOFF = "READY_FOR_HANDOFF"
+    # Vendor notified; AI remains active (HANDOFF_SENT_AI_ACTIVE).
     HANDOFF_SENT = "HANDOFF_SENT"
     HUMAN_ACTIVE = "HUMAN_ACTIVE"
+    AI_RESUMED = "AI_RESUMED"
     HUMAN_CLOSED = "HUMAN_CLOSED"
 
 
@@ -252,6 +254,14 @@ class ConversationCanonicalState:
     last_visual_resolution: dict[str, Any] | None = None
     # Compare-and-set for CRM sync — stale revisions must not overwrite newer.
     crm_revision: int = 0
+    # Conversation ownership — Postgres columns win on load.
+    ownership_revision: int = 0
+    assumed_by_user_id: str | None = None
+    assumed_at: str | None = None
+    resumed_by_user_id: str | None = None
+    resumed_at: str | None = None
+    resume_reason: str | None = None
+    handoff_at: str | None = None
 
 
 @dataclass(slots=True)

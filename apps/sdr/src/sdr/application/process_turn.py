@@ -298,7 +298,7 @@ def _build_response_directive(
         "ask_budget",
         *forbidden,
     ]
-    if merged.lifecycle.status.value in ("HANDOFF_SENT", "HUMAN_ACTIVE"):
+    if merged.lifecycle.status.value == "HUMAN_ACTIVE":
         claims_forbidden.append("any_response")
     if merged.last_shown_vehicle_ids:
         claims_forbidden.append("reask_shown_vehicle")
@@ -648,77 +648,19 @@ async def process_turn(
 
     reset_compose_meta()
 
-    # HANDOFF_SENT / HUMAN_ACTIVE: never reopen the roteiro, inventory, or
-    # customer replies. Late commercial facts (visit, documents, primary,
-    # financing) still merge so the CRM can refresh without a second handoff.
+    # HUMAN_ACTIVE: persist inbound is the orchestrator's job. Do not understand,
+    # compose, or run tools. HANDOFF_SENT falls through — vendor is notified
+    # but AI stays active (qualify / answer / ack, no second HANDOFF_VENDOR).
     if is_ai_silenced(state):
-        if inbound.is_media_failed:
-            return ProcessTurnResult(
-                action_plan=ActionPlan(
-                    action=Action.NO_REPLY,
-                    reason_code="ai_silenced",
-                    reason="Thread already handed off or with human",
-                ),
-                state=state,
-                outbound_texts=[],
-                turn_facts=TurnFacts(),
-                tool_results=[],
-            )
-        facts = await understand(inbound.effective_text, state)
-        from sdr.domain.pending_question import overlay_consignment_acceptance, overlay_pending_question
-
-        facts = overlay_pending_question(facts, state, inbound.effective_text)
-        facts = overlay_consignment_acceptance(facts, state, inbound.effective_text)
-        from sdr.application.inbound_document import identity_fields_from_inbound
-
-        identity_patch = {
-            key: value
-            for key, value in identity_fields_from_inbound(inbound).items()
-            if key not in facts.facts
-        }
-        if identity_patch:
-            facts.facts = {**facts.facts, **identity_patch}
-        merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
-        apply_commercial_document_receipt(merged, inbound)
-        from sdr.domain.vehicle_reference import apply_primary_from_inbound
-
-        listing_id = None
-        media_url = None
-        if inbound.raw_message_ref:
-            listing_id = inbound.raw_message_ref.get("listing_id") or inbound.raw_message_ref.get(
-                "listing_url"
-            )
-            media_url = inbound.raw_message_ref.get("media_url") or inbound.raw_message_ref.get("url")
-        apply_primary_from_inbound(
-            merged,
-            conversation_id=merged.thread_id,
-            quoted=inbound.quoted,
-            inbound_text=inbound.effective_text,
-            listing_id=str(listing_id) if listing_id else merged.listing_reference,
-            inbound_media_url=str(media_url) if media_url else None,
-            inbound_timestamp=inbound.timestamp,
-        )
-        from sdr.application.visual_inbound import enrich_state_with_visual, quoted_resolution_from_inbound
-
-        await enrich_state_with_visual(
-            merged,
-            inbound,
-            image_bytes=image_bytes,
-            pool=pool,
-            quoted_resolution=quoted_resolution_from_inbound(merged, inbound),
-        )
-        from sdr.domain.visit import apply_visit_from_inbound
-
-        apply_visit_from_inbound(merged, inbound.effective_text)
         return ProcessTurnResult(
             action_plan=ActionPlan(
                 action=Action.NO_REPLY,
                 reason_code="ai_silenced",
-                reason="Thread already handed off or with human",
+                reason="Thread already with human",
             ),
-            state=merged,
+            state=state,
             outbound_texts=[],
-            turn_facts=facts,
+            turn_facts=TurnFacts(),
             tool_results=[],
         )
 

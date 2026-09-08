@@ -1,7 +1,7 @@
 """Deterministic decision engine — ActionPlan from canonical state.
 
 Priority:
-1. HUMAN_ACTIVE / HANDOFF_SENT → NO_REPLY
+1. HUMAN_ACTIVE → NO_REPLY
 2. Pending OFFER_ALTERNATIVES unresolved → clarify (keep pending)
 3. Store location request → SEND_LOCATION (before visit/handoff)
 4. Document received this turn → ack (do not jump to visit)
@@ -27,6 +27,7 @@ from sdr.domain.handoff import (
     compute_temperature,
     should_handoff_now,
 )
+from sdr.domain.ownership import vendor_already_notified
 from sdr.domain.installment import installment_capacity, is_installment_tight
 from sdr.domain.inventory_search import (
     build_inventory_search_request,
@@ -204,12 +205,12 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
             reason="Answer the customer's unanswered commercial question before visit or handoff",
         ))
 
-    if status in (LifecycleStatus.HUMAN_ACTIVE, LifecycleStatus.HANDOFF_SENT):
+    if status == LifecycleStatus.HUMAN_ACTIVE:
         return _finish(ActionPlan(
             action=Action.NO_REPLY,
             handoff=False,
             reason_code="human_or_handoff_silence",
-            reason="Conversation already with human or handoff confirmation sent",
+            reason="Conversation already with human",
         ))
 
     if status == LifecycleStatus.HUMAN_CLOSED:
@@ -516,6 +517,13 @@ def decide(state: ConversationCanonicalState) -> ActionPlan:
                 tool_calls=[{"tool": "register_visit_interest"}],
                 reason_code="visit_invitation_pre_handoff",
                 reason="Invite customer to visit store before handoff",
+            ))
+        if vendor_already_notified(state):
+            return _finish(ActionPlan(
+                action=Action.SMALLTALK,
+                handoff=False,
+                reason_code="post_handoff_continue",
+                reason="Vendor already notified; continue without a second handoff",
             ))
         reason = "triage_actionable" if is_seller_actionable(state) else "handoff_ready"
         state.lifecycle.status = LifecycleStatus.READY_FOR_HANDOFF

@@ -310,12 +310,14 @@ async def test_k_idempotent_reprocess_after_handoff() -> None:
         understand=_understand("x", visit_intent=True),
         pool=None,
     )
-    assert second.action_plan.action == Action.NO_REPLY
-    assert second.outbound_texts == []
-    assert second.tool_results == []
+    assert second.action_plan.action != Action.HANDOFF_VENDOR
+    assert second.action_plan.handoff is not True
+    assert second.action_plan.reason_code != "ai_silenced"
+    assert not any(r.get("tool") == "send_location" for r in second.tool_results)
     assert first.state.visit_date == second.state.visit_date == "2026-09-08"
     assert len(first_locations) <= 1
     assert first.state.lifecycle.status == LifecycleStatus.HANDOFF_SENT
+    assert second.state.lifecycle.status == LifecycleStatus.HANDOFF_SENT
 
 
 @pytest.mark.asyncio
@@ -334,8 +336,9 @@ async def test_l_post_handoff_time_updates_without_second_handoff() -> None:
         understand=_understand("x", visit_intent=True),
         pool=None,
     )
-    assert second.action_plan.action == Action.NO_REPLY
-    assert second.outbound_texts == []
+    assert second.action_plan.action != Action.HANDOFF_VENDOR
+    assert second.action_plan.handoff is not True
+    assert second.action_plan.reason_code != "ai_silenced"
     assert second.state.visit_date == "2026-09-08"
     assert second.state.visit_time == "09:30"
     assert second.state.lifecycle.status == LifecycleStatus.HANDOFF_SENT

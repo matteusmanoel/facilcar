@@ -659,6 +659,7 @@ enum ConversationBotStatus {
   READY_FOR_HANDOFF
   HANDOFF_SENT
   HUMAN_ACTIVE
+  AI_RESUMED
   HUMAN_CLOSED
 
   @@schema("facilcar")
@@ -744,6 +745,12 @@ model Conversation {
   lastMessageAt       DateTime?
   activeLeadIds       String[]              @default([])
   handoffAt           DateTime?
+  ownershipRevision   Int                   @default(0)
+  assumedByUserId     String?
+  assumedAt           DateTime?
+  resumedByUserId     String?
+  resumedAt           DateTime?
+  resumeReason        String?
   canonicalStateJson  Json?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -754,6 +761,7 @@ model Conversation {
 
   @@unique([instanceName, phone])
   @@index([phone])
+  @@index([assumedByUserId])
   @@schema("facilcar")
 }
 

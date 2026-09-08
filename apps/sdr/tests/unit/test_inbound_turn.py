@@ -261,10 +261,10 @@ async def test_process_turn_media_failed_production_is_silent(
 
 
 @pytest.mark.asyncio
-async def test_handoff_sent_is_silent_even_for_media_failed(
+async def test_human_active_is_silent_even_for_media_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """After handoff, even sandbox media failures must not produce a customer reply."""
+    """While a human owns the thread, even sandbox media failures must not reply."""
     from sdr.application.process_turn import process_turn
     from sdr.config import get_settings
     from sdr.domain.types import (
@@ -280,7 +280,7 @@ async def test_handoff_sent_is_silent_even_for_media_failed(
         state = ConversationCanonicalState(
             thread_id="t1",
             customer=CustomerState(phone="5511999999999"),
-            lifecycle=LifecycleState(status=LifecycleStatus.HANDOFF_SENT),
+            lifecycle=LifecycleState(status=LifecycleStatus.HUMAN_ACTIVE),
         )
         inbound = make_media_failed_inbound(
             "t1",
@@ -289,7 +289,7 @@ async def test_handoff_sent_is_silent_even_for_media_failed(
         )
 
         async def understand(text, s):
-            raise AssertionError("understand must not run after handoff")
+            raise AssertionError("understand must not run while HUMAN_ACTIVE")
 
         result = await process_turn(state=state, inbound=inbound, understand=understand)
         assert result.action_plan.action.value == "no_reply"

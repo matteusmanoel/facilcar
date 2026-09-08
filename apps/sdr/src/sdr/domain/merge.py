@@ -276,6 +276,7 @@ def _bump_lifecycle(state: ConversationCanonicalState) -> None:
         LifecycleStatus.HUMAN_ACTIVE,
         LifecycleStatus.HUMAN_CLOSED,
         LifecycleStatus.READY_FOR_HANDOFF,
+        LifecycleStatus.AI_RESUMED,
     ):
         return
 

@@ -45,16 +45,17 @@ def test_human_active_irreversible_no_reply() -> None:
     assert plan.action == Action.NO_REPLY
 
 
-def test_mark_handoff_sent_silences() -> None:
+def test_mark_handoff_sent_keeps_ai_active() -> None:
     state = _state(
         lifecycle=LifecycleState(status=LifecycleStatus.READY_FOR_HANDOFF),
         intent=BusinessIntent.SALE,
     )
     mark_handoff_sent(state, "triage_actionable")
     assert state.lifecycle.status == LifecycleStatus.HANDOFF_SENT
-    assert is_ai_silenced(state) is True
+    assert is_ai_silenced(state) is False
     plan = decide(state)
-    assert plan.action == Action.NO_REPLY
+    assert plan.action != Action.NO_REPLY
+    assert plan.action != Action.HANDOFF_VENDOR
 
 
 def test_mark_human_active_overrides() -> None:

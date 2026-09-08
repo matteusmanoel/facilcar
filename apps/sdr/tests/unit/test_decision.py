@@ -401,13 +401,14 @@ def test_human_active_no_reply() -> None:
     assert plan.action == Action.NO_REPLY
 
 
-def test_handoff_sent_no_reply() -> None:
+def test_handoff_sent_is_not_no_reply() -> None:
     state = _state(
         lifecycle=LifecycleState(status=LifecycleStatus.HANDOFF_SENT),
         intent=BusinessIntent.PURCHASE,
     )
     plan = decide(state)
-    assert plan.action == Action.NO_REPLY
+    assert plan.action != Action.NO_REPLY
+    assert plan.action != Action.HANDOFF_VENDOR
 
 
 def test_merge_then_decide_high_purchase() -> None:

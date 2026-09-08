@@ -626,8 +626,11 @@ async def test_o_post_handoff_does_not_reintroduce() -> None:
         inbound_text="Mudei de ideia, parcela de 1500",
         understand=understand,
     )
-    assert result.outbound_texts == []
-    assert result.action_plan.action == Action.NO_REPLY
+    assert result.action_plan.action != Action.HANDOFF_VENDOR
+    assert result.action_plan.action != Action.NO_REPLY
+    joined = _joined(result.outbound_texts)
+    assert "olá" not in joined
+    assert "sou a júlia" not in joined
 
 
 @pytest.mark.asyncio

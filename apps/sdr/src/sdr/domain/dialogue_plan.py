@@ -823,6 +823,7 @@ def build_dialogue_plan(
     skip_reintro = (not should_introduce) or assistant_turn_count > 0 or lifecycle in (
         "HANDOFF_SENT",
         "HUMAN_ACTIVE",
+        "AI_RESUMED",
     )
 
     use_name = bool(

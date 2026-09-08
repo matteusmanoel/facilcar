@@ -61,7 +61,7 @@ from sdr.domain.types import (
 )
 from sdr.infrastructure.conversation_repository import (
     ConversationRepository,
-    canonical_state_from_json,
+    state_from_conversation_row,
 )
 from sdr.infrastructure.customer_repository import CustomerRepository
 from sdr.infrastructure.document_repository import DocumentRepository
@@ -976,13 +976,7 @@ class Orchestrator:
             )
             raise RuntimeError(f"conversation {conversation_id} missing")
 
-        state = canonical_state_from_json(
-            conv["canonicalStateJson"],
-            thread_id=conv["id"],
-            phone=phone,
-            bot_status=conv["botStatus"],
-            active_lead_ids=list(conv["activeLeadIds"] or []),
-        )
+        state = state_from_conversation_row(conv)
         if not state.customer.phone:
             state.customer = CustomerState(phone=phone, name=state.customer.name)
 
