@@ -245,6 +245,13 @@ async def test_b5_process_turn_does_not_invite_visit_while_question_open() -> No
     [
         "Quero marcar uma visita, seria possível no sábado?",
         "Dá para ir aí na terça de manhã?",
+        "Pode ser sábado?",
+        "Sábado de manhã serve?",
+        "Que tal sábado?",
+        "Consigo ir amanhã?",
+        "Posso ir aí amanhã?",
+        "Vocês abrem no sábado?",
+        "Fica melhor na quinta?",
     ],
 )
 def test_visit_scheduling_question_does_not_block_visit_invite(inbound: str) -> None:

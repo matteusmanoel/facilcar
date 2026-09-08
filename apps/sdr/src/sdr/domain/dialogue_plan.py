@@ -143,7 +143,10 @@ _QUESTION_STEMS: tuple[tuple[DirectQuestionKind, re.Pattern[str]], ...] = (
     ),
     (
         DirectQuestionKind.SATURDAY_HOURS,
-        re.compile(r"abre\s+no\s+s[aá]bado|funcion\w+.{0,12}s[aá]bado|abre\s+s[aá]bado", re.I),
+        re.compile(
+            r"abrem?\s+(?:no\s+)?s[aá]bado|funcion\w+.{0,12}s[aá]bado|abre\s+s[aá]bado",
+            re.I,
+        ),
     ),
     (
         DirectQuestionKind.STORE_LOCATION,
@@ -341,8 +344,22 @@ def _is_scheduling_residue(text: str) -> bool:
     return not tokens
 
 
+def _has_catalog_tem_question(text: str) -> bool:
+    """Syntactic 'tem X?' that is not itself a visit/calendar ask."""
+    match = _CATALOG_TEM_QUESTION.search(text or "")
+    if not match:
+        return False
+    from sdr.domain.visit import is_visit_calendar_utterance
+
+    return not is_visit_calendar_utterance(match.group(1))
+
+
 _SUBJECT_AFTER_TEM = re.compile(
     r"\btem\s+(?:ele\s+)?(.+?)\s*\?\s*$",
+    re.I | re.S,
+)
+_CATALOG_TEM_QUESTION = re.compile(
+    r"\btem\s+(?:ele\s+)?(.+?)\s*\?",
     re.I | re.S,
 )
 
@@ -486,8 +503,15 @@ def classify_direct_questions(inbound_text: str) -> list[DirectQuestion]:
     for kind, pattern in _QUESTION_STEMS:
         if pattern.search(text):
             found.append(_question_for_kind(kind, text, subject=subject))
+    from sdr.domain.visit import is_visit_calendar_utterance
+
+    visit_calendar = is_visit_calendar_utterance(text)
+    if visit_calendar and not any(q.kind == DirectQuestionKind.VISIT_SCHEDULING for q in found):
+        found.append(_question_for_kind(DirectQuestionKind.VISIT_SCHEDULING, text, subject=subject))
     informational = [q for q in found if q.kind not in _ACTION_PATH_QUESTION_KINDS]
     if "?" in text and not informational:
+        if visit_calendar and not _has_catalog_tem_question(text):
+            return found
         remainder = _VISIT_SCHEDULING.sub(" ", text)
         remainder = _WELLBEING.sub(" ", remainder)
         for kind, pattern in _QUESTION_STEMS:

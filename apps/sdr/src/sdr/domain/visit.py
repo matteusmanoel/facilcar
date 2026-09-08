@@ -356,6 +356,20 @@ def has_visit_preference(state: Any) -> bool:
     return False
 
 
+def is_visit_calendar_utterance(text: str, *, now: datetime | None = None) -> bool:
+    """True when inbound is a visit/calendar request the visit path already owns."""
+    parsed = parse_visit_utterance(text, now=now)
+    if parsed.declined or parsed.courtesy:
+        return False
+    return bool(
+        parsed.interest
+        or parsed.accepted_offered
+        or parsed.date is not None
+        or parsed.time is not None
+        or parsed.period is not None
+    )
+
+
 def apply_visit_utterance(state: Any, parsed: VisitUtterance) -> None:
     """Merge a parsed utterance into canonical state. Idempotent for same values."""
     state.visit_courtesy = bool(parsed.courtesy)
