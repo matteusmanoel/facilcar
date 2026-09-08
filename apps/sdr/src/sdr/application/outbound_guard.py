@@ -6,16 +6,22 @@ JSON may mirror for dumps/observability; it must not authorize outbound.
 Already-confirmed outbound (Evolution send + insert_bot_outbound) stays
 valid; remaining unsent bubbles are discarded.
 
-Follow-up scheduler is Phase 11. ``cancel_pending_automation`` is the no-op
-seam to cancel pending automation after assume — do not create a scheduler here.
+Assume cancels pending FollowUpTask rows (HUMAN_ASSUMED). The repository is
+injectable; when a pool exists the Postgres adapter is used. Cancel never DELETE.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from sdr.domain.inbound_batch import BatchResult
 from sdr.domain.types import LifecycleStatus
+from sdr.infrastructure.followup_repository import CANCEL_REASON_HUMAN_ASSUMED
+
+CancelPendingFn = Callable[[str], Awaitable[None]]
+
+_cancel_pending: CancelPendingFn | None = None
+_followup_repository: Any = None
 
 SUPPRESSED_REASON_HUMAN_ACTIVE = "human_active"
 
@@ -70,12 +76,43 @@ async def human_assumed_live(
     return not column_authorizes_outbound(status), revision
 
 
-async def cancel_pending_automation(_conversation_id: str) -> None:
-    """Phase 11 hook: cancel a pending follow-up/automation job after assume.
+def set_cancel_pending_automation(fn: CancelPendingFn | None) -> None:
+    """Inject a cancel callback (tests / Frente C). ``None`` restores default."""
+    global _cancel_pending
+    _cancel_pending = fn
 
-    No scheduler exists in this phase — this is an explicit no-op contract.
-    """
-    return None
+
+def set_followup_repository(repo: Any | None) -> None:
+    """Inject the FollowUp store used by ``cancel_pending_automation``."""
+    global _followup_repository
+    _followup_repository = repo
+
+
+def _resolve_followup_repository() -> Any | None:
+    if _followup_repository is not None:
+        return _followup_repository
+    try:
+        from sdr.db import get_pool
+        from sdr.infrastructure.followup_repository import FollowUpRepository
+    except Exception:
+        return None
+    pool = get_pool()
+    if pool is None:
+        return None
+    return FollowUpRepository(pool)
+
+
+async def cancel_pending_automation(conversation_id: str) -> None:
+    """Cancel pending follow-up tasks after assume (HUMAN_ASSUMED). Never DELETE."""
+    if _cancel_pending is not None:
+        await _cancel_pending(conversation_id)
+        return None
+    repo = _resolve_followup_repository()
+    if repo is None:
+        return None
+    await repo.cancel_pending_for_conversation(
+        conversation_id, reason=CANCEL_REASON_HUMAN_ASSUMED
+    )
 
 
 def suppression_batch_result(

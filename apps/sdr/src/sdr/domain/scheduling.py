@@ -46,6 +46,36 @@ def _is_open(dt: datetime) -> bool:
     return open_h * 60 <= minutes < close_h * 60
 
 
+def is_within_store_hours(dt: datetime) -> bool:
+    """True when ``dt`` falls inside STORE_HOURS (America/Sao_Paulo wall clock)."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(TZ_BRT)
+    return _is_open(dt)
+
+
+def next_open_datetime(now: datetime) -> datetime:
+    """Earliest store-open instant at or after ``now`` (BRT wall clock)."""
+    cursor = now
+    if cursor.tzinfo is None:
+        cursor = cursor.replace(tzinfo=TZ_BRT)
+    else:
+        cursor = cursor.astimezone(TZ_BRT)
+    for _ in range(15):
+        hours = STORE_HOURS.get(cursor.weekday())
+        if hours is not None:
+            open_h, close_h = hours
+            open_at = cursor.replace(hour=open_h, minute=0, second=0, microsecond=0)
+            close_at = cursor.replace(hour=close_h, minute=0, second=0, microsecond=0)
+            if cursor < open_at:
+                return open_at
+            if cursor < close_at:
+                return cursor
+        cursor = (cursor + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    raise RuntimeError("no store window in 14 days")
+
+
 def _next_open_day(start: datetime) -> datetime | None:
     for offset in range(14):
         candidate = start + timedelta(days=offset)

@@ -7,6 +7,10 @@ from sdr.infrastructure.evolution_client import (
     EvolutionError,
     EvolutionUnauthorizedError,
 )
+from sdr.infrastructure.followup_repository import (
+    FollowUpRepository,
+    InMemoryFollowUpRepository,
+)
 from sdr.infrastructure.lead_repository import LeadRepository
 
 __all__ = [
@@ -15,5 +19,7 @@ __all__ = [
     "EvolutionClient",
     "EvolutionError",
     "EvolutionUnauthorizedError",
+    "FollowUpRepository",
+    "InMemoryFollowUpRepository",
     "LeadRepository",
 ]
