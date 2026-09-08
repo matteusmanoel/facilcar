@@ -1,5 +1,6 @@
 import type { CustomerSheetModel, PrintSiteContext } from "@/features/vehicle/lib/print-document";
 import { PrintDocumentHeader } from "./PrintDocumentHeader";
+import { PrintPhoto } from "./PrintPhoto";
 
 type Props = {
   site: PrintSiteContext;
@@ -15,25 +16,17 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
         @media print {
           .print-sheet { max-width: none; min-height: auto; padding: 0; }
         }
-        .print-sheet .print-photo {
-          display: block;
-          width: 100%;
-          height: auto;
-        }
       `}</style>
       <PrintDocumentHeader site={site} title="Ficha do veículo" />
 
       <div className="mt-4 grid grid-cols-[1.15fr_0.85fr] items-start gap-4">
-        <div className="min-w-0 overflow-hidden rounded-lg bg-zinc-100">
-          {sheet.coverUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={sheet.coverUrl} alt={sheet.title} className="print-photo" />
-          ) : (
-            <div className="flex aspect-[4/3] items-center justify-center text-sm text-zinc-400">
-              Sem foto
-            </div>
-          )}
-        </div>
+        {sheet.coverUrl ? (
+          <PrintPhoto src={sheet.coverUrl} alt={sheet.title} variant="cover" />
+        ) : (
+          <div className="flex aspect-[4/3] items-center justify-center rounded-lg bg-zinc-100 text-sm text-zinc-400">
+            Sem foto
+          </div>
+        )}
         <div className="flex min-w-0 flex-col">
           <h2 className="text-xl font-extrabold uppercase leading-tight text-zinc-900">
             {sheet.title}
@@ -77,10 +70,7 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
       {sheet.thumbUrls.length > 0 ? (
         <div className="mt-3 grid grid-cols-4 items-start gap-2">
           {sheet.thumbUrls.map((url) => (
-            <div key={url} className="min-w-0 overflow-hidden rounded-md bg-zinc-100">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="" className="print-photo" />
-            </div>
+            <PrintPhoto key={url} src={url} variant="thumb" />
           ))}
         </div>
       ) : null}

@@ -280,6 +280,26 @@ body {
   display: block;
 }
 
+/* Photo follows intrinsic aspect ratio: never crop, never letterbox inside a fixed box.
+   max-height only scales the whole image down if it would overflow the A4 sheet. */
+.print-root .print-photo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.print-root .print-photo--cover {
+  max-height: 120mm;
+  border-radius: 0.5rem;
+}
+
+.print-root .print-photo--thumb {
+  max-height: 48mm;
+  border-radius: 0.375rem;
+}
+
 @media print {
   .print-root {
     background: #fff !important;
