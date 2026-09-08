@@ -262,6 +262,8 @@ class ConversationCanonicalState:
     resumed_at: str | None = None
     resume_reason: str | None = None
     handoff_at: str | None = None
+    # Dispatch evidence — set only after HANDOFF_VENDOR persist is confirmed.
+    vendor_notified_at: str | None = None
 
 
 @dataclass(slots=True)

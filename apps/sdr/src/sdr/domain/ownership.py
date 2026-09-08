@@ -33,7 +33,10 @@ def _stamp() -> str:
 
 
 def handoff_sent(state: ConversationCanonicalState, *, handoff_at: str | None = None) -> bool:
-    """Vendor has been notified (status or persisted handoffAt)."""
+    """Lifecycle already left BOT_ACTIVE via handoff/assume/resume.
+
+    This is not vendor-dispatch evidence. Use ``vendor_already_notified``.
+    """
     if state.lifecycle.status in _HANDOFF_SENT_STATUSES:
         return True
     return bool(handoff_at or state.handoff_at)
@@ -47,12 +50,32 @@ def human_active(state: ConversationCanonicalState) -> bool:
     return state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
 
 
+def vendor_notify_idempotency_key(state: ConversationCanonicalState) -> str:
+    """Stable key for one vendor-notify event per thread."""
+    return f"handoff:{state.thread_id}"
+
+
+def confirm_vendor_dispatch(
+    state: ConversationCanonicalState,
+    *,
+    notified_at: str | None = None,
+) -> bool:
+    """Record dispatch evidence once. Returns True if this call stamped it.
+
+    Lead.status, botStatus, and handoffAt must not impersonate confirmation.
+    """
+    if state.vendor_notified_at:
+        return False
+    state.vendor_notified_at = notified_at or _stamp()
+    return True
+
+
 def vendor_already_notified(state: ConversationCanonicalState) -> bool:
-    """True after the handoff event — do not send HANDOFF_VENDOR again."""
-    return state.lifecycle.status in (
-        LifecycleStatus.HANDOFF_SENT,
-        LifecycleStatus.AI_RESUMED,
-    )
+    """True only after HANDOFF_VENDOR dispatch was confirmed.
+
+    Mutable commercial status (QUALIFIED, HANDOFF_SENT, AI_RESUMED) is not evidence.
+    """
+    return bool(state.vendor_notified_at)
 
 
 def assume_human(

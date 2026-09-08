@@ -1354,6 +1354,9 @@ class Orchestrator:
                         first_inbound=first_inbound,
                         conversation_id=conversation_id,
                     )
+                    from sdr.domain.ownership import confirm_vendor_dispatch
+
+                    confirm_vendor_dispatch(result.state)
                 else:
                     await self.leads.sync_from_state(
                         lead_id,

@@ -6,6 +6,7 @@ Does not write to production. Persist then reread to verify the handoff record.
 from __future__ import annotations
 
 import copy
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +15,10 @@ from sdr.domain.commercial_snapshot import (
     INTENT_TO_LEAD_TYPE,
     build_commercial_snapshot,
     original_message_from,
+)
+from sdr.domain.ownership import (
+    confirm_vendor_dispatch,
+    vendor_notify_idempotency_key,
 )
 from sdr.domain.types import ConversationCanonicalState
 from sdr.domain.vehicle_roles import get_customer_vehicle, get_desired_vehicle
@@ -138,11 +143,37 @@ def _record_from_snapshot(
 
 class IsolatedCrmStore:
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._records: dict[str, dict[str, Any]] = {}
         self._by_id: dict[str, dict[str, Any]] = {}
         self._payloads_sent: dict[str, dict[str, Any]] = {}
+        self._notify_keys: set[str] = set()
+        self._notify_at: dict[str, str] = {}
         self.qualified_notifications: int = 0
         self.handoff_count: int = 0
+        self.fail_before_confirm: bool = False
+
+    def _confirm_dispatch(self, state: ConversationCanonicalState, rec: dict[str, Any]) -> bool:
+        """Stamp vendor notify once. QUALIFIED status is not confirmation."""
+        key = vendor_notify_idempotency_key(state)
+        existing_ts = rec.get("vendorNotifiedAt") or self._notify_at.get(key)
+        already = key in self._notify_keys or bool(state.vendor_notified_at) or bool(existing_ts)
+        if already:
+            self._notify_keys.add(key)
+            ts = state.vendor_notified_at or existing_ts
+            if ts and not state.vendor_notified_at:
+                state.vendor_notified_at = str(ts)
+            if state.vendor_notified_at:
+                rec["vendorNotifiedAt"] = state.vendor_notified_at
+                self._notify_at[key] = state.vendor_notified_at
+            return False
+        confirm_vendor_dispatch(state)
+        self._notify_keys.add(key)
+        self._notify_at[key] = str(state.vendor_notified_at)
+        rec["vendorNotifiedAt"] = state.vendor_notified_at
+        self.handoff_count += 1
+        self.qualified_notifications += 1
+        return True
 
     def persist_handoff(
         self,
@@ -151,55 +182,57 @@ class IsolatedCrmStore:
         *,
         first_inbound: str | None = None,
     ) -> dict[str, Any]:
-        existing = self._records.get(state.thread_id)
-        existing_id = None
-        if getattr(state, "active_lead_ids", None):
-            existing_id = str(state.active_lead_ids[0])
-        elif existing and existing.get("id"):
-            existing_id = str(existing["id"])
-        if existing_id and self._by_id.get(existing_id) is not None:
-            rec = self.sync_from_state(
-                existing_id,
+        with self._lock:
+            existing = self._records.get(state.thread_id)
+            existing_id = None
+            if getattr(state, "active_lead_ids", None):
+                existing_id = str(state.active_lead_ids[0])
+            elif existing and existing.get("id"):
+                existing_id = str(existing["id"])
+            if existing_id and self._by_id.get(existing_id) is not None:
+                rec = self.sync_from_state(
+                    existing_id,
+                    state,
+                    qualify=True,
+                    first_inbound=first_inbound,
+                )
+                self._payloads_sent[state.thread_id] = copy.deepcopy(rec)
+                return rec
+            payload = build_crm_payload(state, composed=composed)
+            snapshot = build_commercial_snapshot(
                 state,
-                qualify=True,
                 first_inbound=first_inbound,
+                qualify=True,
             )
-            self._payloads_sent[state.thread_id] = copy.deepcopy(rec)
-            return rec
-        payload = build_crm_payload(state, composed=composed)
-        snapshot = build_commercial_snapshot(
-            state,
-            first_inbound=first_inbound,
-            qualify=True,
-        )
-        rec = _record_from_snapshot(
-            lead_id=str(payload["id"]),
-            thread_id=state.thread_id,
-            snapshot=snapshot,
-        )
-        message = rec.get("message") or original_message_from(
-            first_inbound, payload.get("summary") or ""
-        )
-        stored = {
-            **payload,
-            "vehicleId": rec.get("vehicleId"),
-            "vehicleInterests": rec.get("vehicleInterests"),
-            "interest_ids": rec.get("interest_ids"),
-            "financingRequest": rec.get("financingRequest"),
-            "visitInterest": rec.get("visitInterest"),
-            "documents": rec.get("documents"),
-            "message": message,
-            "commercialRevision": rec.get("commercialRevision"),
-            "type": rec.get("type") or payload.get("lead_type"),
-            "temperature": rec.get("temperature"),
-            "juliaSummary": rec.get("juliaSummary") or payload.get("juliaSummary"),
-        }
-        self._payloads_sent[state.thread_id] = copy.deepcopy(stored)
-        self._records[state.thread_id] = copy.deepcopy(stored)
-        self._by_id[str(stored["id"])] = self._records[state.thread_id]
-        self.handoff_count += 1
-        self.qualified_notifications += 1
-        return stored
+            rec = _record_from_snapshot(
+                lead_id=str(payload["id"]),
+                thread_id=state.thread_id,
+                snapshot=snapshot,
+            )
+            message = rec.get("message") or original_message_from(
+                first_inbound, payload.get("summary") or ""
+            )
+            stored = {
+                **payload,
+                "vehicleId": rec.get("vehicleId"),
+                "vehicleInterests": rec.get("vehicleInterests"),
+                "interest_ids": rec.get("interest_ids"),
+                "financingRequest": rec.get("financingRequest"),
+                "visitInterest": rec.get("visitInterest"),
+                "documents": rec.get("documents"),
+                "message": message,
+                "commercialRevision": rec.get("commercialRevision"),
+                "type": rec.get("type") or payload.get("lead_type"),
+                "temperature": rec.get("temperature"),
+                "juliaSummary": rec.get("juliaSummary") or payload.get("juliaSummary"),
+            }
+            self._records[state.thread_id] = stored
+            self._by_id[str(stored["id"])] = stored
+            if self.fail_before_confirm:
+                raise RuntimeError("handoff dispatch confirmation failed")
+            self._confirm_dispatch(state, stored)
+            self._payloads_sent[state.thread_id] = copy.deepcopy(stored)
+            return stored
 
     def create_from_state(
         self,
@@ -216,6 +249,19 @@ class IsolatedCrmStore:
         return copy.deepcopy(rec)
 
     def sync_from_state(
+        self,
+        lead_id: str,
+        state: ConversationCanonicalState,
+        *,
+        qualify: bool = False,
+        first_inbound: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            return self._sync_from_state_locked(
+                lead_id, state, qualify=qualify, first_inbound=first_inbound
+            )
+
+    def _sync_from_state_locked(
         self,
         lead_id: str,
         state: ConversationCanonicalState,
@@ -248,10 +294,17 @@ class IsolatedCrmStore:
             rec["status"] = "QUALIFIED"
         elif qualify:
             rec["status"] = "QUALIFIED"
-            self.qualified_notifications += 1
-            self.handoff_count += 1
         else:
             rec["status"] = existing.get("status") or "NEW"
+        if qualify:
+            if self.fail_before_confirm:
+                self._by_id[lead_id] = rec
+                self._records[state.thread_id] = rec
+                raise RuntimeError("handoff dispatch confirmation failed")
+            self._confirm_dispatch(state, rec)
+        else:
+            if existing.get("vendorNotifiedAt"):
+                rec["vendorNotifiedAt"] = existing.get("vendorNotifiedAt")
         self._by_id[lead_id] = rec
         self._records[state.thread_id] = rec
         self._payloads_sent[state.thread_id] = copy.deepcopy(rec)

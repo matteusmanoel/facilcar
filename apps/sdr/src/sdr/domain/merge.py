@@ -384,6 +384,7 @@ def deterministic_merge(
         resumed_at=getattr(prev, "resumed_at", None),
         resume_reason=getattr(prev, "resume_reason", None),
         handoff_at=getattr(prev, "handoff_at", None),
+        vendor_notified_at=getattr(prev, "vendor_notified_at", None),
         handoff_ready=prev.handoff_ready,
         profile_complete=prev.profile_complete,
         missing_fields=list(prev.missing_fields),

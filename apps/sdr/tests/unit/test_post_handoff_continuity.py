@@ -150,6 +150,8 @@ def _handoff_sent_state(**kwargs) -> ConversationCanonicalState:
         deferred_fields=["cnh", "proof_of_residence", "proof_of_income"],
         active_lead_ids=[LEAD_ID],
         lifecycle=LifecycleState(status=LifecycleStatus.HANDOFF_SENT),
+        vendor_notified_at="2026-09-07T10:00:00-03:00",
+        handoff_at="2026-09-07T10:00:00-03:00",
     )
     state.business.actionability = Actionability.ACTIONABLE
     for key, value in kwargs.items():
@@ -482,6 +484,8 @@ def test_c10_c11_crm_snapshot_keeps_same_lead_without_duplicate_notify() -> None
     store = IsolatedCrmStore()
     first = _handoff_sent_state(crm_revision=1)
     first.lifecycle = LifecycleState(status=LifecycleStatus.READY_FOR_HANDOFF)
+    first.vendor_notified_at = None
+    first.handoff_at = None
     created = store.create_from_state(first, first_inbound="Oi, vi as Stradas")
     first.active_lead_ids = [created["id"]]
     qualified = store.sync_from_state(created["id"], first, qualify=True, first_inbound="Oi, vi as Stradas")

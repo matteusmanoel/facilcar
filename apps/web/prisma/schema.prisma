@@ -745,6 +745,7 @@ model Conversation {
   lastMessageAt       DateTime?
   activeLeadIds       String[]              @default([])
   handoffAt           DateTime?
+  vendorNotifiedAt    DateTime?
   ownershipRevision   Int                   @default(0)
   assumedByUserId     String?
   assumedAt           DateTime?

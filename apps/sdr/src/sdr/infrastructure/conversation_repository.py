@@ -137,6 +137,7 @@ def state_from_conversation_row(row: Any) -> ConversationCanonicalState:
         resumed_at=_row_get(row, "resumedAt"),
         resume_reason=_row_get(row, "resumeReason"),
         handoff_at=_row_get(row, "handoffAt"),
+        vendor_notified_at=_row_get(row, "vendorNotifiedAt"),
     )
 
 
@@ -212,6 +213,7 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "resumed_at": state.resumed_at,
         "resume_reason": state.resume_reason,
         "handoff_at": state.handoff_at,
+        "vendor_notified_at": state.vendor_notified_at,
         "handoff_ready": state.handoff_ready,
         "profile_complete": state.profile_complete,
         "missing_fields": list(state.missing_fields),
@@ -234,6 +236,7 @@ def canonical_state_from_json(
     resumed_at: Any = _COLUMN_ABSENT,
     resume_reason: Any = _COLUMN_ABSENT,
     handoff_at: Any = _COLUMN_ABSENT,
+    vendor_notified_at: Any = _COLUMN_ABSENT,
 ) -> ConversationCanonicalState:
     data: dict[str, Any]
     if raw is None:
@@ -383,6 +386,9 @@ def canonical_state_from_json(
         resumed_at=_ts_to_iso(_overlay(resumed_at, data.get("resumed_at"))),
         resume_reason=_overlay(resume_reason, data.get("resume_reason")),
         handoff_at=_ts_to_iso(_overlay(handoff_at, data.get("handoff_at"))),
+        vendor_notified_at=_ts_to_iso(
+            _overlay(vendor_notified_at, data.get("vendor_notified_at"))
+        ),
         handoff_ready=bool(data.get("handoff_ready") or False),
         profile_complete=bool(data.get("profile_complete") or False),
         missing_fields=list(data.get("missing_fields") or []),
@@ -470,6 +476,10 @@ class ConversationRepository:
                 "resumedByUserId" = $10,
                 "resumedAt" = $11,
                 "resumeReason" = $12,
+                "vendorNotifiedAt" = CASE
+                    WHEN $13::timestamp IS NOT NULL AND "vendorNotifiedAt" IS NULL THEN $13
+                    ELSE "vendorNotifiedAt"
+                END,
                 "updatedAt" = $6
             WHERE "id" = $1
               AND "ownershipRevision" = $7
@@ -490,6 +500,7 @@ class ConversationRepository:
                 state.resumed_by_user_id,
                 _iso_to_naive(state.resumed_at),
                 state.resume_reason,
+                _iso_to_naive(state.vendor_notified_at),
             )
         return pg_update_applied(status)
 
@@ -617,6 +628,7 @@ class ConversationRepository:
                 "accumulatedSummary" = NULL,
                 "activeLeadIds" = ARRAY[]::TEXT[],
                 "handoffAt" = NULL,
+                "vendorNotifiedAt" = NULL,
                 "ownershipRevision" = 0,
                 "assumedByUserId" = NULL,
                 "assumedAt" = NULL,

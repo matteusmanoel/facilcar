@@ -150,6 +150,7 @@ def test_merge_preserves_ownership_fields() -> None:
         resumed_by_user_id="user-1",
         resume_reason="seller_released",
         handoff_at="2026-09-07T10:00:00-03:00",
+        vendor_notified_at="2026-09-07T10:00:00-03:00",
     )
     facts = TurnFacts(intent=BusinessIntent.PURCHASE, facts={"desired_model": "Civic"})
     merged = deterministic_merge(prev, facts)
@@ -159,5 +160,6 @@ def test_merge_preserves_ownership_fields() -> None:
     assert merged.resumed_by_user_id == "user-1"
     assert merged.resume_reason == "seller_released"
     assert merged.handoff_at == "2026-09-07T10:00:00-03:00"
+    assert merged.vendor_notified_at == "2026-09-07T10:00:00-03:00"
 
 

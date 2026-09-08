@@ -18,6 +18,7 @@ from sdr.domain.ownership import (
     StaleOwnershipRevision,
     assume_human,
     automation_enabled,
+    confirm_vendor_dispatch,
     handoff_sent,
     human_active,
     resume_ai,
@@ -53,6 +54,7 @@ def _state(**kwargs) -> ConversationCanonicalState:
 def _handed_off() -> ConversationCanonicalState:
     state = _state(lifecycle=LifecycleState(status=LifecycleStatus.READY_FOR_HANDOFF))
     mark_handoff_sent(state, "triage_actionable")
+    confirm_vendor_dispatch(state)
     return state
 
 
@@ -247,6 +249,7 @@ def test_a9_canonical_state_roundtrip_ownership_fields() -> None:
         resumed_at=datetime(2026, 9, 8, 13, 0, 0),
         resume_reason="column-reason",
         handoff_at=datetime(2026, 9, 8, 11, 0, 0),
+        vendor_notified_at=datetime(2026, 9, 8, 11, 0, 5),
     )
     assert loaded.lifecycle.status == LifecycleStatus.AI_RESUMED
     assert loaded.ownership_revision == 9
@@ -254,6 +257,7 @@ def test_a9_canonical_state_roundtrip_ownership_fields() -> None:
     assert loaded.resumed_by_user_id == "column-alice"
     assert loaded.resume_reason == "column-reason"
     assert loaded.handoff_at is not None
+    assert loaded.vendor_notified_at is not None
     assert loaded.active_lead_ids == ["lead-1"]
     assert loaded.thread_id == resumed.thread_id or loaded.thread_id in {resumed.thread_id, "other-thread"}
 
@@ -282,6 +286,7 @@ async def test_a9_save_canonical_state_writes_ownership_columns() -> None:
     where = sql.split("WHERE", 1)[1]
     assert '"ownershipRevision"' in sql
     assert '"assumedByUserId"' in sql
+    assert '"vendorNotifiedAt"' in sql
     assert '"Lead"' not in sql
     assert '"id" = $1' in where
     assert '"ownershipRevision" = $7' in where

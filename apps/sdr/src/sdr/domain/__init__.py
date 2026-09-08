@@ -14,9 +14,11 @@ from sdr.domain.ownership import (
     StaleOwnershipRevision,
     assume_human,
     automation_enabled,
+    confirm_vendor_dispatch,
     handoff_sent,
     human_active,
     resume_ai,
+    vendor_already_notified,
 )
 from sdr.domain.phone import normalize_phone, phone_from_jid
 from sdr.domain.qualifications import is_seller_actionable, next_ask_field
@@ -45,6 +47,7 @@ __all__ = [
     "TurnFacts",
     "assume_human",
     "automation_enabled",
+    "confirm_vendor_dispatch",
     "confirmation_message",
     "decide",
     "deterministic_merge",
@@ -58,4 +61,5 @@ __all__ = [
     "normalize_phone",
     "phone_from_jid",
     "resume_ai",
+    "vendor_already_notified",
 ]
