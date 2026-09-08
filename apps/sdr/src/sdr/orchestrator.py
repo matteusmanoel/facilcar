@@ -256,6 +256,23 @@ class Orchestrator:
         """Re-read Conversation.botStatus from DB — never a stale seed."""
         return await human_assumed_live(self.conversations, conversation_id)
 
+    async def _save_canonical_state(
+        self,
+        conversation_id: str,
+        state: ConversationCanonicalState,
+    ) -> bool:
+        """Write the worker snapshot only if live ownership still matches.
+
+        ``save_canonical_state`` returns False on CAS miss (HUMAN_ACTIVE or
+        stale ``ownershipRevision``). Mocks that return None still count as
+        applied so older tests keep their no-op save.
+        """
+        save = getattr(self.conversations, "save_canonical_state", None)
+        if save is None:
+            return True
+        applied = await save(conversation_id, state)
+        return applied is not False
+
     async def _record_human_active_skip(
         self,
         batch,
@@ -1360,7 +1377,12 @@ class Orchestrator:
         )
         if planned_outbound:
             result.state.assistant_turn_count = state.assistant_turn_count + 1
-        await self.conversations.save_canonical_state(conversation_id, result.state)
+        if not await self._save_canonical_state(conversation_id, result.state):
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch, state=result.state, ownership_revision=revision
+                )
 
         # Pin, then media, then text. A later send failure must not retry the
         # pin — that duplicated location cards when sendText returned 400.
@@ -1540,7 +1562,17 @@ class Orchestrator:
                 outbound_sent=bool(sent_texts or provider_ids),
             )
 
-        await self.conversations.save_canonical_state(conversation_id, result.state)
+        if not await self._save_canonical_state(conversation_id, result.state):
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch,
+                    state=result.state,
+                    ownership_revision=revision,
+                    outbound_texts=sent_texts,
+                    outbound_provider_ids=provider_ids,
+                    outbound_sent=bool(sent_texts or provider_ids),
+                )
 
         batch_result = BatchResult(
             outbound_texts=list(result.outbound_texts),

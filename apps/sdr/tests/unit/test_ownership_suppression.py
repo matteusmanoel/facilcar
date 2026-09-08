@@ -208,6 +208,18 @@ def _wire_repos(orch: Orchestrator, store: LiveStore) -> None:
         store.outbound.append(dict(kwargs))
         return f"out-{len(store.outbound)}"
 
+    async def save_canonical_state(_cid: str, state: ConversationCanonicalState) -> bool:
+        expected = int(getattr(state, "ownership_revision", 0) or 0)
+        if store.bot_status == LifecycleStatus.HUMAN_ACTIVE.value:
+            return False
+        if int(store.ownership_revision) != expected:
+            return False
+        status = getattr(getattr(state, "lifecycle", None), "status", None)
+        if status is not None:
+            store.bot_status = status.value if hasattr(status, "value") else str(status)
+        store.ownership_revision = expected
+        return True
+
     async def delete_message(message_id, *args, **kwargs):
         store.deleted_ids.append(str(message_id))
         store.messages.pop(str(message_id), None)
@@ -220,7 +232,7 @@ def _wire_repos(orch: Orchestrator, store: LiveStore) -> None:
     conv.finalize_batch_messages = AsyncMock(side_effect=finalize_batch_messages)
     conv.mark_message_skipped = AsyncMock(side_effect=mark_message_skipped)
     conv.insert_bot_outbound = AsyncMock(side_effect=insert_bot_outbound)
-    conv.save_canonical_state = AsyncMock()
+    conv.save_canonical_state = AsyncMock(side_effect=save_canonical_state)
     conv.list_recent_turns = AsyncMock(return_value=[])
     conv.merge_message_turn_facts = AsyncMock()
     conv.fetch_first_customer_text = AsyncMock(return_value="Oi, quero um Civic")
@@ -503,3 +515,29 @@ async def test_b10_records_suppressed_reason_human_active(patch_quiet) -> None:
     result = _assert_suppressed(store, evolution)
     assert result.get("suppressed_reason") == "human_active" or result.get("reason_code") == "human_active"
     assert result.get("ownership_revision") == store.ownership_revision
+
+
+@pytest.mark.asyncio
+async def test_b11_assume_during_canonical_save_does_not_restore_outbound(patch_quiet) -> None:
+    """CAS: assume between the live check and save must not clobber HUMAN_ACTIVE then send."""
+    store = LiveStore()
+    evolution = StubEvolutionSender()
+    orch = _orchestrator(store, evolution=evolution)
+    inner = orch.conversations.save_canonical_state
+
+    async def assume_then_save(cid: str, state: ConversationCanonicalState) -> bool:
+        if store.bot_status != LifecycleStatus.HUMAN_ACTIVE.value:
+            store.assume()
+        return await inner(cid, state)
+
+    orch.conversations.save_canonical_state = AsyncMock(side_effect=assume_then_save)
+
+    async def fake_process_turn(**kwargs):
+        return _message_result()
+
+    with patch("sdr.orchestrator.process_turn", side_effect=fake_process_turn):
+        await orch.process_batch_seed(store.seed())
+
+    _assert_suppressed(store, evolution)
+    assert store.bot_status == LifecycleStatus.HUMAN_ACTIVE.value
+    assert store.ownership_revision == 1

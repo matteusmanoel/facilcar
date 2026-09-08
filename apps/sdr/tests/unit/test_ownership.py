@@ -275,14 +275,42 @@ async def test_a9_save_canonical_state_writes_ownership_columns() -> None:
     )
     repo = ConversationRepository(pool)
     state = assume_human(_handed_off(), actor_user_id="user-alice", expected_revision=0)
-    await repo.save_canonical_state("conv-own", state)
+    applied = await repo.save_canonical_state("conv-own", state)
+    assert applied is True
     sql = captured["sql"]
     args = captured["args"]
+    where = sql.split("WHERE", 1)[1]
     assert '"ownershipRevision"' in sql
     assert '"assumedByUserId"' in sql
     assert '"Lead"' not in sql
+    assert '"id" = $1' in where
+    assert '"ownershipRevision" = $7' in where
+    assert "HUMAN_ACTIVE" in where
     assert state.ownership_revision in args
     assert "user-alice" in args
+
+
+@pytest.mark.asyncio
+async def test_a9_save_canonical_state_returns_false_on_cas_miss() -> None:
+    conn = AsyncMock()
+    captured: dict = {}
+
+    async def execute(sql, *args):
+        captured["sql"] = sql
+        return "UPDATE 0"
+
+    conn.execute = AsyncMock(side_effect=execute)
+    pool = MagicMock()
+    pool.acquire = MagicMock(
+        return_value=AsyncMock(__aenter__=AsyncMock(return_value=conn), __aexit__=AsyncMock())
+    )
+    repo = ConversationRepository(pool)
+    state = _handed_off()
+    applied = await repo.save_canonical_state("conv-own", state)
+    assert applied is False
+    where = captured["sql"].split("WHERE", 1)[1]
+    assert '"ownershipRevision" = $7' in where
+    assert "HUMAN_ACTIVE" in where
 
 
 @pytest.mark.asyncio

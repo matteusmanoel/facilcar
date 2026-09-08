@@ -91,6 +91,17 @@ def _row_int(row: Any, key: str) -> int | None:
     return int(value)
 
 
+def pg_update_applied(status: str | None) -> bool:
+    """True when asyncpg ``UPDATE <n>`` reports at least one row."""
+    if not status:
+        return False
+    token = str(status).strip().split()[-1]
+    try:
+        return int(token) > 0
+    except ValueError:
+        return False
+
+
 def state_from_conversation_row(row: Any) -> ConversationCanonicalState:
     return canonical_state_from_json(
         row["canonicalStateJson"],
@@ -407,8 +418,16 @@ class ConversationRepository:
         self,
         conversation_id: str,
         state: ConversationCanonicalState,
-    ) -> None:
+    ) -> bool:
+        """Persist a worker snapshot only if live ownership still matches.
+
+        CAS: ``ownershipRevision`` must equal the snapshot and ``botStatus``
+        must not be ``HUMAN_ACTIVE``. A concurrent Assumir increments the
+        revision and sets ``HUMAN_ACTIVE``; this UPDATE then matches zero
+        rows so the worker cannot restore AI lifecycle and send.
+        """
         now = _now()
+        expected_revision = int(state.ownership_revision or 0)
         sql = f'''
             UPDATE "{SCHEMA}"."Conversation"
             SET "canonicalStateJson" = $2::jsonb,
@@ -428,9 +447,11 @@ class ConversationRepository:
                 "resumeReason" = $12,
                 "updatedAt" = $6
             WHERE "id" = $1
+              AND "ownershipRevision" = $7
+              AND "botStatus" <> 'HUMAN_ACTIVE'
         '''
         async with self._pool.acquire() as conn:
-            await conn.execute(
+            status = await conn.execute(
                 sql,
                 conversation_id,
                 canonical_state_to_json(state),
@@ -438,13 +459,14 @@ class ConversationRepository:
                 state.language if state.language != "unknown" else None,
                 state.active_lead_ids,
                 now,
-                int(state.ownership_revision or 0),
+                expected_revision,
                 state.assumed_by_user_id,
                 _iso_to_naive(state.assumed_at),
                 state.resumed_by_user_id,
                 _iso_to_naive(state.resumed_at),
                 state.resume_reason,
             )
+        return pg_update_applied(status)
 
     async def load_canonical_state(
         self, conversation_id: str
