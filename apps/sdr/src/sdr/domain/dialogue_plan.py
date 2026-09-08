@@ -15,6 +15,9 @@ from enum import Enum
 from typing import Any, Mapping, Sequence
 
 from sdr.domain.display_name import display_first_name
+from sdr.domain.financial_promises import (
+    contains_financing_approval_claim as financing_approval_claim,
+)
 from sdr.domain.types import Action, BusinessIntent, ConversationCanonicalState, TurnFacts
 
 
@@ -118,14 +121,6 @@ _INTERNAL_LEAK = re.compile(
 _VENDOR_CONFIRM = re.compile(
     r"confirma[cç][aã]o\s+do\s+vendedor|depende\s+do\s+vendedor|"
     r"vou\s+confirmar\s+com\s+o\s+vendedor",
-    re.I,
-)
-_APPROVAL_CLAIM = re.compile(
-    r"financiamento\s+(?:est[aá]\s+)?aprovado|j[aá]\s+est[aá]\s+aprovad|"
-    r"vamos\s+financiar\s+(?:o\s+valor\s+)?(?:todo|tudo)|"
-    r"financiaremos\s+el\s+valor\s+total|"
-    r"100\s*%\s*garantid|taxa\s+garantida|aprova(?:[cç][aã]o|do)\s+garantid|"
-    r"financiar\s+o\s+valor\s+todo",
     re.I,
 )
 
@@ -476,7 +471,7 @@ def build_dialogue_plan(
         restrictions.append(
             "Financiamento sem entrada: simulação possível; aprovação e condições dependem da financeira."
         )
-        restrictions.append("Proibido: financiamento aprovado, vamos financiar tudo, 100% garantido, taxa garantida.")
+        restrictions.append("Proibido: financiamento aprovado, vamos financiar tudo, financiamos 100%, dá para financiar todo o valor, 100% garantido, taxa garantida.")
 
     if action_val == Action.SHOW_OFFERS.value:
         acts.append(DialogueAct.PRESENT_VEHICLE.value)
@@ -748,7 +743,7 @@ def contains_vendor_confirmation(text: str) -> bool:
 
 
 def contains_financing_approval_claim(text: str) -> bool:
-    return bool(_APPROVAL_CLAIM.search(text or ""))
+    return financing_approval_claim(text)
 
 
 _HONEST_UNKNOWN = re.compile(

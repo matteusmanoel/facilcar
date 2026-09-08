@@ -1098,8 +1098,10 @@ async def compose_response(
             tone_rule += (
                 "\nCliente perguntou se financia 100%/sem entrada: responda que "
                 "é possível SIMULAR sem entrada; aprovação, taxa e prazo dependem "
-                "da financeira. NÃO diga 'vamos financiar o valor todo', NÃO afirme "
-                "aprovação. NÃO pergunte entrada de novo. Depois uma pergunta principal."
+                "da financeira. NÃO diga 'vamos financiar o valor todo', "
+                "'financiamos 100%', 'você consegue financiar 100%' ou "
+                "'dá para financiar todo o valor'. NÃO afirme aprovação. "
+                "NÃO pergunte entrada de novo. Depois uma pergunta principal."
             )
         else:
             tone_rule += "\nConfirme o recebimento (financiamento) e avance para a entrada."

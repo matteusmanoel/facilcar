@@ -24,6 +24,7 @@ from sdr.domain.dialogue_plan import (
     question_count,
     reciprocity_present,
 )
+from sdr.domain.financial_promises import contains_forbidden_financial_promise
 from sdr.domain.introduction import (
     continuation_smalltalk_bubbles,
     is_first_contact_reopen,
@@ -58,13 +59,22 @@ _PROMISE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "financiamento sem entrada pode ser possível, sujeito à análise",
     ),
     (
+        re.compile(r"financ\w*\s+100\s*%(?!\d)", re.I),
+        "financiamento sem entrada pode ser possível, sujeito à análise",
+    ),
+    (
         re.compile(
             r"\bvamos\s+financiar\s+(?:o\s+valor\s+)?(?:todo|tudo)\b|"
             r"\bfinanciaremos\s+el\s+valor\s+total\b|"
-            r"\bfinanciar\s+o\s+valor\s+todo\b",
+            r"\bfinanciar\s+o\s+valor\s+todo\b|"
+            r"d[aá]\s+p(?:ra|ara)\s+financiar\s+(?:todo\s+o\s+valor|o\s+valor\s+todo)",
             re.I,
         ),
         "podemos fazer uma simulação sem entrada, sujeito à análise da financeira",
+    ),
+    (
+        re.compile(r"\bbanco\s+aprova\b", re.I),
+        "sujeito à análise de crédito",
     ),
     (
         re.compile(r"\btaxa\s+garantida\b", re.I),
@@ -428,7 +438,7 @@ def validate_dialogue_plan(
         _fail("internal_process_leak")
     if contains_vendor_confirmation(joined):
         _fail("visit_vendor_confirmation")
-    if contains_financing_approval_claim(joined):
+    if contains_financing_approval_claim(joined) or contains_forbidden_financial_promise(joined):
         _fail("financing_as_approved")
     if DialogueAct.SAFETY_DISCLAIMER.value in parsed.acts:
         if not re.search(r"an[aá]lise|financeira|simula", joined, re.I):

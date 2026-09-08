@@ -182,6 +182,9 @@ class ConversationContextBuilder:
                     "parcela fixa",
                     "100% financiado",
                     "sem entrada garantido",
+                    "financiamos 100%",
+                    "consegue financiar 100%",
+                    "financiar todo o valor",
                 ],
             },
             "action_plan": {

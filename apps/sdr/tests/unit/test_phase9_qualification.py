@@ -121,6 +121,99 @@ def test_c_guaranteed_approval_is_still_a_promise() -> None:
 
 
 # ---------------------------------------------------------------------------
+# D1–D12  financial promise propositions (possibility vs certainty)
+# ---------------------------------------------------------------------------
+
+def test_d1_requesting_simulation_without_down_payment_is_allowed() -> None:
+    assert contains_forbidden_financial_promise("Pode solicitar simulação sem entrada") is False
+
+
+def test_d2_possible_to_simulate_without_down_payment_is_allowed() -> None:
+    assert contains_forbidden_financial_promise("É possível simular sem entrada") is False
+    assert contains_forbidden_financial_promise(
+        "Financiamento sem entrada pode ser possível, sujeito à análise de crédito."
+    ) is False
+
+
+def test_d3_lender_dependency_disclaimer_is_allowed() -> None:
+    assert contains_forbidden_financial_promise("Taxa e prazo dependem da financeira") is False
+
+
+def test_d4_asserted_100_percent_financing_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Financiamos 100%") is True
+    assert contains_forbidden_financial_promise("Financiamos 100% do veículo.") is True
+    assert contains_financing_approval_claim("Financiamos 100% do veículo.") is True
+
+
+def test_d5_capability_claim_of_100_percent_financing_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Você consegue financiar 100%") is True
+    assert contains_forbidden_financial_promise("Você consegue financiar 100%.") is True
+    assert contains_financing_approval_claim("Você consegue financiar 100%.") is True
+
+
+def test_d6_unhedged_full_value_financing_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Dá para financiar todo o valor.") is True
+    assert contains_forbidden_financial_promise("Dá pra financiar o valor todo.") is True
+    assert contains_financing_approval_claim("Dá para financiar todo o valor.") is True
+
+
+def test_d7_lender_may_analyze_integral_financing_is_allowed() -> None:
+    assert (
+        contains_forbidden_financial_promise(
+            "A financeira pode analisar financiamento do valor integral"
+        )
+        is False
+    )
+    assert (
+        contains_forbidden_financial_promise(
+            "A financeira pode analisar um financiamento integral, sujeito à análise de crédito."
+        )
+        is False
+    )
+
+
+def test_d8_unauthorized_numeric_rate_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Taxa de 1,5%") is True
+    assert contains_forbidden_financial_promise("A taxa será de 1,49% ao mês.") is True
+
+
+def test_d9_promised_final_installment_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Sua parcela ficará em R$ 1.500") is True
+    assert contains_forbidden_financial_promise("Sua parcela ficará em R$ 1.500.") is True
+
+
+def test_d10_echoed_desired_installment_is_allowed() -> None:
+    assert contains_forbidden_financial_promise("Você busca parcela em torno de R$ 1.500") is False
+    assert contains_forbidden_financial_promise(
+        "Entendi, você busca uma parcela por volta de R$ 1.500."
+    ) is False
+
+
+def test_d11_financing_approved_as_certain_is_forbidden() -> None:
+    assert contains_forbidden_financial_promise("Seu financiamento está aprovado") is True
+    assert contains_financing_approval_claim("Seu financiamento está aprovado") is True
+    assert contains_forbidden_financial_promise("O banco aprova sem entrada.") is True
+    assert contains_financing_approval_claim("O banco aprova sem entrada.") is True
+
+
+def test_d12_condition_and_promise_are_not_confused_by_substring() -> None:
+    """Isolated 'taxa' in a lender disclaimer is not a numeric-rate promise."""
+    assert contains_forbidden_financial_promise(SAFE_TAXA_DISCLAIMER) is False
+    for pattern in _FORBIDDEN_PROMISE_PATTERNS:
+        assert pattern.search(SAFE_TAXA_DISCLAIMER) is None, pattern.pattern
+    assert contains_forbidden_financial_promise("A taxa será de 1,5%.") is True
+    mixed = f"{SAFE_TAXA_DISCLAIMER} A taxa será de 1,5%."
+    assert contains_forbidden_financial_promise(mixed) is True
+    assert contains_forbidden_financial_promise(
+        "A taxa e o prazo dependem da análise da financeira."
+    ) is False
+    # A trailing lender hedge does not turn an asserted outcome into a process.
+    assert contains_forbidden_financial_promise(
+        "Financiamos 100% sujeito à análise da financeira."
+    ) is True
+
+
+# ---------------------------------------------------------------------------
 # D–E  greeting / model already known
 # ---------------------------------------------------------------------------
 

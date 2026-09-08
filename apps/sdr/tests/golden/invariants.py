@@ -21,6 +21,8 @@ _FORBIDDEN_PROMISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"aprovado\s+no\s+crédito", re.I),
     re.compile(r"100%\s+financiado", re.I),
     re.compile(r"financ\w*\s+100\s*%\s+com\s+certeza", re.I),
+    re.compile(r"financ\w*\s+100\s*%(?!\d)", re.I),
+    re.compile(r"\bbanco\s+aprova\b", re.I),
 ]
 
 # Phrases that indicate a "desired vehicle" question — forbidden for SALE/CONSIGNMENT/REFINANCING.
