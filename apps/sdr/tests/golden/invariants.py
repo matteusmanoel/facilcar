@@ -114,6 +114,9 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: expected_summary_contains",
     "SCENARIO: location_sent_once",
     "SCENARIO: original_message_repeats_summary",
+    "SCENARIO: empty_composer",
+    "SCENARIO: admin_ownership_transition",
+    "SCENARIO: suppressed_without_reason",
     "TURN: expected_inventory_search",
     "TURN: expected_runtime_calls",
     "TURN: expected_segment_count",
@@ -146,6 +149,83 @@ _QUESTIONNAIRE_CUES = (
     "qual sua parcela",
     "qual o valor",
 )
+
+EVENT_KIND_CUSTOMER_INBOUND = "customer_inbound"
+EVENT_KIND_ADMIN_EVENT = "admin_event"
+EVENT_KIND_SUPPRESSED = "suppressed"
+_VALID_EVENT_KINDS = frozenset({
+    EVENT_KIND_CUSTOMER_INBOUND,
+    EVENT_KIND_ADMIN_EVENT,
+    EVENT_KIND_SUPPRESSED,
+})
+_ADMIN_ACTIONS = frozenset({"ADMIN_ASSUME", "ADMIN_RESUME"})
+_SUPPRESSED_REASONS = frozenset({"ai_silenced", "human_active", "human_or_handoff_silence"})
+_ADMIN_STATUS = {"ADMIN_ASSUME": "HUMAN_ACTIVE", "ADMIN_RESUME": "AI_RESUMED"}
+
+
+def classify_turn_event(turn: dict[str, Any] | None) -> dict[str, Any]:
+    """Stamp/infer event_kind, composer_expected, outbound_expected.
+
+    Admin events never call Composer. HUMAN_ACTIVE inbound is suppressed.
+    Commercial NO_REPLY stays customer_inbound with outbound not expected.
+    """
+    turn = turn or {}
+    action = str(turn.get("action") or "").upper()
+    admin = turn.get("admin_event")
+    suppressed_reason = str(turn.get("suppressed_reason") or "").strip()
+    bot_status = str(turn.get("bot_status") or "")
+    inbound = str(turn.get("inbound") or "").strip()
+
+    if action in _ADMIN_ACTIONS or (isinstance(admin, (str, dict)) and admin):
+        inferred = EVENT_KIND_ADMIN_EVENT
+    elif suppressed_reason in _SUPPRESSED_REASONS or (
+        action == "NO_REPLY" and bot_status == "HUMAN_ACTIVE"
+    ):
+        inferred = EVENT_KIND_SUPPRESSED
+    else:
+        inferred = EVENT_KIND_CUSTOMER_INBOUND
+
+    kind = str(turn.get("event_kind") or "").strip() or inferred
+    if kind not in _VALID_EVENT_KINDS:
+        kind = inferred
+
+    if "composer_expected" in turn:
+        composer_expected = bool(turn.get("composer_expected"))
+    elif kind != EVENT_KIND_CUSTOMER_INBOUND:
+        composer_expected = False
+    else:
+        composer_expected = action != "NO_REPLY"
+        if not action and inbound:
+            composer_expected = True
+
+    if "outbound_expected" in turn:
+        outbound_expected = bool(turn.get("outbound_expected"))
+    else:
+        outbound_expected = composer_expected
+
+    return {
+        "event_kind": kind,
+        "composer_expected": composer_expected,
+        "outbound_expected": outbound_expected,
+    }
+
+
+def _admin_ownership_transitioned(
+    previous: dict[str, Any] | None,
+    turn: dict[str, Any],
+) -> bool:
+    action = str(turn.get("action") or "").upper()
+    expected_status = _ADMIN_STATUS.get(action)
+    if not expected_status:
+        admin = turn.get("admin_event")
+        label = str(admin.get("type") if isinstance(admin, dict) else admin or "").lower()
+        expected_status = "HUMAN_ACTIVE" if label == "assume" else "AI_RESUMED" if label == "resume" else None
+    if not expected_status:
+        return False
+    status = str(turn.get("bot_status") or "")
+    revision = int(turn.get("ownership_revision") or 0)
+    previous_revision = int((previous or {}).get("ownership_revision") or 0)
+    return status == expected_status and revision > previous_revision
 
 
 def check_turn(
@@ -989,8 +1069,36 @@ def check_scenario(
     if llm_real:
         if getattr(result, "fallback_count", 0):
             fail("SCENARIO: llm_fallback", f"fallbacks={result.fallback_count}")
-        if any(not (t.get("outbound") or []) for t in (result.turns or []) if t.get("action") != "NO_REPLY"):
-            fail("SCENARIO: empty_composer", "A turn produced no outbound text")
+
+    turns = list(result.turns or [])
+    for i, turn in enumerate(turns):
+        semantics = classify_turn_event(turn)
+        kind = semantics["event_kind"]
+        idx = turn.get("idx", i)
+        if kind == EVENT_KIND_ADMIN_EVENT:
+            previous = turns[i - 1] if i else None
+            if not _admin_ownership_transitioned(previous, turn):
+                fail(
+                    "SCENARIO: admin_ownership_transition",
+                    f"turn {idx} action={turn.get('action')!r} "
+                    f"bot_status={turn.get('bot_status')!r} "
+                    f"revision={turn.get('ownership_revision')!r} "
+                    f"previous_revision={(previous or {}).get('ownership_revision')!r}",
+                )
+            continue
+        if kind == EVENT_KIND_SUPPRESSED:
+            reason = str(turn.get("suppressed_reason") or "").strip()
+            if reason not in _SUPPRESSED_REASONS:
+                fail(
+                    "SCENARIO: suppressed_without_reason",
+                    f"turn {idx} HUMAN_ACTIVE inbound lacks ai_silenced/human_active",
+                )
+            continue
+        if semantics["outbound_expected"] and not (turn.get("outbound") or []):
+            fail(
+                "SCENARIO: empty_composer",
+                f"turn {idx} produced no outbound text",
+            )
 
     return violations
 

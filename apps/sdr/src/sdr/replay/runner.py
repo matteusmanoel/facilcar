@@ -256,6 +256,27 @@ def _ownership_snapshot(state: Any) -> dict[str, Any]:
     }
 
 
+def _event_stamp(
+    *,
+    action: str,
+    admin_event: Any = None,
+    suppressed_reason: str | None = None,
+    bot_status: str | None = None,
+    inbound: str | None = None,
+) -> dict[str, Any]:
+    from tests.golden.invariants import classify_turn_event
+
+    return classify_turn_event(
+        {
+            "action": action,
+            "admin_event": admin_event,
+            "suppressed_reason": suppressed_reason,
+            "bot_status": bot_status,
+            "inbound": inbound,
+        }
+    )
+
+
 def _skip_dialogue_alignment(state: Any, previous_action: str) -> bool:
     if previous_action in {"HANDOFF_VENDOR", "ADMIN_ASSUME", "ADMIN_RESUME"}:
         return True
@@ -302,7 +323,12 @@ async def run_scenario_detailed(
     from sdr.domain.types import Action
     from sdr.infrastructure.isolated_crm import IsolatedCrmStore
     from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION, seed_sha256
-    from tests.golden.invariants import INVARIANT_CATALOG, check_scenario, check_turn, collect_commercial_observations
+    from tests.golden.invariants import (
+        INVARIANT_CATALOG,
+        check_scenario,
+        check_turn,
+        collect_commercial_observations,
+    )
 
     name = scenario.get("name", "unknown")
     turns = scenario.get("turns", [])
@@ -473,17 +499,25 @@ async def run_scenario_detailed(
                     tool_results=[],
                 )
                 own = _ownership_snapshot(state)
+                admin_action = f"ADMIN_{event_name.upper()}"
+                event_meta = _event_stamp(
+                    action=admin_action,
+                    admin_event=event_name,
+                    bot_status=own["botStatus"],
+                )
                 transcript.append({
                     "idx": idx,
                     "inbound": "",
                     "admin_event": event_name,
-                    "action": f"ADMIN_{event_name.upper()}",
+                    "action": admin_action,
                     "outbound": [],
                     "llm_calls": 0,
                     "inbound_persisted": False,
                     "bot_status": own["botStatus"],
                     "ownership_revision": own["ownershipRevision"],
                     "runtime_calls": 0,
+                    "runtime_call_count": 0,
+                    **event_meta,
                 })
                 traces.append({
                     "scenario_id": name,
@@ -495,6 +529,9 @@ async def run_scenario_detailed(
                     "invariant_results": ["pass"],
                     "llm_calls": 0,
                     "suppressed_outbound": False,
+                    "runtime_calls": 0,
+                    "runtime_call_count": 0,
+                    **event_meta,
                 })
                 violations = check_turn(
                     scenario_name=name,
@@ -707,7 +744,13 @@ async def run_scenario_detailed(
             suppressed_reason = str(plan.reason_code)
             suppressed_outbound_count += 1
             suppressed_outbound_reasons.append(suppressed_reason)
-        if not (result.outbound_texts or []) and action_upper != "NO_REPLY":
+        event_meta = _event_stamp(
+            action=action_upper,
+            suppressed_reason=suppressed_reason,
+            bot_status=_bot_status(result.state),
+            inbound=inbound_text,
+        )
+        if event_meta["outbound_expected"] and not (result.outbound_texts or []):
             errors.append(f"[{name}] turn {idx}: empty Composer outbound")
 
         from sdr.domain.vehicle_presentation import vehicle_card_record
@@ -753,6 +796,7 @@ async def run_scenario_detailed(
             "question_adherence": adherence,
             "dialogue_alignment": alignment,
             "runtime_calls": 1,
+            "runtime_call_count": 1,
             "segment_count": (inbound.raw_message_ref or {}).get("segment_count"),
             "primary_vehicle_id": result.state.primary_vehicle_id,
             "llm_calls": turn_llm_calls,
@@ -760,6 +804,7 @@ async def run_scenario_detailed(
             "bot_status": _bot_status(result.state),
             "ownership_revision": int(getattr(result.state, "ownership_revision", 0) or 0),
             "suppressed_reason": suppressed_reason,
+            **event_meta,
         })
         trace_row = {
             "scenario_id": name,
@@ -831,6 +876,8 @@ async def run_scenario_detailed(
             "suppressed_outbound": bool(suppressed_reason),
             "suppressed_reason": suppressed_reason,
             "inbound_persisted": True,
+            "runtime_call_count": 1,
+            **event_meta,
         }
         traces.append(trace_row)
         if show_trace:
