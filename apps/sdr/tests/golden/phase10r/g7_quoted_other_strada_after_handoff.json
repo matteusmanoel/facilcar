@@ -1,0 +1,113 @@
+{
+  "name": "g7_quoted_other_strada_after_handoff",
+  "description": "Quoted reply on another presented Strada after HANDOFF_VENDOR changes primary without a new search or notify.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "expected_crm_same_lead": true,
+  "expected_primary_vehicle_id": "VH-STRADA-2021",
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 6,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "presented_vehicle_bindings": [
+      {
+        "conversation_id": "replay_g7_quoted_other_strada_after_handoff",
+        "provider_message_id": "replay-img-VH-STRADA-2021",
+        "vehicle_id": "VH-STRADA-2021",
+        "presentation_type": "IMAGE",
+        "position": 0,
+        "offer_set_id": "offer-set-strada-1"
+      },
+      {
+        "conversation_id": "replay_g7_quoted_other_strada_after_handoff",
+        "provider_message_id": "replay-img-VH-STRADA-2017",
+        "vehicle_id": "VH-STRADA-2017",
+        "presentation_type": "IMAGE",
+        "position": 1,
+        "offer_set_id": "offer-set-strada-1"
+      },
+      {
+        "conversation_id": "replay_g7_quoted_other_strada_after_handoff",
+        "provider_message_id": "replay-img-VH-STRADA-2018",
+        "vehicle_id": "VH-STRADA-2018",
+        "presentation_type": "IMAGE",
+        "position": 2,
+        "offer_set_id": "offer-set-strada-1"
+      }
+    ],
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Carla Mendes"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Gostei dessa opção",
+      "principal_event": true,
+      "quoted_message_id": "replay-img-VH-STRADA-2021",
+      "response_mode": "quoted_selection",
+      "events": [
+        {
+          "content_type": "TEXT",
+          "text": "Gostei dessa opção",
+          "quoted_message_id": "replay-img-VH-STRADA-2021",
+          "delay_ms": 0,
+          "message_id": "p10r-g7-quote-2021"
+        }
+      ],
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {}
+      },
+      "expected_primary_vehicle_id": "VH-STRADA-2021",
+      "forbidden_action": "SHOW_OFFERS",
+      "expected_inventory_search": false,
+      "expected_outbound_min": 1,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    }
+  ]
+}

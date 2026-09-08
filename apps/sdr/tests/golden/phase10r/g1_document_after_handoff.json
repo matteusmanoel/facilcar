@@ -1,0 +1,105 @@
+{
+  "name": "g1_document_after_handoff",
+  "description": "CNH after HANDOFF_VENDOR: ack, same lead, no second notify.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "expected_crm_status": "QUALIFIED",
+  "expected_crm_same_lead": true,
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 6,
+    "documents_asked": true,
+    "remaining_documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Carla Mendes",
+      "document_status": {
+        "cnh": "deferred",
+        "proof_of_residence": "deferred",
+        "proof_of_income": "deferred"
+      },
+      "documents_deferred": true
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Segue minha CNH",
+      "principal_event": true,
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Carla Mendes"
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "Segue minha CNH",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Carla Mendes"
+          },
+          "delay_ms": 0,
+          "message_id": "p10r-g1-cnh"
+        }
+      ],
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {}
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_facts_after": {
+        "document_status.cnh": "received"
+      },
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket"
+      ]
+    }
+  ]
+}

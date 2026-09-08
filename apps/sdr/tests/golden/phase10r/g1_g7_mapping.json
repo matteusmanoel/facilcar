@@ -1,0 +1,101 @@
+{
+  "G1": {
+    "contract": "Document after handoff: AI continues, doc ack, CRM update, no second handoff/notify",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g1_document_after_handoff_acks_without_second_handoff",
+      "tests/golden/test_phase10r_matrix.py::test_g1_document_after_handoff_golden_and_p10_01"
+    ],
+    "existing": [
+      "tests/unit/test_post_handoff_continuity.py::test_c1_document_after_handoff_acks_without_second_handoff",
+      "tests/golden/test_phase10_continuity.py::test_e1_e2_e3_handoff_is_not_end_of_conversation"
+    ],
+    "golden": "tests/golden/phase10r/g1_document_after_handoff.json",
+    "declared_event": "DOCUMENT inbound after HANDOFF_VENDOR",
+    "gate": "G1",
+    "llm": true
+  },
+  "G2": {
+    "contract": "Direct question after handoff: factual or explicit uncertainty, no restart, no new handoff",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g2_equipment_question_after_handoff_answers_without_restart"
+    ],
+    "existing": [
+      "tests/unit/test_post_handoff_continuity.py::test_c4_equipment_question_after_handoff_answers_without_restart"
+    ],
+    "golden": "tests/golden/phase10r/g2_equipment_question_after_handoff.json",
+    "declared_event": "equipment question inbound after HANDOFF_VENDOR",
+    "gate": "G2",
+    "llm": true
+  },
+  "G3": {
+    "contract": "Visit change after handoff: time updated, natural reply, location not duplicated, same lead",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g3_visit_time_change_after_handoff_updates_without_second_location"
+    ],
+    "existing": [
+      "tests/unit/test_post_handoff_continuity.py::test_c5_visit_time_change_updates_without_second_handoff_or_location"
+    ],
+    "golden": "tests/golden/phase10r/g3_visit_time_change_after_handoff.json",
+    "declared_event": "visit time change inbound after HANDOFF_VENDOR",
+    "gate": "G3",
+    "llm": true
+  },
+  "G4": {
+    "contract": "Assume before inbound: persist inbound, zero LLM, zero outbound, auditable suppression",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g4_assume_before_inbound_persists_without_llm_or_outbound"
+    ],
+    "existing": [
+      "tests/golden/test_phase10_continuity.py::test_e4_e5_assume_silence_then_resume_later_inbound",
+      "tests/unit/test_ownership_suppression.py::test_b1_assume_before_claim_skips_and_preserves_inbound"
+    ],
+    "golden": "tests/golden/phase10/p10_02_assume_resume.json",
+    "declared_event": "admin assume then HUMAN_ACTIVE inbound",
+    "gate": "G4G6",
+    "llm": false,
+    "note": "Live assume/resume is gate case G4G6 (p10_02). Race-free assume-before-inbound stays pytest."
+  },
+  "G5": {
+    "contract": "Race: during composer; during save_canonical_state; immediately before send. B11 must stay green",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g5_assume_during_composer_does_not_send",
+      "tests/golden/test_phase10r_matrix.py::test_g5_assume_during_canonical_save_does_not_restore_outbound",
+      "tests/golden/test_phase10r_matrix.py::test_g5_assume_immediately_before_send_suppresses"
+    ],
+    "existing": [
+      "tests/unit/test_ownership_suppression.py::test_b4_assume_during_composer_does_not_send",
+      "tests/unit/test_ownership_suppression.py::test_b11_assume_during_canonical_save_does_not_restore_outbound",
+      "tests/unit/test_ownership_suppression.py::test_b5_assume_immediately_before_send_suppresses"
+    ],
+    "golden": null,
+    "declared_event": "assume during composer / save_canonical_state / immediately before send",
+    "gate": null,
+    "llm": false
+  },
+  "G6": {
+    "contract": "Explicit resume, only future inbounds",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g6_explicit_resume_replies_only_to_future_inbounds"
+    ],
+    "existing": [
+      "tests/golden/test_phase10_continuity.py::test_e4_e5_assume_silence_then_resume_later_inbound"
+    ],
+    "golden": "tests/golden/phase10/p10_02_assume_resume.json",
+    "declared_event": "admin resume then later inbound (HUMAN_ACTIVE inbound is not sent retroactively)",
+    "gate": "G4G6",
+    "llm": true
+  },
+  "G7": {
+    "contract": "Quoted reply other vehicle after handoff: safe reply, new primary, other interests kept, no new search, CRM update, no new handoff",
+    "pytest": [
+      "tests/golden/test_phase10r_matrix.py::test_g7_quoted_reply_other_vehicle_after_handoff"
+    ],
+    "existing": [
+      "tests/unit/test_post_handoff_continuity.py::test_c6_quoted_reply_changes_primary_without_inventory_search"
+    ],
+    "golden": "tests/golden/phase10r/g7_quoted_other_strada_after_handoff.json",
+    "declared_event": "quoted reply on a non-primary presented Strada after HANDOFF_VENDOR",
+    "gate": "G7",
+    "llm": true
+  }
+}

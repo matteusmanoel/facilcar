@@ -1,0 +1,75 @@
+{
+  "name": "g2_equipment_question_after_handoff",
+  "description": "Equipment question after HANDOFF_VENDOR must not restart search or notify again.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "expected_crm_same_lead": true,
+  "expected_primary_vehicle_id": "VH-STRADA-2018",
+  "customer": {
+    "name": "Carla Mendes",
+    "phone": "5511988001100"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 6,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Carla Mendes"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Tem teto solar?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {}
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_inventory_search": false,
+      "expected_outbound_min": 1,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado"
+      ]
+    }
+  ]
+}
