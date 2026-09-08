@@ -63,6 +63,8 @@ _OPT_OUT_PHRASES = (
     "remova meu numero",
     "não quero mais mensagens",
     "nao quero mais mensagens",
+    "não quero mais receber",
+    "nao quero mais receber",
     "parar de receber",
     "opt out",
     "opt-out",

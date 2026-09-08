@@ -490,6 +490,7 @@ def patch_quiet():
 
 def test_opt_out_and_lead_close_policy() -> None:
     assert is_opt_out_signal("Não quero mais contato")
+    assert is_opt_out_signal("Não quero mais receber mensagens.")
     assert is_opt_out_signal("oi", TurnFacts(facts={"opt_out": True}))
     assert not is_opt_out_signal("quero um Civic")
     assert inbound_cancel_reason("oi") is FollowUpCancelReason.CUSTOMER_REPLIED
