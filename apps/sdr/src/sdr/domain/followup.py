@@ -15,6 +15,9 @@ from enum import Enum
 from typing import Any
 
 from sdr.domain.clock import TZ_BRT, now_brt, parse_clock
+from sdr.domain.document_commitment import (
+    inbound_has_firm_document_send_promise,
+)
 from sdr.domain.facts_schema import is_pure_greeting
 from sdr.domain.followup_config import (
     AWAITING_AFTER_FOLLOWUP_WINDOW,
@@ -1216,9 +1219,12 @@ def suggest_pause_from_inbound(text: str) -> tuple[PauseReason | None, ConsentLe
     call_me = any(token in folded for token in _CALL_ME_TOKENS)
     if any(token in folded for token in _DOCUMENT_TOKENS):
         # Deferring documents stays in qualification. Pause only when the
-        # customer asked to be called back about the documents.
+        # customer asked to be called back. Unavailability is not a promise.
         if call_me:
-            reason = PauseReason.DOCUMENTS_PROMISED
+            if inbound_has_firm_document_send_promise(raw):
+                reason = PauseReason.DOCUMENTS_PROMISED
+            else:
+                reason = PauseReason.DOCUMENTS_UNAVAILABLE
     elif any(token in folded for token in _PARTNER_TOKENS):
         reason = PauseReason.DECISION_WITH_PARTNER
     elif "vou pensar" in folded or "deixar para pensar" in folded:
@@ -1244,7 +1250,7 @@ def suggest_pause_from_inbound(text: str) -> tuple[PauseReason | None, ConsentLe
 
 
 def enrich_turn_facts_from_inbound(facts: TurnFacts, inbound_text: str) -> TurnFacts:
-    """Fill omitted pause suggestions from inbound. Never overwrite LLM values."""
+    """Fill omitted pause suggestions from inbound. Document polarity is owned by code."""
     reason, consent, commitment = suggest_pause_from_inbound(inbound_text)
     if facts.pause_reason is None and reason is not None:
         facts.pause_reason = reason.value
@@ -1252,7 +1258,24 @@ def enrich_turn_facts_from_inbound(facts: TurnFacts, inbound_text: str) -> TurnF
         facts.consent_level = consent.value
     if facts.temporal_commitment is None and commitment is not None:
         facts.temporal_commitment = commitment.original_text or inbound_text
+    _reconcile_document_commitment_polarity(facts, reason)
     return facts
+
+
+def _reconcile_document_commitment_polarity(
+    facts: TurnFacts,
+    suggested: PauseReason | None,
+) -> None:
+    """Code owns document-promise polarity. LLM omission or overclaim cannot invent it."""
+    current = coerce_pause_reason(facts.pause_reason)
+    document_pauses = {PauseReason.DOCUMENTS_PROMISED, PauseReason.DOCUMENTS_UNAVAILABLE}
+    if current not in document_pauses and suggested not in document_pauses:
+        return
+    if suggested is None:
+        if current in document_pauses:
+            facts.pause_reason = None
+        return
+    facts.pause_reason = suggested.value
 
 
 def inbound_is_followup_pause(

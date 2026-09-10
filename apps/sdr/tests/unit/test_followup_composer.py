@@ -99,7 +99,9 @@ async def test_d1_documents() -> None:
     assert result.sendable
     assert 1 <= len(result.bubbles) <= 2
     joined = _joined(result.bubbles)
-    assert any(token in joined for token in ("comprovante", "documento", "reunir"))
+    assert any(token in joined for token in ("comprovante", "documento", "separar", "verificar"))
+    assert "ia enviar" not in joined
+    assert "prometeu" not in joined
     assert "obrigat" not in joined
     assert "precisa enviar" not in joined
     assert "sou a júlia" not in joined

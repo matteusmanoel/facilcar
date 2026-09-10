@@ -195,6 +195,10 @@ def _write_phase11_artifacts(dest: Path, cases: list[Any], meta: dict[str, Any])
     _dump(dest / "idempotency.json", idempotency)
     _dump(dest / "inventory_revalidated.json", inventory)
     _dump(dest / "crm_payload_readback.json", crm_rows)
+    _dump(
+        dest / "execution_meta.json",
+        [{"scenario": run.name, **dict(run.execution_meta or {})} for run in cases],
+    )
     _dump(dest / "g1_g10.json", mapping)
     _dump(dest / "skips.json", skips)
     _dump(dest / "round_report.json", build_round_report(cases))
@@ -208,6 +212,10 @@ def _write_phase11_artifacts(dest: Path, cases: list[Any], meta: dict[str, Any])
             "secrets": False,
             "remote_db": False,
             "evolution": False,
+            "scheduler_hosted": False,
+            "policy_mode": "production_policy",
+            "scheduler_mode": "controlled_tick",
+            "persistence_mode": "isolated",
         },
     )
     _dump(
@@ -261,7 +269,8 @@ def main() -> None:
         "deterministic_only": list(DETERMINISTIC_ONLY),
         "run_count": len(cases),
         "commercial_quality": "PENDING_HUMAN_REVIEW",
-        "harness": "sdr.replay.followup_harness TEST_DOUBLE",
+        "execution_meta": (cases[0].execution_meta if cases else {}),
+        "scheduler_hosted": False,
     }
     write_meta(dest, meta)
     _write_phase11_artifacts(dest, cases, meta)

@@ -503,7 +503,7 @@ def test_g1_call_me_with_documents_is_still_pause() -> None:
     inbound = "Não estou com os comprovantes agora. Pode me chamar amanhã às 14h."
     facts = TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING)
     enrich_turn_facts_from_inbound(facts, inbound)
-    assert facts.pause_reason == PauseReason.DOCUMENTS_PROMISED.value
+    assert facts.pause_reason == PauseReason.DOCUMENTS_UNAVAILABLE.value
     decision = followup_decision(_qualifying(), facts, inbound_text=inbound)
     assert decision.eligible is True
     assert decision.schedule_at is not None

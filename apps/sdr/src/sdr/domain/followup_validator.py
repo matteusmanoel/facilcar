@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from sdr.domain.dialogue_plan import contains_internal_leak, question_count
+from sdr.domain.document_commitment import outbound_has_unsupported_commitment
 from sdr.domain.financial_promises import contains_forbidden_financial_promise
 from sdr.domain.followup_plan import (
     FollowUpPlan,
@@ -192,6 +193,9 @@ def validate_followup(
         normalized_last = " ".join(last_question.lower().split())
         if normalized_last and normalized_last == " ".join(joined.lower().split()):
             _fail(violations, "repeated_question")
+
+    if not bound.commitment_is_authorized() and outbound_has_unsupported_commitment(joined):
+        _fail(violations, "unsupported_commitment")
 
     if violations:
         return FollowUpValidation(False, [], violations)

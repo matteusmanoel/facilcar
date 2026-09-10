@@ -126,6 +126,8 @@ INVARIANT_CATALOG: list[str] = [
     "SCENARIO: expected_followup_sends",
     "SCENARIO: expected_wait_state",
     "SCENARIO: expected_scheduled_at",
+    "SCENARIO: expected_pause_reason",
+    "SCENARIO: unsupported_commitment",
     "SCENARIO: followup_llm_when_cancelled",
     "SCENARIO: artifact_pii",
     "SCENARIO: one_followup_send",
@@ -1181,6 +1183,29 @@ def check_scenario(
             "SCENARIO: expected_wait_state",
             f"expected {expected_wait!r}, got {got_wait!r}",
         )
+    expected_pause = scenario.get("expected_pause_reason")
+    tasks = list(getattr(result, "followup_tasks", None) or [])
+    if expected_pause:
+        reasons = [str(t.get("reason") or "") for t in tasks]
+        if str(expected_pause) not in reasons:
+            fail(
+                "SCENARIO: expected_pause_reason",
+                f"expected {expected_pause!r} in {reasons!r}",
+            )
+    from sdr.domain.document_commitment import outbound_has_unsupported_commitment
+
+    task_reasons = {str(t.get("reason") or "") for t in tasks}
+    if "DOCUMENTS_UNAVAILABLE" in task_reasons and "DOCUMENTS_PROMISED" not in task_reasons:
+        for turn in turns:
+            action = str(turn.get("action") or "").upper()
+            kind = str(turn.get("event_kind") or "")
+            if kind == EVENT_KIND_SCHEDULER_TICK or action in {"SCHEDULER_TICK", "FOLLOWUP_SEND"}:
+                joined = " ".join(str(b) for b in (turn.get("outbound") or []))
+                if outbound_has_unsupported_commitment(joined):
+                    fail(
+                        "SCENARIO: unsupported_commitment",
+                        joined[:180],
+                    )
     expected_sched = scenario.get("expected_scheduled_at")
     if expected_sched:
         tasks = list(getattr(result, "followup_tasks", None) or [])

@@ -19,6 +19,10 @@ from enum import Enum
 from typing import Any, Callable, Mapping, Sequence
 
 from sdr.domain.clock import now_brt, parse_clock
+from sdr.domain.document_commitment import (
+    COMMITMENT_CLAIM_NONE,
+    authorized_commitment_from_claim,
+)
 from sdr.domain.inventory_outcome import extract_inventory_outcome
 from sdr.domain.types import InventoryOutcome
 
@@ -63,6 +67,7 @@ DEFAULT_CONSTRAINTS: tuple[str, ...] = (
     "no_financial_promise",
     "no_internal_leak",
     "no_substitute_vehicle",
+    "no_unsupported_commitment",
 )
 
 _UNAVAILABLE_OUTCOMES = frozenset(
@@ -229,6 +234,16 @@ class FollowUpPlan:
     strategy_reason: str | None = None
     language: str = "pt-BR"
     max_bubbles: int = 2
+    authorized_commitment: bool = False
+    commitment_claim: str = COMMITMENT_CLAIM_NONE
+
+    def commitment_is_authorized(self) -> bool:
+        facts = self.authorized_facts or {}
+        if "authorized_commitment" in facts:
+            return bool(facts["authorized_commitment"])
+        if self.commitment_claim:
+            return authorized_commitment_from_claim(str(self.commitment_claim))
+        return bool(self.authorized_commitment)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -245,6 +260,8 @@ class FollowUpPlan:
             "strategy_reason": self.strategy_reason,
             "language": self.language,
             "max_bubbles": self.max_bubbles,
+            "authorized_commitment": self.commitment_is_authorized(),
+            "commitment_claim": self.commitment_claim,
         }
 
     @classmethod
@@ -261,12 +278,24 @@ class FollowUpPlan:
             constraints = tuple(str(c) for c in constraints_raw)
         else:
             constraints = DEFAULT_CONSTRAINTS
+        facts = dict(raw.get("authorized_facts") or {})
+        if "authorized_commitment" in raw:
+            authorized = bool(raw.get("authorized_commitment"))
+        else:
+            authorized = bool(facts.get("authorized_commitment"))
+        claim = str(
+            raw.get("commitment_claim")
+            or facts.get("commitment_claim")
+            or COMMITMENT_CLAIM_NONE
+        )
+        facts.setdefault("authorized_commitment", authorized)
+        facts.setdefault("commitment_claim", claim)
         return cls(
             reason=str(raw.get("reason") or FollowUpReason.EMPTY.value),
             requested_action=str(
                 raw.get("requested_action") or FollowUpAction.DO_NOT_SEND.value
             ),
-            authorized_facts=dict(raw.get("authorized_facts") or {}),
+            authorized_facts=facts,
             vehicle_label=(
                 str(raw["vehicle_label"]).strip() if raw.get("vehicle_label") else None
             ),
@@ -291,6 +320,8 @@ class FollowUpPlan:
             ),
             language=str(raw.get("language") or "pt-BR"),
             max_bubbles=int(raw.get("max_bubbles") or 2),
+            authorized_commitment=authorized,
+            commitment_claim=claim,
         )
 
 
@@ -379,9 +410,14 @@ def fallback_followup_bubbles(plan: FollowUpPlan) -> list[str]:
         return ["Continua procurando nessa categoria?"]
 
     if action == FollowUpAction.ASK_DOCUMENTS_STATUS.value:
+        authorized = plan.commitment_is_authorized()
+        if authorized:
+            if es:
+                return ["¿Pudiste reunir los comprobantes que comentaste que enviarías?"]
+            return ["Conseguiu reunir os comprovantes que comentou que enviaria?"]
         if es:
-            return ["¿Conseguiste reunir los comprobantes que ibas a enviar?"]
-        return ["Conseguiu reunir os comprovantes que ia enviar?"]
+            return ["¿Conseguiste separar los comprobantes?"]
+        return ["Conseguiu separar os comprovantes?"]
 
     if action == FollowUpAction.ASK_PARTNER_DECISION.value:
         if label:

@@ -31,6 +31,11 @@ from sdr.domain.followup import (
 )
 from sdr.domain.followup_cancel import FollowUpCancelReason, is_opt_out_signal
 from sdr.domain.followup_plan import FollowUpAction, FollowUpPlan, FollowUpReason
+from sdr.domain.document_commitment import (
+    COMMITMENT_CLAIM_NONE,
+    COMMITMENT_CLAIM_PROMISED,
+    COMMITMENT_CLAIM_UNAVAILABLE,
+)
 from sdr.domain.types import ConversationCanonicalState, InventoryOutcome, LifecycleStatus, TurnFacts
 from sdr.infrastructure.followup_repository import (
     ACTIVE_STATUSES,
@@ -390,12 +395,26 @@ class FollowUpRuntime:
         except ValueError:
             pause = None
         reason, action = _plan_reason(pause)
+        pause_value = pause.value if pause is not None else ""
+        authorized = pause_value == PauseReason.DOCUMENTS_PROMISED.value
+        if authorized:
+            claim = COMMITMENT_CLAIM_PROMISED
+        elif pause_value == PauseReason.DOCUMENTS_UNAVAILABLE.value:
+            claim = COMMITMENT_CLAIM_UNAVAILABLE
+        else:
+            claim = COMMITMENT_CLAIM_NONE
         plan = FollowUpPlan(
             reason=reason,
             requested_action=action,
             vehicle_label=None,
             pending_commitment=task.original_temporal_text,
-            authorized_facts={"pending_commitment": task.original_temporal_text},
+            authorized_commitment=authorized,
+            commitment_claim=claim,
+            authorized_facts={
+                "pending_commitment": task.original_temporal_text,
+                "authorized_commitment": authorized,
+                "commitment_claim": claim,
+            },
         )
         self.composer_calls += 1
         self.evidence.composer_called = True

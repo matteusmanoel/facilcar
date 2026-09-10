@@ -45,6 +45,11 @@ def _assert_production_path(run) -> None:
     assert evidence.get("scheduler_claimed") is True
     assert evidence.get("pre_send_checks_executed") is True
     assert evidence.get("execution_mode") == EXECUTION_MODE_PRODUCTION
+    meta = getattr(run, "execution_meta", None) or {}
+    if meta:
+        assert meta.get("policy_mode") == EXECUTION_MODE_PRODUCTION
+        assert meta.get("scheduler_hosted") is False
+        assert "TEST_DOUBLE" not in json.dumps(meta)
     assert evidence.get("context_revision_loaded") is True
     assert evidence.get("context_revision_nonzero") is True
     assert int(evidence.get("context_revision") or 0) >= 1
@@ -67,6 +72,21 @@ async def test_g1_documents_tomorrow_14h() -> None:
     before = [t for t in run.turns if t.get("action") == "CLOCK_JUMP"]
     assert before
     assert before[0].get("followup_sends") == 0
+    assert any(t.get("reason") == "DOCUMENTS_UNAVAILABLE" for t in run.followup_tasks)
+    tick_blob = " ".join(
+        " ".join(t.get("outbound") or [])
+        for t in run.turns
+        if str(t.get("action") or "") in {"SCHEDULER_TICK", "FOLLOWUP_SEND"}
+        or str(t.get("event_kind") or "") == "scheduler_tick"
+    ).lower()
+    assert "ia enviar" not in tick_blob
+    assert "prometeu" not in tick_blob
+    meta = run.execution_meta or {}
+    assert meta.get("policy_mode") == EXECUTION_MODE_PRODUCTION
+    assert meta.get("scheduler_mode") == "controlled_tick"
+    assert meta.get("persistence_mode") == "isolated"
+    assert meta.get("scheduler_hosted") is False
+    assert meta.get("llm_mode") == "stub"
 
 
 @pytest.mark.asyncio

@@ -107,7 +107,21 @@ def _system_prompt(plan: FollowUpPlan) -> str:
         f"Motivo: {plan.reason}.\n"
         f"Compromisso pendente: {plan.pending_commitment or 'nenhum'}.\n"
         f"Rótulo do veículo autorizado: {label or 'nenhum'}.\n"
+        f"{_commitment_instruction(plan)}\n"
         "Use somente authorized_facts. Não invente modelo, marca ou estoque."
+    )
+
+
+def _commitment_instruction(plan: FollowUpPlan) -> str:
+    if plan.commitment_is_authorized():
+        return (
+            "O cliente prometeu enviar documentos. Pode reconhecer esse compromisso. "
+            "Não trate o envio como fato já consumado."
+        )
+    return (
+        "O cliente NÃO prometeu enviar documentos. Não diga que ia enviar, "
+        "que prometeu enviar, ou que mandaria comprovantes. "
+        "Pergunte se conseguiu separar ou verificar os comprovantes."
     )
 
 

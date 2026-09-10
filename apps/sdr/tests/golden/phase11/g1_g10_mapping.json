@@ -1,12 +1,15 @@
 {
   "G1": {
-    "contract": "Documents tomorrow 14h: one task, correct time, no send before due, one contextual follow-up",
+    "contract": "Documents unavailable + explicit callback tomorrow 14h: one task, correct time, no invented send promise",
     "pytest": ["tests/golden/test_phase11_matrix.py::test_g1_documents_tomorrow_14h"],
     "golden": "tests/golden/phase11/g1_documents_tomorrow_14h.json",
     "gate": "G1",
     "llm": true,
     "repeats": 2,
-    "harness": "execution_mode=production_policy (Frente A policy + B scheduler + D composer). followup_harness_double is unit-only."
+    "policy_mode": "production_policy",
+    "scheduler_mode": "controlled_tick",
+    "persistence_mode": "isolated",
+    "scheduler_hosted": false
   },
   "G2": {
     "contract": "Spouse without time: permission-style reply, at most one next-business-day retomada, no second attempt",
@@ -15,7 +18,10 @@
     "gate": "G2",
     "llm": true,
     "repeats": 2,
-    "harness": "execution_mode=production_policy (Frente A policy + B scheduler + D composer). followup_harness_double is unit-only."
+    "policy_mode": "production_policy",
+    "scheduler_mode": "controlled_tick",
+    "persistence_mode": "isolated",
+    "scheduler_hosted": false
   },
   "G3": {
     "contract": "Reply before due cancels pending task; inbound processed; zero old follow-up",

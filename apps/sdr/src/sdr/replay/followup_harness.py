@@ -223,10 +223,9 @@ def sanitize_artifact(value: Any) -> Any:
 def _compose_fallback(task: FollowUpTask) -> str:
     label = task.vehicle_label or "o veículo que você viu"
     if task.reason == "DOCUMENTS_UNAVAILABLE":
-        return (
-            f"Oi, você comentou que enviaria os comprovantes depois. "
-            f"Conseguiu separar?"
-        )
+        return "Conseguiu separar os comprovantes?"
+    if task.reason == "DOCUMENTS_PROMISED":
+        return "Conseguiu reunir os comprovantes que comentou que enviaria?"
     if task.reason == "DECISION_WITH_PARTNER":
         return f"Oi, conseguiu conversar sobre a {label}?"
     if task.reason == "CUSTOMER_WILL_RETURN":

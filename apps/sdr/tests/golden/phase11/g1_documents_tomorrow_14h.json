@@ -1,12 +1,13 @@
 {
   "name": "g1_documents_tomorrow_14h",
-  "description": "G1 — documents promised tomorrow 14h. Policy computes schedule; no fixture schedule.",
+  "description": "G1 — documents unavailable + explicit callback tomorrow 14h. Not a send promise.",
   "execution_mode": "production_policy",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "FOLLOWUP_SENT",
   "expected_followup_sends": 1,
   "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
   "expected_scheduled_at": "2026-09-08T14:00:00-03:00",
+  "expected_pause_reason": "DOCUMENTS_UNAVAILABLE",
   "expected_artifact_clean": true,
   "customer": {"name": "Bruno Silva", "phone": "5511999000011"},
   "turns": [
@@ -35,7 +36,7 @@
       "expected_outbound_min": 1,
       "expected_followup_sends": 1,
       "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
-      "forbidden_in_outbound": ["vi que você sumiu", "lead", "CRM", "handoff", "reservado", "aprovado"]
+      "forbidden_in_outbound": ["vi que você sumiu", "lead", "CRM", "handoff", "reservado", "aprovado", "ia enviar", "prometeu", "mandaria"]
     }
   ]
 }

@@ -105,6 +105,7 @@ class ScenarioRunResult:
     idempotency_keys: list[str] = field(default_factory=list)
     execution_mode: str = "production_policy"
     followup_evidence: dict[str, Any] = field(default_factory=dict)
+    execution_meta: dict[str, Any] = field(default_factory=dict)
 
 
 
@@ -418,6 +419,7 @@ async def run_scenario_detailed(
         EXECUTION_MODE_PRODUCTION,
         FollowUpRuntime,
     )
+    from sdr.replay.execution_meta import replay_execution_meta
     from sdr.replay.followup_harness import FollowUpHarness, apply_clock_jump
 
     execution_mode = str(scenario.get("execution_mode") or EXECUTION_MODE_PRODUCTION)
@@ -1468,6 +1470,11 @@ async def run_scenario_detailed(
         ),
         execution_mode=execution_mode,
         followup_evidence=runtime.evidence.as_dict(),
+        execution_meta=replay_execution_meta(
+            scenario_execution_mode=execution_mode,
+            use_followup_double=use_followup_double,
+            llm_real=llm_real,
+        ).as_dict(),
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
         errors.append(str(v))
