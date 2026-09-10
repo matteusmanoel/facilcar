@@ -3,11 +3,11 @@ import type { ConversationBotStatus } from "@prisma/client";
 const SKIP_HUMAN_FROM_ME: ConversationBotStatus[] = ["HUMAN_ACTIVE", "HUMAN_CLOSED"];
 
 /**
- * CAS patch for seller-typed fromMe on this conversation only.
+ * CAS patch reserved for HUMAN_CONFIRMED ownership only.
  *
- * Caller must already classify provenance (isBotSent / known providerMessageId /
- * missing id). Device fromMe cannot set assumedByUserId — the WhatsApp echo
- * has no CRM user. Authorized Assumir in conversation-ownership.ts owns that.
+ * Ingest webhooks must not call this for unmatched fromMe, real Evolution ids,
+ * or missing bot rows. Administrative Assumir in conversation-ownership.ts is
+ * the current HUMAN_CONFIRMED source. Device fromMe cannot set assumedByUserId.
  */
 export function humanFromMeOwnershipCas(input: {
   conversationId: string;

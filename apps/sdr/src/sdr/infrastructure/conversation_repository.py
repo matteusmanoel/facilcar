@@ -142,6 +142,7 @@ def state_from_conversation_row(row: Any) -> ConversationCanonicalState:
         bot_status=row["botStatus"],
         active_lead_ids=list(row["activeLeadIds"] or []),
         ownership_revision=_row_int(row, "ownershipRevision"),
+        context_revision=_row_int(row, "contextRevision"),
         assumed_by_user_id=_row_get(row, "assumedByUserId"),
         assumed_at=_row_get(row, "assumedAt"),
         resumed_by_user_id=_row_get(row, "resumedByUserId"),
@@ -149,7 +150,20 @@ def state_from_conversation_row(row: Any) -> ConversationCanonicalState:
         resume_reason=_row_get(row, "resumeReason"),
         handoff_at=_row_get(row, "handoffAt"),
         vendor_notified_at=_row_get(row, "vendorNotifiedAt"),
+        wait_state=_row_get(row, "waitState"),
+        sdr_opted_out_at=_row_get(row, "sdrOptedOutAt"),
     )
+
+
+def _followup_payload(state: ConversationCanonicalState) -> dict[str, Any]:
+    from sdr.domain.followup import followup_record, followup_record_to_dict
+
+    current = getattr(state, "followup", None)
+    if current is None:
+        return {}
+    if isinstance(current, dict):
+        return dict(current)
+    return followup_record_to_dict(followup_record(state))
 
 
 def canonical_state_to_json(state: ConversationCanonicalState) -> str:
@@ -218,6 +232,7 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "last_visual_resolution": getattr(state, "last_visual_resolution", None),
         "crm_revision": int(getattr(state, "crm_revision", 0) or 0),
         "ownership_revision": int(getattr(state, "ownership_revision", 0) or 0),
+        "context_revision": int(getattr(state, "context_revision", 0) or 0),
         "assumed_by_user_id": state.assumed_by_user_id,
         "assumed_at": state.assumed_at,
         "resumed_by_user_id": state.resumed_by_user_id,
@@ -229,6 +244,9 @@ def canonical_state_to_json(state: ConversationCanonicalState) -> str:
         "profile_complete": state.profile_complete,
         "missing_fields": list(state.missing_fields),
         "collected_fields": list(state.collected_fields),
+        "wait_state": getattr(state, "wait_state", None) or "ACTIVE_QUALIFICATION",
+        "followup": _followup_payload(state),
+        "sdr_opted_out_at": getattr(state, "sdr_opted_out_at", None),
     }
     return json.dumps(payload)
 
@@ -241,6 +259,7 @@ def canonical_state_from_json(
     bot_status: Any = _COLUMN_ABSENT,
     active_lead_ids: list[str] | None = None,
     ownership_revision: Any = _COLUMN_ABSENT,
+    context_revision: Any = _COLUMN_ABSENT,
     assumed_by_user_id: Any = _COLUMN_ABSENT,
     assumed_at: Any = _COLUMN_ABSENT,
     resumed_by_user_id: Any = _COLUMN_ABSENT,
@@ -248,6 +267,8 @@ def canonical_state_from_json(
     resume_reason: Any = _COLUMN_ABSENT,
     handoff_at: Any = _COLUMN_ABSENT,
     vendor_notified_at: Any = _COLUMN_ABSENT,
+    wait_state: Any = _COLUMN_ABSENT,
+    sdr_opted_out_at: Any = _COLUMN_ABSENT,
 ) -> ConversationCanonicalState:
     data: dict[str, Any]
     if raw is None:
@@ -391,6 +412,9 @@ def canonical_state_from_json(
         ownership_revision=int(
             _overlay(ownership_revision, data.get("ownership_revision")) or 0
         ),
+        context_revision=int(
+            _overlay(context_revision, data.get("context_revision")) or 0
+        ),
         assumed_by_user_id=_overlay(assumed_by_user_id, data.get("assumed_by_user_id")),
         assumed_at=_ts_to_iso(_overlay(assumed_at, data.get("assumed_at"))),
         resumed_by_user_id=_overlay(resumed_by_user_id, data.get("resumed_by_user_id")),
@@ -404,6 +428,13 @@ def canonical_state_from_json(
         profile_complete=bool(data.get("profile_complete") or False),
         missing_fields=list(data.get("missing_fields") or []),
         collected_fields=list(data.get("collected_fields") or []),
+        wait_state=str(
+            _overlay(wait_state, data.get("wait_state")) or "ACTIVE_QUALIFICATION"
+        ),
+        followup=data.get("followup"),
+        sdr_opted_out_at=_ts_to_iso(
+            _overlay(sdr_opted_out_at, data.get("sdr_opted_out_at"))
+        ),
     )
 
 
@@ -491,6 +522,12 @@ class ConversationRepository:
                     WHEN $13::timestamp IS NOT NULL AND "vendorNotifiedAt" IS NULL THEN $13
                     ELSE "vendorNotifiedAt"
                 END,
+                "waitState" = $14,
+                "sdrOptedOutAt" = CASE
+                    WHEN $15::timestamp IS NOT NULL THEN COALESCE("sdrOptedOutAt", $15)
+                    ELSE "sdrOptedOutAt"
+                END,
+                "contextRevision" = $16,
                 "updatedAt" = $6
             WHERE "id" = $1
               AND "ownershipRevision" = $7
@@ -512,6 +549,9 @@ class ConversationRepository:
                 _iso_to_naive(state.resumed_at),
                 state.resume_reason,
                 _iso_to_naive(state.vendor_notified_at),
+                getattr(state, "wait_state", None),
+                _iso_to_naive(getattr(state, "sdr_opted_out_at", None)),
+                int(getattr(state, "context_revision", 0) or 0),
             )
         return pg_update_applied(status)
 
@@ -625,6 +665,7 @@ class ConversationRepository:
 
         Clears canonical JSON, summary, handoff, and active lead links on the
         Conversation row. Does not delete historical Message/Lead rows (audit).
+        Does not clear ``sdrOptedOutAt`` — opt-out survives ``/deletar``.
         """
         fresh = ConversationCanonicalState(
             thread_id=conversation_id,
@@ -646,16 +687,26 @@ class ConversationRepository:
                 "resumedByUserId" = NULL,
                 "resumedAt" = NULL,
                 "resumeReason" = NULL,
+                "waitState" = NULL,
                 "updatedAt" = $3
             WHERE "id" = $1
+            RETURNING "sdrOptedOutAt"
         '''
         async with self._pool.acquire() as conn:
-            await conn.execute(
+            row = await conn.fetchrow(
                 sql,
                 conversation_id,
                 canonical_state_to_json(fresh),
                 now,
             )
+        opted = _row_get(row, "sdrOptedOutAt") if row is not None else None
+        if opted is not None:
+            fresh.sdr_opted_out_at = _ts_to_iso(opted)
+            from sdr.domain.followup import followup_record, PauseReason
+
+            record = followup_record(fresh)
+            record.opted_out = True
+            record.pause_reason = PauseReason.OPT_OUT
         return fresh
 
     async def list_pending_messages(self, *, limit: int = 20) -> list[asyncpg.Record]:

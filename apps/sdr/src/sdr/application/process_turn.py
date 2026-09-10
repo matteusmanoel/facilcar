@@ -753,10 +753,106 @@ async def process_turn(
     if identity_patch:
         facts.facts = {**facts.facts, **identity_patch}
 
+    from sdr.domain.followup import (
+        FollowUpCancelIntent,
+        apply_followup_transition,
+        enrich_turn_facts_from_inbound,
+        followup_decision,
+        inbound_is_followup_pause,
+        overlay_followup_suggestions,
+    )
+    from sdr.application.followup_runtime import immediate_pause_bubbles
+    from sdr.domain.followup_cancel import is_opt_out_text
+    from sdr.domain.ownership import vendor_already_notified
+    from sdr.domain.scheduling import suggest_visit_slots
+    from sdr.domain.visit import apply_visit_from_inbound, apply_visit_utterance, parse_visit_utterance
+
     prev_pending = state.pending_question
     prev_primary = state.primary_vehicle_id
     merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
     apply_commercial_document_receipt(merged, inbound)
+
+    inbound_low = (inbound.effective_text or "").lower()
+    saturday_ask = "sábado" in inbound_low or "sabado" in inbound_low
+    true_pause = inbound_is_followup_pause(
+        inbound.effective_text, facts, state=merged
+    )
+    if true_pause:
+        parsed_visit = parse_visit_utterance("", [])
+    elif vendor_already_notified(merged):
+        parsed_visit = parse_visit_utterance(inbound.effective_text, [])
+        apply_visit_utterance(merged, parsed_visit)
+    else:
+        parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
+    visit_actionable = (not true_pause) and bool(
+        parsed_visit.time
+        or parsed_visit.date
+        or parsed_visit.accepted_offered
+        or parsed_visit.declined
+        or parsed_visit.interest
+        or parsed_visit.period
+    )
+    saturday_slots_already = all(
+        "sábado" in str(s).lower() or "sabado" in str(s).lower()
+        for s in (merged.offered_visit_slots or [])
+    ) if merged.offered_visit_slots else False
+    if (
+        saturday_ask
+        and parsed_visit.time is None
+        and not parsed_visit.accepted_offered
+        and not parsed_visit.declined
+        and not saturday_slots_already
+    ):
+        merged.visit_date = None
+        merged.visit_period = None
+        if not merged.visit_time:
+            merged.visit_preferred_time = None
+        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
+        merged.needs_visit_slot_offer = True
+    elif (
+        not parsed_visit.declined
+        and not parsed_visit.courtesy
+        and (
+            parsed_visit.accepted_offered
+            or parsed_visit.date is not None
+            or parsed_visit.time is not None
+            or parsed_visit.period is not None
+        )
+    ):
+        merged.signals.visit_intent = True
+
+    opted_out_text = is_opt_out_text(inbound.effective_text or "")
+    if not visit_actionable or opted_out_text:
+        enrich_turn_facts_from_inbound(facts, inbound.effective_text)
+        overlay_followup_suggestions(merged.followup, facts)
+    followup_pause_decision = followup_decision(
+        merged, facts, inbound_text=inbound.effective_text
+    )
+    apply_pause = (
+        not visit_actionable
+        or followup_pause_decision.cancel_intent == FollowUpCancelIntent.OPT_OUT
+    )
+    if apply_pause:
+        apply_followup_transition(merged, followup_pause_decision)
+    pause_bubbles = immediate_pause_bubbles(followup_pause_decision)
+    pause_ack = bool(
+        pause_bubbles
+        and followup_pause_decision.eligible
+        and not visit_actionable
+    )
+
+    if followup_pause_decision.cancel_intent == FollowUpCancelIntent.OPT_OUT:
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="opt_out",
+                reason="Customer opt-out",
+            ),
+            state=merged,
+            outbound_texts=[],
+            turn_facts=facts,
+            tool_results=[],
+        )
 
     from sdr.domain.vehicle_reference import apply_primary_from_inbound
 
@@ -785,50 +881,6 @@ async def process_turn(
         pool=pool,
         quoted_resolution=quoted_resolution_from_inbound(merged, inbound),
     )
-
-    # Structured visit preference from this inbound — date-only is valid.
-    from sdr.domain.ownership import vendor_already_notified
-    from sdr.domain.scheduling import suggest_visit_slots
-    from sdr.domain.visit import apply_visit_from_inbound, apply_visit_utterance, parse_visit_utterance
-
-    inbound_low = (inbound.effective_text or "").lower()
-    saturday_ask = "sábado" in inbound_low or "sabado" in inbound_low
-    if vendor_already_notified(merged):
-        # After the vendor was notified, a time change is a new preference —
-        # do not rematch the previously offered slot labels ("em vez de 9h30").
-        parsed_visit = parse_visit_utterance(inbound.effective_text, [])
-        apply_visit_utterance(merged, parsed_visit)
-    else:
-        parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
-    saturday_slots_already = all(
-        "sábado" in str(s).lower() or "sabado" in str(s).lower()
-        for s in (merged.offered_visit_slots or [])
-    ) if merged.offered_visit_slots else False
-    if (
-        saturday_ask
-        and parsed_visit.time is None
-        and not parsed_visit.accepted_offered
-        and not parsed_visit.declined
-        and not saturday_slots_already
-    ):
-        # Asking whether Saturday is possible — offer Saturday times, don't lock a date.
-        merged.visit_date = None
-        merged.visit_period = None
-        if not merged.visit_time:
-            merged.visit_preferred_time = None
-        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
-        merged.needs_visit_slot_offer = True
-    elif (
-        not parsed_visit.declined
-        and not parsed_visit.courtesy
-        and (
-            parsed_visit.accepted_offered
-            or parsed_visit.date is not None
-            or parsed_visit.time is not None
-            or parsed_visit.period is not None
-        )
-    ):
-        merged.signals.visit_intent = True
 
     from sdr.domain.dialogue_plan import unanswered_questions_for_turn, is_courtesy_only
     from sdr.domain.qualification_policy import annotate_action_plan
@@ -905,8 +957,26 @@ async def process_turn(
     directive: ResponseDirective | None = None
 
     inbound_ctype = inbound.content_type.value if inbound.content_type else "TEXT"
+    planned_handoff = plan.action == Action.HANDOFF_VENDOR and bool(plan.handoff)
 
-    if plan.action == Action.HANDOFF_VENDOR and plan.handoff:
+    if pause_ack:
+        silent_vendor = False
+        if (planned_handoff or merged.handoff_ready) and not vendor_already_notified(
+            merged
+        ):
+            # Conversational pause_ack only. Vendor still gets one notify so
+            # an actionable lead is not invisible. Never a second notify on
+            # the follow-up send.
+            mark_handoff_sent(merged, "pause_ack_actionable")
+            silent_vendor = True
+        plan = ActionPlan(
+            action=Action.ASK_INFO,
+            reason_code="followup_pause_ack",
+            reason="Customer paused; follow-up is scheduled",
+            handoff=silent_vendor,
+        )
+        outbound.extend(pause_bubbles[:1])
+    elif plan.action == Action.HANDOFF_VENDOR and plan.handoff:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
             _record_shown_vehicles(merged, tool_results)

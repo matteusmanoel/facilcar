@@ -1,28 +1,43 @@
 /**
  * Outbound provenance for Evolution fromMe events.
  *
- * Not every fromMe=true is a human seller. Júlia's own bubbles are echoed
- * back with fromMe=true; those rows are correlated by isBotSent and/or a
- * known providerMessageId. Device/human outbound is fromMe without that
- * correlation — but only when a provider id was present to look up.
+ * Administrative Assumir is the only source of HUMAN_CONFIRMED ownership.
+ * Evolution echoes are correlated to bot reservations when possible.
+ * Anything else is AMBIGUOUS_FROM_ME and must not change ownership.
  *
- * Worker reserves isBotSent under `bot-pending-{uuid}` before Evolution
- * send, then updates providerMessageId. An echo whose text matches an
- * open reservation is claimed (not assumed). Residual TOCTOU: Evolution
- * cannot advertise the id before send returns, so an echo with empty or
- * non-matching text still looks unmatched until that UPDATE (or claim).
+ * Residual (Fase 14): Evolution cannot advertise the real id before send
+ * returns. That window is fail-safe: ambiguous, no assume.
  */
 
 export const RESERVED_BOT_PROVIDER_PREFIX = "bot-pending-";
 
+export type FromMeAuthorship =
+  | "BOT_CONFIRMED"
+  | "HUMAN_CONFIRMED"
+  | "AMBIGUOUS_FROM_ME"
+  | "NOT_FROM_ME";
+
 export type FromMeClassification =
-  | { kind: "ignore"; reason: "not_from_me" }
-  | { kind: "insufficient"; reason: "missing_provider_id" }
+  | { kind: "ignore"; reason: "not_from_me"; authorship: "NOT_FROM_ME" }
   | {
       kind: "bot_echo";
       reason: "is_bot_sent" | "known_provider_id" | "pending_reservation";
+      authorship: "BOT_CONFIRMED";
     }
-  | { kind: "human"; reason: "unmatched_from_me" };
+  | {
+      kind: "human";
+      reason: "admin_assume";
+      authorship: "HUMAN_CONFIRMED";
+    }
+  | {
+      kind: "ambiguous";
+      reason:
+        | "missing_provider_id"
+        | "unmatched_from_me"
+        | "divergent_text"
+        | "early_echo";
+      authorship: "AMBIGUOUS_FROM_ME";
+    };
 
 export function normalizeProviderMessageId(
   id: string | null | undefined,
@@ -66,25 +81,62 @@ export function classifyFromMeProvenance(input: {
   existingIsBotSent?: boolean | null;
   knownBotProviderId?: boolean | null;
   pendingBotReservation?: boolean | null;
+  textMatchesReservation?: boolean | null;
+  adminAssume?: boolean | null;
 }): FromMeClassification {
-  if (!input.fromMe) return { kind: "ignore", reason: "not_from_me" };
-  if (!normalizeProviderMessageId(input.providerMessageId)) {
-    return { kind: "insufficient", reason: "missing_provider_id" };
+  if (!input.fromMe) {
+    return { kind: "ignore", reason: "not_from_me", authorship: "NOT_FROM_ME" };
+  }
+  if (input.adminAssume) {
+    return { kind: "human", reason: "admin_assume", authorship: "HUMAN_CONFIRMED" };
   }
   if (input.existingIsBotSent) {
-    return { kind: "bot_echo", reason: "is_bot_sent" };
+    return { kind: "bot_echo", reason: "is_bot_sent", authorship: "BOT_CONFIRMED" };
   }
   if (input.knownBotProviderId) {
-    return { kind: "bot_echo", reason: "known_provider_id" };
+    return {
+      kind: "bot_echo",
+      reason: "known_provider_id",
+      authorship: "BOT_CONFIRMED",
+    };
   }
   if (input.pendingBotReservation) {
-    return { kind: "bot_echo", reason: "pending_reservation" };
+    if (input.textMatchesReservation === false) {
+      return {
+        kind: "ambiguous",
+        reason: "divergent_text",
+        authorship: "AMBIGUOUS_FROM_ME",
+      };
+    }
+    return {
+      kind: "bot_echo",
+      reason: "pending_reservation",
+      authorship: "BOT_CONFIRMED",
+    };
   }
-  return { kind: "human", reason: "unmatched_from_me" };
+  if (!normalizeProviderMessageId(input.providerMessageId)) {
+    return {
+      kind: "ambiguous",
+      reason: "missing_provider_id",
+      authorship: "AMBIGUOUS_FROM_ME",
+    };
+  }
+  if (isReservedBotProviderId(input.providerMessageId)) {
+    return {
+      kind: "ambiguous",
+      reason: "early_echo",
+      authorship: "AMBIGUOUS_FROM_ME",
+    };
+  }
+  return {
+    kind: "ambiguous",
+    reason: "unmatched_from_me",
+    authorship: "AMBIGUOUS_FROM_ME",
+  };
 }
 
 export function shouldAssumeHumanFromMe(
   classification: FromMeClassification,
 ): boolean {
-  return classification.kind === "human";
+  return classification.authorship === "HUMAN_CONFIRMED";
 }

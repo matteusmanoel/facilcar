@@ -42,6 +42,14 @@ SCHEMA_PATH = APPS / "web" / "prisma" / "schema.prisma"
 MIGRATION_PATH = (
     APPS / "web" / "prisma" / "migrations" / "20260908200000_sdr_follow_up_task" / "migration.sql"
 )
+CONTEXT_REVISION_MIGRATION = (
+    APPS
+    / "web"
+    / "prisma"
+    / "migrations"
+    / "20260908220000_sdr_conversation_context_revision"
+    / "migration.sql"
+)
 
 MONDAY_OPEN = datetime(2026, 9, 7, 10, 0, tzinfo=TZ_BRT)
 SUNDAY_CLOSED = datetime(2026, 9, 6, 10, 0, tzinfo=TZ_BRT)
@@ -60,12 +68,13 @@ def _snap(
     conversation_id: str = "conv-1",
     *,
     ownership_revision: int = 0,
-    context_revision: int = 0,
+    context_revision: int = 1,
     bot_status: str = LifecycleStatus.BOT_ACTIVE.value,
     last_inbound_at: datetime | None = None,
     opt_out: bool = False,
     closed: bool = False,
     commercial_ok: bool = True,
+    revision_loaded: bool = True,
 ) -> FollowUpSnapshot:
     return FollowUpSnapshot(
         conversation_id=conversation_id,
@@ -76,6 +85,7 @@ def _snap(
         opt_out=opt_out,
         closed=closed,
         commercial_ok=commercial_ok,
+        revision_loaded=revision_loaded,
     )
 
 
@@ -86,7 +96,7 @@ async def _seed(
     conversation_id: str = "conv-1",
     key: str = "fu-1",
     scheduled_at: datetime | None = None,
-    context_revision: int = 0,
+    context_revision: int = 1,
     ownership_revision: int = 0,
     maximum_attempts: int = 1,
     reason: str = "callback",
@@ -178,11 +188,16 @@ def test_prisma_schema_parses_follow_up_task() -> None:
     ):
         assert field in schema
     assert "waitState" in schema
+    assert "contextRevision" in schema
     assert re.search(r"botStatus\s+ConversationBotStatus", schema)
     assert "canonicalStateJson" in schema
     assert MIGRATION_PATH.is_file()
+    assert CONTEXT_REVISION_MIGRATION.is_file()
     sql = MIGRATION_PATH.read_text(encoding="utf-8")
     assert '"FollowUpTask"' in sql
+    context_sql = CONTEXT_REVISION_MIGRATION.read_text(encoding="utf-8")
+    assert '"Conversation"' in context_sql
+    assert '"contextRevision"' in context_sql
     assert 'ADD COLUMN IF NOT EXISTS "waitState"' in sql
     # Block shape: model parses as a closed Prisma model (no live migrate deploy).
     match = re.search(r"model FollowUpTask \{.*?\n\}", schema, re.S)

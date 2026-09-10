@@ -77,6 +77,15 @@ class ConsentLevel(str, Enum):
     REFUSED = "REFUSED"
 
 
+class ConsentSource(str, Enum):
+    """How a resume window was obtained — never confuse fallback with a promise."""
+
+    EXPLICIT_CUSTOMER_TIME = "explicit_customer_time"
+    EXPLICIT_PERMISSION = "explicit_permission"
+    CONTEXTUAL_SINGLE_ATTEMPT = "contextual_single_attempt"
+    NONE = "none"
+
+
 class FollowUpCancelIntent(str, Enum):
     """Returned for Frente C to wire. This module does not persist cancels."""
 
@@ -146,6 +155,10 @@ class FollowUpRecord:
     significant_commercial_exchange: bool = False
     commercially_closed: bool = False
     customer_commitment: bool = False
+    permission_requested: bool = False
+    consent_source: str = ConsentSource.NONE.value
+    fallback_resume_at: str | None = None
+    opted_out: bool = False
 
 
 @dataclass(slots=True)
@@ -169,6 +182,8 @@ class FollowUpDecision:
     forbid_handoff_repeat: bool = False
     reason_code: str = "not_eligible"
     fallback_resume_at: datetime | None = None
+    permission_requested: bool = False
+    consent_source: ConsentSource = ConsentSource.NONE
 
 
 def coerce_pause_reason(raw: Any) -> PauseReason | None:
@@ -212,6 +227,10 @@ def _record_from_dict(data: dict[str, Any]) -> FollowUpRecord:
         significant_commercial_exchange=bool(data.get("significant_commercial_exchange")),
         commercially_closed=bool(data.get("commercially_closed")),
         customer_commitment=bool(data.get("customer_commitment")),
+        permission_requested=bool(data.get("permission_requested")),
+        consent_source=str(data.get("consent_source") or ConsentSource.NONE.value),
+        fallback_resume_at=data.get("fallback_resume_at"),
+        opted_out=bool(data.get("opted_out")),
     )
 
 
@@ -591,6 +610,10 @@ def _commercially_closed(state: ConversationCanonicalState, facts: TurnFacts | N
 
 
 def _opt_out(state: ConversationCanonicalState, facts: TurnFacts | None) -> bool:
+    if getattr(state, "sdr_opted_out_at", None):
+        return True
+    if followup_record(state).opted_out:
+        return True
     if followup_record(state).pause_reason == PauseReason.OPT_OUT:
         return True
     return facts is not None and coerce_pause_reason(facts.pause_reason) == PauseReason.OPT_OUT
@@ -844,6 +867,8 @@ def _decision_from_pause(
             pause_reason=pause_reason,
             consent_level=consent if consent != ConsentLevel.NONE else ConsentLevel.CONTEXTUAL,
             may_ask_return_permission=consent != ConsentLevel.EXPLICIT_TIME,
+            permission_requested=consent != ConsentLevel.EXPLICIT_TIME,
+            consent_source=ConsentSource.CONTEXTUAL_SINGLE_ATTEMPT,
             schedule_at=None,
             original_temporal_text=original,
             temporal_kind=TemporalKind.PERIOD,
@@ -853,6 +878,7 @@ def _decision_from_pause(
             attempt_number=record.attempt_number,
             forbid_handoff_repeat=forbid_handoff,
             reason_code="period_no_invented_time",
+            fallback_resume_at=next_business_datetime(instant),
         )
 
     if consent == ConsentLevel.EXPLICIT_TIME or normalized.instant is not None:
@@ -868,6 +894,8 @@ def _decision_from_pause(
             pause_reason=pause_reason,
             consent_level=resolved_consent,
             may_ask_return_permission=False,
+            permission_requested=False,
+            consent_source=ConsentSource.EXPLICIT_CUSTOMER_TIME,
             schedule_at=schedule_at,
             original_temporal_text=original,
             temporal_kind=TemporalKind.INSTANT,
@@ -880,12 +908,37 @@ def _decision_from_pause(
         )
 
     fallback = next_business_datetime(instant)
+    grant = _fold(original or "")
+    permission_granted = any(
+        token in grant
+        for token in ("pode me chamar", "me chama", "pode chamar", "me liga")
+    )
+    if permission_granted:
+        return FollowUpDecision(
+            eligible=True,
+            wait_state=FollowUpWaitState.PAUSED_WITH_FOLLOWUP,
+            pause_reason=pause_reason,
+            consent_level=consent if consent != ConsentLevel.NONE else ConsentLevel.CONTEXTUAL,
+            may_ask_return_permission=False,
+            permission_requested=False,
+            consent_source=ConsentSource.EXPLICIT_PERMISSION,
+            schedule_at=None,
+            original_temporal_text=original,
+            authorize_send=False,
+            send_now=False,
+            attempt_number=record.attempt_number,
+            forbid_handoff_repeat=forbid_handoff,
+            reason_code="explicit_permission",
+            fallback_resume_at=fallback,
+        )
     return FollowUpDecision(
         eligible=True,
         wait_state=FollowUpWaitState.PAUSED_WITH_FOLLOWUP,
         pause_reason=pause_reason,
         consent_level=consent if consent != ConsentLevel.NONE else ConsentLevel.CONTEXTUAL,
         may_ask_return_permission=True,
+        permission_requested=True,
+        consent_source=ConsentSource.CONTEXTUAL_SINGLE_ATTEMPT,
         schedule_at=None,
         original_temporal_text=original,
         authorize_send=False,
@@ -1006,6 +1059,12 @@ def apply_followup_transition(
         record.original_temporal_text = decision.original_temporal_text
     if decision.schedule_at is not None:
         record.scheduled_at = _iso(decision.schedule_at)
+    elif decision.consent_source in {
+        ConsentSource.CONTEXTUAL_SINGLE_ATTEMPT,
+        ConsentSource.EXPLICIT_PERMISSION,
+    }:
+        # Fallback window is operational only — never an agreed customer clock.
+        record.scheduled_at = None
     elif decision.temporal_kind == TemporalKind.PERIOD:
         record.scheduled_at = None
     if decision.temporal_kind is not None:
@@ -1014,6 +1073,10 @@ def apply_followup_transition(
         record.period_label = decision.period_label
     record.attempt_number = decision.attempt_number
     record.remarketing_eligible = bool(decision.remarketing_eligible)
+    record.permission_requested = bool(decision.permission_requested)
+    record.consent_source = decision.consent_source.value
+    if decision.fallback_resume_at is not None:
+        record.fallback_resume_at = _iso(decision.fallback_resume_at)
     if decision.wait_state == FollowUpWaitState.AWAITING_AFTER_FOLLOWUP:
         sent = now_brt()
         record.sent_at = record.sent_at or _iso(sent)
@@ -1023,7 +1086,45 @@ def apply_followup_transition(
         record.awaiting_until = _iso(now_brt() + COMMERCIAL_SILENCE_WINDOW)
     if decision.wait_state == FollowUpWaitState.DORMANT:
         record.remarketing_eligible = True
+    if decision.cancel_intent == FollowUpCancelIntent.OPT_OUT:
+        record.opted_out = True
+        record.pause_reason = PauseReason.OPT_OUT
+        record.consent_level = ConsentLevel.REFUSED
+        if not getattr(state, "sdr_opted_out_at", None):
+            state.sdr_opted_out_at = _iso(now_brt())
     return state
+
+
+def resume_after_customer_reply(state: ConversationCanonicalState) -> ConversationCanonicalState:
+    """Clear operational schedule after a later inbound. Does not touch opt-out."""
+    record = followup_record(state)
+    if record.opted_out or getattr(state, "sdr_opted_out_at", None):
+        return state
+    state.wait_state = FollowUpWaitState.ACTIVE_QUALIFICATION.value
+    record.scheduled_at = None
+    record.fallback_resume_at = None
+    record.permission_requested = False
+    record.consent_source = ConsentSource.NONE.value
+    return state
+
+
+def mark_followup_sent(state: ConversationCanonicalState) -> ConversationCanonicalState:
+    record = followup_record(state)
+    return apply_followup_transition(
+        state,
+        FollowUpDecision(
+            eligible=True,
+            wait_state=FollowUpWaitState.AWAITING_AFTER_FOLLOWUP,
+            pause_reason=record.pause_reason,
+            consent_level=record.consent_level,
+            original_temporal_text=record.original_temporal_text,
+            attempt_number=max(int(record.attempt_number or 0), 1),
+            reason_code="followup_sent",
+            consent_source=ConsentSource(record.consent_source)
+            if record.consent_source in {item.value for item in ConsentSource}
+            else ConsentSource.NONE,
+        ),
+    )
 
 
 def mark_awaiting_customer(
@@ -1041,3 +1142,171 @@ def mark_awaiting_customer(
     )
     record.awaiting_until = _iso(instant + COMMERCIAL_SILENCE_WINDOW)
     return state
+
+
+PERMISSION_ASK_PT = "Claro. Posso te chamar amanhã para saber o que decidiram?"
+EXPLICIT_TIME_ACK_PT = "Certo. Te chamo no horário combinado."
+
+_VISIT_TOKENS = (
+    "visitar",
+    "visita",
+    "conhecer a loja",
+    "passar na loja",
+    "ir ai",
+    "ir aí",
+    "ir la",
+    "ir lá",
+    "consigo ir",
+    "posso ir",
+    "quero ir",
+    "vou ai",
+    "vou aí",
+    "em vez de",
+    "na loja",
+    "ver o carro",
+)
+_CALL_ME_TOKENS = (
+    "pode me chamar",
+    "me chama",
+    "pode chamar",
+    "me liga",
+    "me manda mensagem",
+)
+_DOCUMENT_TOKENS = ("comprovante", "documento", "cnh", "holerite", "imposto de renda")
+_PARTNER_TOKENS = (
+    "marido",
+    "esposa",
+    "esposo",
+    "mulher",
+    "namorado",
+    "namorada",
+    "parceiro",
+    "parceira",
+    "familia",
+    "cônjuge",
+    "conjuge",
+)
+
+
+def inbound_looks_like_visit(text: str) -> bool:
+    folded = _fold(text)
+    return any(token in folded for token in _VISIT_TOKENS)
+
+
+def suggest_pause_from_inbound(text: str) -> tuple[PauseReason | None, ConsentLevel, TemporalCommitment | None]:
+    """Deterministic pause interpretation when Understanding omitted suggestions.
+
+    Structural Portuguese cues, not brand/model lists. Temporal parsing still
+    owns the clock via ``normalize_temporal``.
+    """
+    from sdr.domain.followup_cancel import is_opt_out_text
+
+    raw = (text or "").strip()
+    if not raw:
+        return None, ConsentLevel.NONE, None
+    if is_opt_out_text(raw):
+        return PauseReason.OPT_OUT, ConsentLevel.REFUSED, None
+    if inbound_looks_like_visit(raw):
+        return None, ConsentLevel.NONE, None
+
+    folded = _fold(raw)
+    commitment = TemporalCommitment(original_text=raw)
+    normalized = normalize_temporal(commitment)
+    reason: PauseReason | None = None
+    call_me = any(token in folded for token in _CALL_ME_TOKENS)
+    if any(token in folded for token in _DOCUMENT_TOKENS):
+        # Deferring documents stays in qualification. Pause only when the
+        # customer asked to be called back about the documents.
+        if call_me:
+            reason = PauseReason.DOCUMENTS_PROMISED
+    elif any(token in folded for token in _PARTNER_TOKENS):
+        reason = PauseReason.DECISION_WITH_PARTNER
+    elif "vou pensar" in folded or "deixar para pensar" in folded:
+        reason = PauseReason.THINKING
+    elif (
+        "te retorno" in folded
+        or "depois te chamo" in folded
+        or "te falo" in folded
+        or call_me
+    ):
+        reason = PauseReason.CUSTOMER_WILL_RETURN
+
+    if reason is None:
+        return None, ConsentLevel.NONE, None
+    consent = ConsentLevel.NONE
+    if reason == PauseReason.OPT_OUT:
+        consent = ConsentLevel.REFUSED
+    elif normalized.kind == TemporalKind.INSTANT:
+        consent = ConsentLevel.EXPLICIT_TIME
+    else:
+        consent = ConsentLevel.CONTEXTUAL
+    return reason, consent, commitment
+
+
+def enrich_turn_facts_from_inbound(facts: TurnFacts, inbound_text: str) -> TurnFacts:
+    """Fill omitted pause suggestions from inbound. Never overwrite LLM values."""
+    reason, consent, commitment = suggest_pause_from_inbound(inbound_text)
+    if facts.pause_reason is None and reason is not None:
+        facts.pause_reason = reason.value
+    if facts.consent_level is None and consent != ConsentLevel.NONE:
+        facts.consent_level = consent.value
+    if facts.temporal_commitment is None and commitment is not None:
+        facts.temporal_commitment = commitment.original_text or inbound_text
+    return facts
+
+
+def inbound_is_followup_pause(
+    text: str,
+    facts: TurnFacts | None = None,
+    state: ConversationCanonicalState | None = None,
+) -> bool:
+    if inbound_looks_like_visit(text):
+        return False
+    if state is not None:
+        in_visit_flow = (
+            getattr(state, "pending_question", None) == "visit"
+            or bool(getattr(state, "visit_invited", False))
+            or bool(getattr(state, "offered_visit_slots", None))
+            or bool(getattr(state, "visit_preferred_time", None))
+        )
+        if in_visit_flow:
+            folded = _fold(text)
+            call_me = any(
+                token in folded
+                for token in (*_CALL_ME_TOKENS, "te retorno")
+            )
+            if not call_me:
+                return False
+    if facts is not None and coerce_pause_reason(facts.pause_reason):
+        return coerce_pause_reason(facts.pause_reason) != PauseReason.OPT_OUT
+    reason, _consent, _commitment = suggest_pause_from_inbound(text)
+    return reason is not None and reason != PauseReason.OPT_OUT
+
+
+def followup_record_to_dict(record: FollowUpRecord | None) -> dict[str, Any]:
+    if record is None:
+        return {}
+    return {
+        "pause_reason": record.pause_reason.value if record.pause_reason else None,
+        "consent_level": record.consent_level.value,
+        "pause_confidence": record.pause_confidence,
+        "original_temporal_text": record.original_temporal_text,
+        "scheduled_at": record.scheduled_at,
+        "temporal_kind": record.temporal_kind,
+        "period_label": record.period_label,
+        "attempt_number": record.attempt_number,
+        "sent_at": record.sent_at,
+        "awaiting_until": record.awaiting_until,
+        "remarketing_eligible": record.remarketing_eligible,
+        "last_bot_had_actionable_question": record.last_bot_had_actionable_question,
+        "significant_commercial_exchange": record.significant_commercial_exchange,
+        "commercially_closed": record.commercially_closed,
+        "customer_commitment": record.customer_commitment,
+        "permission_requested": record.permission_requested,
+        "consent_source": record.consent_source,
+        "fallback_resume_at": record.fallback_resume_at,
+        "customer_agreed_at": record.scheduled_at
+        if record.consent_source == ConsentSource.EXPLICIT_CUSTOMER_TIME.value
+        else None,
+        "opted_out": record.opted_out,
+    }

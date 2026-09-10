@@ -125,16 +125,6 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
       continue;
     }
 
-    // Human outbound only when provenance is sufficient: fromMe + a real
-    // provider id that does not match a known bot row or an open
-    // bot-pending reservation (same conversation + instance + text).
-    const classification = classifyFromMeProvenance({
-      fromMe: msg.fromMe,
-      providerMessageId: msg.messageId,
-      existingIsBotSent: false,
-      knownBotProviderId: false,
-    });
-
     const lastAt = msg.waTimestamp ?? new Date();
 
     const conversation = await prisma.conversation.upsert({
@@ -148,43 +138,70 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         instanceName: msg.instance,
         phone,
         lastMessageAt: lastAt,
+        ...(!msg.fromMe ? { contextRevision: 1 } : {}),
       },
       update: {
         lastMessageAt: lastAt,
+        ...(!msg.fromMe ? { contextRevision: { increment: 1 } } : {}),
       },
     });
     conversationId = conversation.id;
 
-    let assumeHuman = shouldAssumeHumanFromMe(classification);
-    if (assumeHuman) {
-      const pendingWhere = pendingBotReservationWhere({
-        conversationId: conversation.id,
-        instanceName: msg.instance,
-        text: msg.text,
+    // Provenance: Assumir is HUMAN_CONFIRMED. fromMe / real id / missing bot
+    // row / divergent text are AMBIGUOUS and never flip ownership.
+    const pendingWhere = pendingBotReservationWhere({
+      conversationId: conversation.id,
+      instanceName: msg.instance,
+      text: msg.text,
+    });
+    let pendingReservation = false;
+    let textMatchesReservation: boolean | null = null;
+    if (msg.fromMe && pendingWhere) {
+      const pending = await prisma.message.findFirst({
+        where: pendingWhere,
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
       });
-      if (pendingWhere) {
-        const pending = await prisma.message.findFirst({
-          where: pendingWhere,
-          orderBy: { createdAt: "asc" },
-          select: { id: true },
-        });
-        if (pending) {
-          try {
-            await prisma.message.update({
-              where: { id: pending.id },
-              data: { providerMessageId: msg.messageId },
-            });
-          } catch {
-            // Unique on instanceName+providerMessageId: worker already
-            // correlated this Evolution id. Treat as bot echo either way.
-          }
-          deduped++;
-          messageIds.push(pending.id);
-          continue;
+      if (pending) {
+        try {
+          await prisma.message.update({
+            where: { id: pending.id },
+            data: { providerMessageId: msg.messageId },
+          });
+        } catch {
+          // Unique on instanceName+providerMessageId: already correlated.
         }
+        deduped++;
+        messageIds.push(pending.id);
+        continue;
       }
     }
-
+    if (msg.fromMe) {
+      const openReservation = await prisma.message.findFirst({
+        where: {
+          conversationId: conversation.id,
+          instanceName: msg.instance,
+          isBotSent: true,
+          providerMessageId: { startsWith: "bot-pending-" },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, text: true },
+      });
+      if (openReservation) {
+        pendingReservation = true;
+        textMatchesReservation =
+          (openReservation.text ?? "").trim() === (msg.text ?? "").trim();
+      }
+    }
+    const classification = classifyFromMeProvenance({
+      fromMe: msg.fromMe,
+      providerMessageId: msg.messageId,
+      existingIsBotSent: false,
+      knownBotProviderId: false,
+      pendingBotReservation: pendingReservation,
+      textMatchesReservation,
+    });
+    const assumeHuman = shouldAssumeHumanFromMe(classification);
     if (assumeHuman) {
       const cas = humanFromMeOwnershipCas({
         conversationId: conversation.id,
@@ -236,6 +253,14 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
       }
     }
 
+    if (msg.fromMe) {
+      turnFactsBase["_sdr_fromme"] = {
+        authorship: classification.authorship,
+        kind: classification.kind,
+        reason: classification.reason,
+      };
+    }
+
     if (Object.keys(turnFactsBase).length > 0) {
       mediaInitJson = turnFactsBase;
     }
@@ -261,7 +286,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         mediaMimeType,
         fromMe: msg.fromMe,
         isHumanSent: assumeHuman,
-        isBotSent: false,
+        isBotSent: classification.kind === "bot_echo",
         processingStatus: msg.fromMe ? "DONE" : "PENDING",
         createdAt: lastAt,
         ...(mediaInitJson !== undefined ? { turnFactsJson: mediaInitJson } : {}),

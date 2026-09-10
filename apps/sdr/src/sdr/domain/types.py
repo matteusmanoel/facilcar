@@ -262,6 +262,7 @@ class ConversationCanonicalState:
     crm_revision: int = 0
     # Conversation ownership — Postgres columns win on load.
     ownership_revision: int = 0
+    context_revision: int = 0
     assumed_by_user_id: str | None = None
     assumed_at: str | None = None
     resumed_by_user_id: str | None = None
@@ -275,6 +276,8 @@ class ConversationCanonicalState:
     wait_state: str = "ACTIVE_QUALIFICATION"
     # FollowUpRecord (sdr.domain.followup) — pause, consent, schedule, attempts.
     followup: Any = None
+    # Durable opt-out (Conversation.sdrOptedOutAt). Survives /deletar.
+    sdr_opted_out_at: str | None = None
 
 
 @dataclass(slots=True)

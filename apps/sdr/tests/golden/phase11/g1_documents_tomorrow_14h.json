@@ -1,6 +1,7 @@
 {
   "name": "g1_documents_tomorrow_14h",
-  "description": "G1 — documents promised tomorrow 14h. One task, no send before due, one contextual follow-up.",
+  "description": "G1 — documents promised tomorrow 14h. Policy computes schedule; no fixture schedule.",
+  "execution_mode": "production_policy",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "FOLLOWUP_SENT",
   "expected_followup_sends": 1,
@@ -14,24 +15,7 @@
       "principal_event": true,
       "understand_return": {
         "intent": "PURCHASE_FINANCING",
-        "facts": {
-          "desired_model": "Strada",
-          "desired_year": 2018,
-          "pause_reason": "DOCUMENTS_UNAVAILABLE",
-          "temporal_text": "amanhã às 14h",
-          "consent_level": "EXPLICIT_WITH_TIME"
-        }
-      },
-      "followup": {
-        "schedule": true,
-        "reason": "DOCUMENTS_UNAVAILABLE",
-        "consent_source": "EXPLICIT",
-        "consent_level": "EXPLICIT_WITH_TIME",
-        "original_temporal_text": "amanhã às 14h",
-        "scheduled_at": "2026-09-08T14:00:00-03:00",
-        "vehicle_id": "VH-STRADA-2018",
-        "vehicle_label": "Strada Freedom 1.4 2018",
-        "idempotency_key": "g1-bruno-docs-2026-09-08T14:00:00-03:00"
+        "facts": {"desired_model": "Strada", "desired_year": 2018}
       },
       "forbidden_action": "HANDOFF_VENDOR",
       "expected_wait_state": "PAUSED_WITH_FOLLOWUP",

@@ -760,6 +760,7 @@ model Conversation {
   handoffAt           DateTime?
   vendorNotifiedAt    DateTime?
   ownershipRevision   Int                   @default(0)
+  contextRevision     Int                   @default(0)
   assumedByUserId     String?
   assumedAt           DateTime?
   resumedByUserId     String?
@@ -767,6 +768,7 @@ model Conversation {
   resumeReason        String?
   canonicalStateJson  Json?
   waitState           String?
+  sdrOptedOutAt       DateTime?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   messages            Message[]

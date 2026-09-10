@@ -425,3 +425,93 @@ def test_amanha_uses_commercial_clock() -> None:
     assert normalized.instant.date() == date(2026, 9, 8)
     assert normalized.instant.hour == DEFAULT_DAY_HOUR
     assert normalized.kind == TemporalKind.INSTANT
+
+
+def test_next_business_datetime_is_configured_10h_brt() -> None:
+    """Commercial resume without an explicit clock uses store default 10:00 BRT.
+
+    STORE_HOURS Mon–Fri 8–18; Saturday 8–16; Sunday closed. 10:00 is the
+    configured DEFAULT_DAY_HOUR inside the weekday window — not the 09:30
+    visit-slot morning label, and not a missing-config fallback.
+    """
+    from zoneinfo import ZoneInfo
+
+    from sdr.domain.followup import TZ_BRT, next_business_datetime
+    from sdr.domain.followup_config import TZ_NAME
+    from sdr.domain.scheduling import STORE_HOURS
+
+    assert TZ_NAME == "America/Sao_Paulo"
+    assert TZ_BRT == ZoneInfo("America/Sao_Paulo")
+    monday_hours = STORE_HOURS[0]
+    assert monday_hours[0] <= DEFAULT_DAY_HOUR < monday_hours[1]
+    now = datetime(2026, 9, 7, 10, 0, tzinfo=TZ_BRT)
+    nxt = next_business_datetime(now)
+    assert nxt.tzinfo == TZ_BRT
+    assert nxt.date() == date(2026, 9, 8)
+    assert nxt.hour == 10
+    assert nxt.minute == 0
+
+
+def test_g2_inbound_permission_is_not_agreed_clock() -> None:
+    from sdr.domain.followup import ConsentSource, PERMISSION_ASK_PT, enrich_turn_facts_from_inbound
+
+    state = _qualifying()
+    facts = TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING)
+    enrich_turn_facts_from_inbound(facts, "Vou ver com meu marido e te retorno.")
+    decision = followup_decision(
+        state, facts, inbound_text="Vou ver com meu marido e te retorno."
+    )
+    apply_followup_transition(state, decision)
+    assert decision.permission_requested is True
+    assert decision.consent_source == ConsentSource.CONTEXTUAL_SINGLE_ATTEMPT
+    assert decision.schedule_at is None
+    assert decision.fallback_resume_at is not None
+    assert decision.fallback_resume_at.hour == DEFAULT_DAY_HOUR
+    assert state.followup.scheduled_at is None
+    assert state.followup.fallback_resume_at is not None
+    assert state.followup.consent_source == ConsentSource.CONTEXTUAL_SINGLE_ATTEMPT.value
+    assert PERMISSION_ASK_PT
+
+
+def test_bare_clock_is_not_followup_pause() -> None:
+    """A clock without pause cues is a visit/appointment signal, not a follow-up."""
+    from sdr.domain.followup import inbound_is_followup_pause, suggest_pause_from_inbound
+
+    reason, consent, _commitment = suggest_pause_from_inbound("Pode ser amanhã às 9:30 então.")
+    assert reason is None
+    assert inbound_is_followup_pause("Pode ser amanhã às 9:30 então.") is False
+    assert inbound_is_followup_pause("Vou amanhã") is False
+    assert inbound_is_followup_pause("Pode ser às 14h") is False
+    assert inbound_is_followup_pause("Consigo ir às 15h em vez de 9h30") is False
+
+
+def test_document_deferral_without_callback_is_not_pause() -> None:
+    from sdr.domain.followup import inbound_is_followup_pause, suggest_pause_from_inbound
+
+    for inbound in (
+        "Posso enviar a CNH depois",
+        "Não tenho os documentos no momento, mando depois",
+    ):
+        reason, _consent, _commitment = suggest_pause_from_inbound(inbound)
+        assert reason is None, inbound
+        assert inbound_is_followup_pause(inbound) is False
+
+
+def test_g1_call_me_with_documents_is_still_pause() -> None:
+    from sdr.domain.followup import PauseReason, enrich_turn_facts_from_inbound
+
+    inbound = "Não estou com os comprovantes agora. Pode me chamar amanhã às 14h."
+    facts = TurnFacts(intent=BusinessIntent.PURCHASE_FINANCING)
+    enrich_turn_facts_from_inbound(facts, inbound)
+    assert facts.pause_reason == PauseReason.DOCUMENTS_PROMISED.value
+    decision = followup_decision(_qualifying(), facts, inbound_text=inbound)
+    assert decision.eligible is True
+    assert decision.schedule_at is not None
+    assert decision.schedule_at.hour == 14
+
+
+def test_visit_flow_state_blocks_pause_without_call_me() -> None:
+    from sdr.domain.followup import inbound_is_followup_pause
+
+    state = _qualifying(visit_invited=True, pending_question="visit")
+    assert inbound_is_followup_pause("Pode ser o primeiro horário", state=state) is False

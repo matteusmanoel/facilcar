@@ -6,7 +6,7 @@
     "gate": "G1",
     "llm": true,
     "repeats": 2,
-    "harness": "sdr.replay.followup_harness TEST_DOUBLE (Frente A/B swap)"
+    "harness": "execution_mode=production_policy (Frente A policy + B scheduler + D composer). followup_harness_double is unit-only."
   },
   "G2": {
     "contract": "Spouse without time: permission-style reply, at most one next-business-day retomada, no second attempt",
@@ -15,7 +15,7 @@
     "gate": "G2",
     "llm": true,
     "repeats": 2,
-    "harness": "sdr.replay.followup_harness TEST_DOUBLE (Frente A/B swap)"
+    "harness": "execution_mode=production_policy (Frente A policy + B scheduler + D composer). followup_harness_double is unit-only."
   },
   "G3": {
     "contract": "Reply before due cancels pending task; inbound processed; zero old follow-up",

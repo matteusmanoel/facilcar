@@ -4,7 +4,7 @@ import { humanFromMeOwnershipCas } from "../human-from-me-cas";
 describe("humanFromMeOwnershipCas", () => {
   const lastAt = new Date("2026-09-08T15:00:00.000Z");
 
-  it("CAS-bumps ownershipRevision when a human fromMe arrives", () => {
+  it("CAS-bumps ownershipRevision only when HUMAN_CONFIRMED callers invoke it", () => {
     expect(
       humanFromMeOwnershipCas({
         conversationId: "conv-1",

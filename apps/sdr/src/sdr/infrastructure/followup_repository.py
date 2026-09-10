@@ -32,6 +32,12 @@ DEFAULT_CLAIM_TTL = timedelta(minutes=5)
 
 CANCEL_REASON_HUMAN_ASSUMED = "HUMAN_ASSUMED"
 CANCEL_REASON_CONTEXT_CHANGED = "CONTEXT_CHANGED"
+CANCEL_REASON_REVISION_UNAVAILABLE = "REVISION_UNAVAILABLE"
+MIN_CONTEXT_REVISION = 1
+
+
+class InvalidFollowUpContextRevision(ValueError):
+    """Follow-up tasks must capture a live inbound revision ≥ 1."""
 
 _PII_DIGITS = re.compile(r"\b\d{11,}\b")
 _URL = re.compile(r"https?://\S+", re.I)
@@ -223,6 +229,10 @@ class InMemoryFollowUpRepository:
         ownership_revision: int = 0,
         now: datetime | None = None,
     ) -> FollowUpTask:
+        if int(context_revision or 0) < MIN_CONTEXT_REVISION:
+            raise InvalidFollowUpContextRevision(
+                f"context_revision={context_revision} is not a live inbound revision"
+            )
         stamp = now or datetime.now(TZ_BRT)
         async with self._mutex:
             existing = self._by_key(idempotency_key)
@@ -490,6 +500,10 @@ class FollowUpRepository:
         ownership_revision: int = 0,
         now: datetime | None = None,
     ) -> FollowUpTask:
+        if int(context_revision or 0) < MIN_CONTEXT_REVISION:
+            raise InvalidFollowUpContextRevision(
+                f"context_revision={context_revision} is not a live inbound revision"
+            )
         stamp = naive_wall(now or datetime.now(TZ_BRT))
         sched = naive_wall(scheduled_at)
         async with self._pool.acquire() as conn:
@@ -828,6 +842,7 @@ __all__ = [
     "ACTIVE_STATUSES",
     "CANCEL_REASON_CONTEXT_CHANGED",
     "CANCEL_REASON_HUMAN_ASSUMED",
+    "CANCEL_REASON_REVISION_UNAVAILABLE",
     "DEFAULT_CLAIM_TTL",
     "FollowUpRepository",
     "FollowUpStore",

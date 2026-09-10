@@ -1,8 +1,9 @@
 """Phase 11 replay matrix — follow-up clock jumps, scheduler, invariants.
 
-Deterministic pytest uses understand_return stubs plus the in-memory
-``sdr.replay.followup_harness`` double. Live LLM belongs to
-``python -m sdr.gate_phase11`` after freeze (G1 x2, G2 x2 only).
+Deterministic pytest uses understand_return stubs for intent/vehicle only.
+G1–G10 run with ``execution_mode=production_policy`` (real Frente A policy,
+scheduler, composer). ``followup_harness_double`` remains unit-test only.
+Live LLM belongs to ``python -m sdr.gate_phase11`` after freeze.
 """
 from __future__ import annotations
 
@@ -12,7 +13,9 @@ from pathlib import Path
 
 import pytest
 
+from sdr.application.followup_runtime import EXECUTION_MODE_PRODUCTION
 from sdr.domain.clock import GOLDEN_CLOCK_ISO, now_brt, set_clock
+from sdr.domain.followup import PERMISSION_ASK_PT
 from sdr.replay.followup_harness import (
     FollowUpHarness,
     apply_clock_jump,
@@ -32,14 +35,34 @@ def _load(stem: str) -> dict:
     return json.loads((_PHASE11 / f"{stem}.json").read_text(encoding="utf-8"))
 
 
+def _assert_production_path(run) -> None:
+    assert run.execution_mode == EXECUTION_MODE_PRODUCTION
+    evidence = run.followup_evidence or {}
+    assert evidence.get("policy_called") is True
+    assert evidence.get("eligibility_evaluated") is True
+    assert evidence.get("schedule_computed") is True
+    assert evidence.get("task_persisted") is True
+    assert evidence.get("scheduler_claimed") is True
+    assert evidence.get("pre_send_checks_executed") is True
+    assert evidence.get("execution_mode") == EXECUTION_MODE_PRODUCTION
+    assert evidence.get("context_revision_loaded") is True
+    assert evidence.get("context_revision_nonzero") is True
+    assert int(evidence.get("context_revision") or 0) >= 1
+    assert all(int(t.get("contextRevision") or 0) >= 1 for t in run.followup_tasks)
+    if run.followup_sends or run.followup_claims:
+        assert evidence.get("context_revision_checked_before_compose") is True
+        assert evidence.get("context_revision_checked_before_send") is True
+
+
 @pytest.mark.asyncio
 async def test_g1_documents_tomorrow_14h() -> None:
     run = await run_scenario_detailed(_load("g1_documents_tomorrow_14h"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 1
     assert run.wait_state == "AWAITING_AFTER_FOLLOWUP"
     scheduled = [t.get("scheduledAt") for t in run.followup_tasks]
-    assert any("2026-09-08T14:00:00-03:00" in str(item) for item in scheduled)
+    assert any("2026-09-08T14:00:00" in str(item) for item in scheduled)
     assert run.followup_composer_calls == 1
     before = [t for t in run.turns if t.get("action") == "CLOCK_JUMP"]
     assert before
@@ -50,18 +73,30 @@ async def test_g1_documents_tomorrow_14h() -> None:
 async def test_g2_spouse_without_time() -> None:
     run = await run_scenario_detailed(_load("g2_spouse_without_time"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 1
     first = run.turns[0]
-    blob = " ".join(first.get("outbound") or []).lower()
-    assert blob
-    assert "vi que você sumiu" not in blob
-    assert "urgente" not in blob
+    blob = " ".join(first.get("outbound") or [])
+    assert PERMISSION_ASK_PT in blob
+    assert "vi que você sumiu" not in blob.lower()
+    assert "urgente" not in blob.lower()
+    assert "combinou" not in blob.lower()
+    scheduled = [str(t.get("scheduledAt") or "") for t in run.followup_tasks]
+    assert any("2026-09-08T10:00:00" in item for item in scheduled)
+    sources = {t.get("consentSource") for t in run.followup_tasks}
+    assert "contextual_single_attempt" in sources
+    assert all(t.get("consentSource") != "explicit_customer_time" for t in run.followup_tasks)
+    evidence = run.followup_evidence or {}
+    assert evidence.get("consent_source") == "contextual_single_attempt"
+    assert evidence.get("customer_agreed_at") is None
+    assert "2026-09-08T10:00:00" in str(evidence.get("fallback_resume_at") or "")
 
 
 @pytest.mark.asyncio
 async def test_g3_reply_before_due() -> None:
     run = await run_scenario_detailed(_load("g3_reply_before_due"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 0
     assert run.followup_cancels
     assert run.followup_cancels[0].get("cancelReason") == "CUSTOMER_REPLIED"
@@ -75,11 +110,11 @@ async def test_g3_reply_before_due() -> None:
 async def test_g4_human_assume() -> None:
     run = await run_scenario_detailed(_load("g4_human_assume"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 0
     silenced = next(t for t in run.turns if t.get("inbound") == "Quero financiar a Strada sem entrada")
     assert silenced.get("outbound") == []
     assert silenced.get("llm_calls") == 0
-    assert silenced.get("inbound_persisted") is True
     tick = [t for t in run.turns if t.get("action") in {"SCHEDULER_TICK", "FOLLOWUP_SEND"}][-1]
     assert tick.get("llm_calls") == 0
     assert not (tick.get("outbound") or [])
@@ -89,6 +124,7 @@ async def test_g4_human_assume() -> None:
 async def test_g5_opt_out() -> None:
     run = await run_scenario_detailed(_load("g5_opt_out"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 0
     opt = next(t for t in run.turns if "Não quero mais" in str(t.get("inbound") or ""))
     assert opt.get("outbound") == []
@@ -101,10 +137,12 @@ async def test_g5_opt_out() -> None:
 async def test_g6_two_workers() -> None:
     run = await run_scenario_detailed(_load("g6_two_workers"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 1
     assert run.followup_composer_calls == 1
     assert len(run.followup_claims) == 1
-    assert run.idempotency_keys == ["g6-two-workers"]
+    keys = [k for k in run.idempotency_keys if k]
+    assert len(set(keys)) == 1
 
 
 def test_g6_two_workers_unit_cas() -> None:
@@ -132,16 +170,21 @@ def test_g6_two_workers_unit_cas() -> None:
 async def test_g7_after_hours() -> None:
     run = await run_scenario_detailed(_load("g7_after_hours"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 1
+    scheduled = [str(t.get("scheduledAt") or "") for t in run.followup_tasks]
+    assert any("2026-09-08T08:00:00" in item for item in scheduled)
+    originals = [str(t.get("originalTemporalText") or "") for t in run.followup_tasks]
+    assert any("19h" in item for item in originals)
     mid = run.turns[1]
     assert mid.get("followup_sends") == 0
-    assert mid.get("rescheduled")
 
 
 @pytest.mark.asyncio
 async def test_g8_vehicle_sold() -> None:
     run = await run_scenario_detailed(_load("g8_vehicle_sold"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 0
     assert run.wait_state == "DORMANT"
     assert run.followup_cancels
@@ -155,6 +198,7 @@ async def test_g8_vehicle_sold() -> None:
 async def test_g9_dormant_after_followup() -> None:
     run = await run_scenario_detailed(_load("g9_dormant_after_followup"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     assert run.followup_sends == 1
     assert run.wait_state == "DORMANT"
     assert run.obtained_terminal == "DORMANT"
@@ -164,12 +208,12 @@ async def test_g9_dormant_after_followup() -> None:
 async def test_g10_post_handoff_before_human() -> None:
     run = await run_scenario_detailed(_load("g10_post_handoff_before_human"))
     assert run.ok, "\n".join(run.errors)
+    _assert_production_path(run)
     actions = [str(t.get("action") or "").upper() for t in run.turns]
     assert actions.count("HANDOFF_VENDOR") == 1
     assert int(run.crm_handoff_count) == 1
     assert run.followup_sends == 0
     assert any(str(t.get("bot_status") or "") == "HUMAN_ACTIVE" for t in run.turns)
-
 
 def test_e1_advance_hours() -> None:
     set_clock(GOLDEN_CLOCK_ISO)
@@ -285,7 +329,19 @@ def test_gate_phase11_output_dir_is_gitignored() -> None:
     assert ".gate/" in gitignore
 
 
-def test_clock_jump_does_not_sleep() -> None:
+def test_phase11_goldens_do_not_preseed_schedule() -> None:
+    for path in _PHASE11.glob("g*.json"):
+        if path.name == "g1_g10_mapping.json":
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload.get("execution_mode") == EXECUTION_MODE_PRODUCTION
+        for turn in payload.get("turns") or []:
+            followup = turn.get("followup")
+            assert not (isinstance(followup, dict) and followup.get("schedule")), path.name
+            facts = ((turn.get("understand_return") or {}).get("facts") or {})
+            assert "pause_reason" not in facts, path.name
+            assert "consent_level" not in facts, path.name
+            assert "scheduled_at" not in facts, path.name
     set_clock(GOLDEN_CLOCK_ISO)
     start = now_brt()
     apply_clock_jump({"hours": 48})

@@ -1,6 +1,7 @@
 {
   "name": "g3_reply_before_due",
   "description": "G3 — customer replies before due. Pending task cancelled. Inbound processed. Zero old follow-up.",
+  "execution_mode": "production_policy",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_followup_sends": 0,
   "expected_wait_state": "ACTIVE_QUALIFICATION",
@@ -13,20 +14,7 @@
       "principal_event": true,
       "understand_return": {
         "intent": "PURCHASE_FINANCING",
-        "facts": {
-          "desired_model": "Strada",
-          "pause_reason": "DOCUMENTS_UNAVAILABLE"
-        }
-      },
-      "followup": {
-        "schedule": true,
-        "reason": "DOCUMENTS_UNAVAILABLE",
-        "consent_source": "EXPLICIT",
-        "consent_level": "EXPLICIT_WITH_TIME",
-        "original_temporal_text": "amanhã às 14h",
-        "scheduled_at": "2026-09-08T14:00:00-03:00",
-        "vehicle_id": "VH-STRADA-2018",
-        "vehicle_label": "Strada Freedom 1.4 2018"
+        "facts": {"desired_model": "Strada"}
       },
       "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
       "expected_followup_sends": 0,
@@ -38,10 +26,7 @@
       "response_mode": "voluntary_fact",
       "understand_return": {
         "intent": "PURCHASE_FINANCING",
-        "facts": {
-          "desired_model": "Strada",
-          "payment_method": "financing"
-        }
+        "facts": {"desired_model": "Strada", "payment_method": "financing"}
       },
       "expected_outbound_min": 1,
       "expected_followup_sends": 0,

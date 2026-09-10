@@ -26,12 +26,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Protocol
 
+from sdr.domain.conversation_revision import context_revision_is_usable
 from sdr.domain.clock import now_brt as live_now_brt
 from sdr.domain.scheduling import is_within_store_hours, next_open_datetime
 from sdr.domain.types import LifecycleStatus
 from sdr.infrastructure.followup_repository import (
     CANCEL_REASON_CONTEXT_CHANGED,
     CANCEL_REASON_HUMAN_ASSUMED,
+    CANCEL_REASON_REVISION_UNAVAILABLE,
     DEFAULT_CLAIM_TTL,
     FollowUpTask,
     STATUS_CLAIMED,
@@ -48,6 +50,7 @@ CANCEL_CLOSED = "CLOSED"
 CANCEL_COMMERCIAL = "COMMERCIAL_INVALID"
 CANCEL_CAS_MISS = "CAS_MISS"
 CANCEL_ATTEMPTS_EXHAUSTED = "ATTEMPTS_EXHAUSTED"
+CANCEL_REVISION_UNAVAILABLE = CANCEL_REASON_REVISION_UNAVAILABLE
 
 NowFn = Callable[[], datetime]
 ComposerFn = Callable[[FollowUpTask, "FollowUpSnapshot"], Awaitable[str]]
@@ -66,11 +69,12 @@ class FollowUpSnapshot:
     conversation_id: str
     bot_status: str = LifecycleStatus.BOT_ACTIVE.value
     ownership_revision: int = 0
-    context_revision: int = 0
+    context_revision: int | None = None
     last_inbound_at: datetime | None = None
     opt_out: bool = False
     closed: bool = False
     commercial_ok: bool = True
+    revision_loaded: bool = False
 
 
 @dataclass(slots=True)
@@ -122,13 +126,63 @@ async def default_send_followup(task: FollowUpTask, text: str) -> None:
     return None
 
 
-def _default_snapshot(task: FollowUpTask) -> FollowUpSnapshot:
+async def load_followup_snapshot_from_conversation(
+    conversations: Any, conversation_id: str
+) -> FollowUpSnapshot:
+    """Worker snapshot from live Conversation columns. Missing column → no send."""
+    get = getattr(conversations, "get_by_id", None)
+    if get is None:
+        return _unavailable_snapshot(conversation_id)
+    try:
+        row = await get(conversation_id)
+    except Exception as exc:
+        name = type(exc).__name__.lower()
+        text = str(exc).lower()
+        if "undefinedcolumn" in name or "contextrevision" in text or "42703" in text:
+            return _unavailable_snapshot(conversation_id)
+        raise
+    if row is None:
+        return _unavailable_snapshot(conversation_id)
+    try:
+        keys = set(row.keys())
+    except Exception:
+        keys = set()
+    if "contextRevision" not in keys:
+        return _unavailable_snapshot(conversation_id)
+    raw = row["contextRevision"]
+    if raw is None:
+        return _unavailable_snapshot(conversation_id)
+    revision = int(raw)
+    if not context_revision_is_usable(revision):
+        return _unavailable_snapshot(conversation_id)
+    opted = row["sdrOptedOutAt"] if "sdrOptedOutAt" in keys else None
+    bot = str(row["botStatus"] if "botStatus" in keys else LifecycleStatus.BOT_ACTIVE.value)
+    own = int(row["ownershipRevision"] or 0) if "ownershipRevision" in keys else 0
     return FollowUpSnapshot(
-        conversation_id=task.conversation_id,
-        bot_status=LifecycleStatus.BOT_ACTIVE.value,
-        ownership_revision=task.ownership_revision,
-        context_revision=task.context_revision,
+        conversation_id=conversation_id,
+        bot_status=bot,
+        ownership_revision=own,
+        context_revision=revision,
+        opt_out=opted is not None,
+        closed=bot == LifecycleStatus.HUMAN_CLOSED.value,
+        commercial_ok=opted is None,
+        revision_loaded=True,
     )
+
+
+def _unavailable_snapshot(conversation_id: str) -> FollowUpSnapshot:
+    """No live Conversation.contextRevision — fail-safe, never send."""
+    return FollowUpSnapshot(
+        conversation_id=conversation_id,
+        revision_loaded=False,
+        context_revision=None,
+    )
+
+
+def _default_snapshot(task: FollowUpTask) -> FollowUpSnapshot:
+    # Copying the task's own revision would make CAS a no-op. Missing loader
+    # is fail-safe: do not send.
+    return _unavailable_snapshot(task.conversation_id)
 
 
 class FollowUpScheduler:
@@ -154,6 +208,8 @@ class FollowUpScheduler:
         self.claim_limit = claim_limit
         # In-process delivery log so a crash after send reconciles without dup.
         self._delivered_keys: set[str] = set()
+        self.context_checked_before_compose = False
+        self.context_checked_before_send = False
 
     def _stamp(self) -> datetime:
         return self._now()
@@ -218,6 +274,14 @@ class FollowUpScheduler:
         now: datetime,
     ) -> str | None:
         """Return a cancel/abort reason, ``outside_hours``, or None if send is allowed."""
+        if not snapshot.revision_loaded or not context_revision_is_usable(
+            snapshot.context_revision
+        ):
+            return CANCEL_REVISION_UNAVAILABLE
+        if not context_revision_is_usable(task.context_revision):
+            return CANCEL_REVISION_UNAVAILABLE
+        if snapshot.context_revision != task.context_revision:
+            return CANCEL_REASON_CONTEXT_CHANGED
         if task.sent_at is not None or task.status == STATUS_SENT:
             return "already_sent"
         if task.status not in {STATUS_CLAIMED, STATUS_PROCESSING}:
@@ -274,6 +338,11 @@ class FollowUpScheduler:
         if reason == CANCEL_CAS_MISS:
             await self.repository.reschedule(task.id, task.scheduled_at, now=now)
             return FollowUpTickResult(task.id, "aborted", reason=reason)
+        if reason == CANCEL_REVISION_UNAVAILABLE:
+            # Missing column or unloadable revision: do not send; return to
+            # PENDING so a later deploy with the column can resume. Never 0.
+            await self.repository.reschedule(task.id, task.scheduled_at, now=now)
+            return FollowUpTickResult(task.id, "aborted", reason=reason)
         await self.repository.cancel(task.id, reason, now=now)
         return FollowUpTickResult(task.id, "cancelled", reason=reason)
 
@@ -289,17 +358,21 @@ class FollowUpScheduler:
 
         # 3 re-read ownership  4 inbound  5 cancel  6 commercial  7 hours  8 context
         snapshot = await self._load(task)
+        self.context_checked_before_compose = True
         blocker = self._pre_send_blockers(task, snapshot, now)
         if blocker is not None:
             return await self._apply_blocker(task, blocker, now)
 
         # 9 compose seam
         text = await self._compose(task, snapshot)
+        if not str(text or "").strip():
+            return FollowUpTickResult(task.id, "aborted", reason="empty_or_unsafe")
 
         # 10 re-check immediately before send
         task = await self._reload_task(task.id) or task
         snapshot = await self._load(task)
         now = self._stamp()
+        self.context_checked_before_send = True
         blocker = self._pre_send_blockers(task, snapshot, now)
         if blocker is not None:
             return await self._apply_blocker(task, blocker, now)
@@ -389,7 +462,9 @@ __all__ = [
     "FollowUpSendConfirmedError",
     "FollowUpSnapshot",
     "FollowUpTickResult",
+    "CANCEL_REVISION_UNAVAILABLE",
     "cancel_pending_for_conversation",
     "default_compose_followup",
     "default_send_followup",
+    "load_followup_snapshot_from_conversation",
 ]

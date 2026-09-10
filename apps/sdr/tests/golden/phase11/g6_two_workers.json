@@ -1,6 +1,7 @@
 {
   "name": "g6_two_workers",
   "description": "G6 — two scheduler workers, one claim, one composer, one send, one idempotency key.",
+  "execution_mode": "production_policy",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "FOLLOWUP_SENT",
   "expected_followup_sends": 1,
@@ -14,17 +15,6 @@
       "understand_return": {
         "intent": "PURCHASE_FINANCING",
         "facts": {"desired_model": "Strada"}
-      },
-      "followup": {
-        "schedule": true,
-        "reason": "CUSTOMER_WILL_RETURN",
-        "consent_source": "EXPLICIT",
-        "consent_level": "EXPLICIT_WITH_TIME",
-        "original_temporal_text": "amanhã às 14h",
-        "scheduled_at": "2026-09-08T14:00:00-03:00",
-        "vehicle_id": "VH-STRADA-2018",
-        "vehicle_label": "Strada Freedom 1.4 2018",
-        "idempotency_key": "g6-two-workers"
       },
       "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
       "forbidden_action": "HANDOFF_VENDOR"

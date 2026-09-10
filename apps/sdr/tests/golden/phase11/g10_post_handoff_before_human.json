@@ -1,6 +1,7 @@
 {
   "name": "g10_post_handoff_before_human",
   "description": "G10 — follow-up still eligible after handoff while bot is active. One handoff. Human assume before send still cancels.",
+  "execution_mode": "production_policy",
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "HANDOFF_VENDOR",
   "expected_handoff_count": 1,
@@ -26,21 +27,7 @@
       "response_mode": "voluntary_fact",
       "understand_return": {
         "intent": "PURCHASE_FINANCING",
-        "facts": {
-          "name": "Bruno Silva",
-          "desired_model": "Strada",
-          "pause_reason": "DECISION_WITH_PARTNER"
-        }
-      },
-      "followup": {
-        "schedule": true,
-        "reason": "DECISION_WITH_PARTNER",
-        "consent_source": "EXPLICIT",
-        "consent_level": "EXPLICIT_WITH_TIME",
-        "original_temporal_text": "amanhã às 14h",
-        "scheduled_at": "2026-09-08T14:00:00-03:00",
-        "vehicle_id": "VH-STRADA-2018",
-        "vehicle_label": "Strada Freedom 1.4 2018"
+        "facts": {"name": "Bruno Silva", "desired_model": "Strada"}
       },
       "forbidden_action": "HANDOFF_VENDOR",
       "expected_outbound_min": 1,

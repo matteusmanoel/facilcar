@@ -103,6 +103,8 @@ class ScenarioRunResult:
     followup_transitions: list[dict[str, Any]] = field(default_factory=list)
     inventory_overrides: list[dict[str, Any]] = field(default_factory=list)
     idempotency_keys: list[str] = field(default_factory=list)
+    execution_mode: str = "production_policy"
+    followup_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 
@@ -136,7 +138,7 @@ def _initial_state(scenario: dict[str, Any]) -> Any:
     return state
 
 
-def _stub_understand(turns: list[dict[str, Any]]):
+def _stub_understand(turns: list[dict[str, Any]], *, copy_followup_hints: bool = False):
     from sdr.domain.types import BusinessIntent, ConversationCanonicalState, HandoffSignals, TurnFacts
 
     understand_stubs: list[dict[str, Any]] = [t.get("understand_return") or {} for t in turns]
@@ -150,14 +152,25 @@ def _stub_understand(turns: list[dict[str, Any]]):
             intent = BusinessIntent(intent_str.lower())
         except ValueError:
             intent = BusinessIntent.UNKNOWN
-        facts = stub.get("facts") or {}
+        facts = dict(stub.get("facts") or {})
+        pause = facts.pop("pause_reason", None)
+        consent = facts.pop("consent_level", None)
+        temporal = facts.pop("temporal_text", None)
         signals_raw = stub.get("signals") or {}
         if signals_raw:
             valid_fields = {f.name for f in HandoffSignals.__dataclass_fields__.values()}
             signals = HandoffSignals(**{k: v for k, v in signals_raw.items() if k in valid_fields})
         else:
             signals = HandoffSignals()
-        return TurnFacts(intent=intent, facts=facts, signals=signals)
+        tf = TurnFacts(intent=intent, facts=facts, signals=signals)
+        if copy_followup_hints:
+            if pause:
+                tf.pause_reason = pause
+            if consent:
+                tf.consent_level = consent
+            if temporal:
+                tf.temporal_commitment = temporal
+        return tf
 
     return _understand, turn_idx_ref, understand_stubs
 
@@ -246,6 +259,12 @@ def _has_customer_inbound(turn_def: dict[str, Any]) -> bool:
         return True
     events = turn_def.get("events")
     return isinstance(events, list) and any(isinstance(e, dict) for e in events)
+
+
+def _inbound_is_opt_out(inbound_text: str) -> bool:
+    from sdr.domain.followup_cancel import is_opt_out_text
+
+    return is_opt_out_text(inbound_text)
 
 
 def _bot_status(state: Any) -> str:
@@ -394,10 +413,34 @@ async def run_scenario_detailed(
     clock_iso = scenario.get("clock") or GOLDEN_CLOCK_ISO
     set_clock(clock_iso)
     from sdr.domain.clock import now_brt
+    from sdr.application.followup_runtime import (
+        EXECUTION_MODE_DOUBLE,
+        EXECUTION_MODE_PRODUCTION,
+        FollowUpRuntime,
+    )
     from sdr.replay.followup_harness import FollowUpHarness, apply_clock_jump
 
+    execution_mode = str(scenario.get("execution_mode") or EXECUTION_MODE_PRODUCTION)
+    use_followup_double = execution_mode == EXECUTION_MODE_DOUBLE
     harness = FollowUpHarness(scenario_name=name, thread_id=getattr(state, "thread_id", name))
+    runtime = FollowUpRuntime(conversation_id=str(getattr(state, "thread_id", name)))
+    runtime.evidence.execution_mode = (
+        EXECUTION_MODE_DOUBLE if use_followup_double else EXECUTION_MODE_PRODUCTION
+    )
     inventory_overrides: list[dict[str, Any]] = []
+
+    def _followup_snap() -> dict[str, Any]:
+        if use_followup_double:
+            return harness.snapshot()
+        return runtime.replay_snapshot(runtime.last_state or state)
+
+    def _followup_wait() -> str:
+        return str(_followup_snap().get("wait_state") or "")
+
+    def _followup_send_count() -> int:
+        if use_followup_double:
+            return len(harness.sends)
+        return len(runtime.sends)
 
     async def _seed_search_with_request(_pool: Any, req: Any) -> list[Any]:
         from tests.golden.fixtures.seed_inventory_adapter import inventory_vehicles_from_seed_request
@@ -482,7 +525,9 @@ async def run_scenario_detailed(
         turn_idx_ref = [0]
         understand_stubs: list[dict[str, Any]] = []
     else:
-        understand, turn_idx_ref, understand_stubs = _stub_understand(turns)
+        understand, turn_idx_ref, understand_stubs = _stub_understand(
+            turns, copy_followup_hints=use_followup_double
+        )
 
     llm_calls = 0
     suppressed_outbound_count = 0
@@ -538,8 +583,8 @@ async def run_scenario_detailed(
             "ownership_revision": own["ownershipRevision"],
             "runtime_calls": 0,
             "runtime_call_count": 0,
-            "wait_state": harness.wait_state,
-            "followup_sends": len(harness.sends),
+            "wait_state": _followup_wait(),
+            "followup_sends": _followup_send_count(),
             **(extra or {}),
             **event_meta,
         }
@@ -556,9 +601,9 @@ async def run_scenario_detailed(
                 "composer_result": outbound_texts,
                 "invariant_results": ["pass"],
                 "llm_calls": llm_turn,
-                "wait_state": harness.wait_state,
-                "followup_sends": len(harness.sends),
-                "followup_tasks": [t.as_dict() for t in harness.tasks],
+                "wait_state": _followup_wait(),
+                "followup_sends": _followup_send_count(),
+                "followup_tasks": runtime.task_dicts() if not use_followup_double else [t.as_dict() for t in harness.tasks],
                 **(extra or {}),
                 **event_meta,
             }
@@ -573,7 +618,7 @@ async def run_scenario_detailed(
             runtime_calls=0,
             llm_calls=llm_turn,
             inbound_persisted=inbound_persisted,
-            followup=harness.snapshot(),
+            followup=_followup_snap(),
         )
         for item in violations:
             errors.append(str(item))
@@ -584,7 +629,11 @@ async def run_scenario_detailed(
         handled_control = False
         override = turn_def.get("inventory_override")
         if isinstance(override, dict) and override:
-            applied = harness.override_inventory(override)
+            applied = (
+                harness.override_inventory(override)
+                if use_followup_double
+                else runtime.override_inventory(override)
+            )
             inventory_overrides.append(applied)
             events_executed.append({"type": "inventory_override", "turn_id": idx, **applied})
             handled_control = True
@@ -592,6 +641,7 @@ async def run_scenario_detailed(
         if jump:
             instant = apply_clock_jump(jump)
             harness.record_clock_jump(jump, instant)
+            runtime.record_clock_jump(jump, instant)
             events_executed.append(
                 {"type": "clock_jump", "turn_id": idx, "clock": instant.isoformat()}
             )
@@ -599,7 +649,41 @@ async def run_scenario_detailed(
         tick_spec = turn_def.get("scheduler_tick")
         tick_result = None
         if tick_spec:
-            tick_result = harness.tick(tick_spec if isinstance(tick_spec, dict) else {})
+            spec = tick_spec if isinstance(tick_spec, dict) else {}
+            if use_followup_double:
+                tick_result = harness.tick(spec)
+            else:
+                kind = str(spec.get("kind") or "due").lower()
+                if kind == "dormant":
+                    from sdr.domain.followup import apply_followup_transition, followup_decision
+
+                    dormant_decision = followup_decision(state, inbound_text="")
+                    apply_followup_transition(state, dormant_decision)
+                    runtime.last_decision = dormant_decision
+                    tick_result = type(
+                        "Tick",
+                        (),
+                        {
+                            "sent": [],
+                            "rescheduled": [],
+                            "cancelled": [],
+                            "claims": [],
+                        },
+                    )()
+                else:
+                    before_sends = len(runtime.sends)
+                    await runtime.tick(workers=list(spec.get("workers") or ["w1"]))
+                    new_sends = runtime.sends[before_sends:]
+                    tick_result = type(
+                        "Tick",
+                        (),
+                        {
+                            "sent": new_sends,
+                            "rescheduled": runtime.last_tick_rescheduled,
+                            "cancelled": runtime.last_tick_cancelled,
+                            "claims": runtime.last_tick_claims,
+                        },
+                    )()
             events_executed.append(
                 {
                     "type": "scheduler_tick",
@@ -613,6 +697,8 @@ async def run_scenario_detailed(
             handled_control = True
         if turn_def.get("opt_out") and not _has_customer_inbound(turn_def):
             harness.cancel("OPT_OUT")
+            await runtime.cancel("OPT_OUT")
+            runtime.persist_opt_out()
             events_executed.append({"type": "opt_out", "turn_id": idx})
             handled_control = True
         if handled_control and not _has_customer_inbound(turn_def) and not _admin_event(turn_def):
@@ -647,6 +733,9 @@ async def run_scenario_detailed(
                 break
             events_executed.append({"type": event_name, "turn_id": idx})
             harness.on_admin(event_name)
+            runtime.on_admin(event_name, state)
+            if event_name == "assume":
+                await runtime.cancel("HUMAN_ASSUMED")
             if not _has_customer_inbound(turn_def):
                 from sdr.application.process_turn import ProcessTurnResult
                 from sdr.domain.types import Action, ActionPlan, TurnFacts
@@ -706,7 +795,7 @@ async def run_scenario_detailed(
                     runtime_calls=0,
                     llm_calls=0,
                     inbound_persisted=False,
-                    followup=harness.snapshot(),
+                    followup=_followup_snap(),
                 )
                 for v in [str(item) for item in violations]:
                     errors.append(v)
@@ -739,7 +828,7 @@ async def run_scenario_detailed(
         if idx > 0 and traces and not _skip_dialogue_alignment(
             state,
             str((transcript[-1].get("action") if transcript else "") or "").upper(),
-        ):
+        ) and not _inbound_is_opt_out(inbound_text) and not _is_reset_turn(turn_def, inbound_text):
             from sdr.domain.dialogue_alignment import evaluate_dialogue_alignment
 
             prev = traces[-1]
@@ -814,6 +903,10 @@ async def run_scenario_detailed(
         )
         if first_inbound is None and not _is_reset_turn(turn_def, inbound_text):
             first_inbound = inbound_text
+        if inbound_text and not _is_reset_turn(turn_def, inbound_text):
+            from sdr.domain.conversation_revision import bump_context_revision
+
+            bump_context_revision(state)
         inbound_record = {
             "turn_id": idx,
             "text": inbound_text,
@@ -822,6 +915,19 @@ async def run_scenario_detailed(
         }
         inbound_records.append(inbound_record)
         llm_before = llm_calls
+        if (
+            not use_followup_double
+            and not _is_reset_turn(turn_def, inbound_text)
+            and runtime.has_pending()
+        ):
+            from sdr.domain.followup import resume_after_customer_reply
+
+            if _inbound_is_opt_out(inbound_text):
+                await runtime.cancel("OPT_OUT")
+                runtime.persist_opt_out(state)
+            else:
+                await runtime.cancel("CUSTOMER_REPLIED")
+                resume_after_customer_reply(state)
         try:
             if _is_reset_turn(turn_def, inbound_text):
                 from sdr.application.process_turn import ProcessTurnResult
@@ -830,6 +936,9 @@ async def run_scenario_detailed(
 
                 state = _reset_state(state)
                 harness.on_reset()
+                await runtime.on_reset()
+                runtime.stamp_opt_out_on_state(state)
+                runtime.last_state = state
                 result = ProcessTurnResult(
                     action_plan=ActionPlan(
                         action=Action.NO_REPLY,
@@ -841,7 +950,41 @@ async def run_scenario_detailed(
                     turn_facts=TurnFacts(),
                     tool_results=[],
                 )
-            elif turn_def.get("opt_out"):
+            elif _bot_status(state) == "HUMAN_ACTIVE":
+                from sdr.application.process_turn import ProcessTurnResult
+                from sdr.domain.types import Action, ActionPlan, TurnFacts
+
+                result = ProcessTurnResult(
+                    action_plan=ActionPlan(
+                        action=Action.NO_REPLY,
+                        reason_code="ai_silenced",
+                        reason="HUMAN_ACTIVE ownership — Júlia silent",
+                    ),
+                    state=state,
+                    outbound_texts=[],
+                    turn_facts=TurnFacts(),
+                    tool_results=[],
+                )
+            elif (not use_followup_double) and _inbound_is_opt_out(inbound_text):
+                from sdr.application.process_turn import ProcessTurnResult
+                from sdr.domain.types import Action, ActionPlan, TurnFacts
+
+                runtime.apply_policy(state, inbound_text)
+                await runtime.cancel("OPT_OUT")
+                runtime.persist_opt_out(state)
+                events_executed.append({"type": "opt_out", "turn_id": idx})
+                result = ProcessTurnResult(
+                    action_plan=ActionPlan(
+                        action=Action.NO_REPLY,
+                        reason_code="opt_out",
+                        reason="Customer opt-out",
+                    ),
+                    state=state,
+                    outbound_texts=[],
+                    turn_facts=TurnFacts(),
+                    tool_results=[],
+                )
+            elif turn_def.get("opt_out") and use_followup_double:
                 from sdr.application.process_turn import ProcessTurnResult
                 from sdr.domain.types import Action, ActionPlan, TurnFacts
 
@@ -859,14 +1002,12 @@ async def run_scenario_detailed(
                     tool_results=[],
                 )
             elif (
-                isinstance(turn_def.get("followup"), dict)
+                use_followup_double
+                and isinstance(turn_def.get("followup"), dict)
                 and turn_def["followup"].get("schedule")
                 and not llm_real
                 and turn_def["followup"].get("runtime") is not True
             ):
-                # Deterministic pause ack — visit/handoff heuristics stay out of
-                # follow-up goldens until Frente A owns pause vs visit. Live gate
-                # still uses process_turn (llm_real=True).
                 from sdr.application.process_turn import ProcessTurnResult
                 from sdr.domain.types import Action, ActionPlan, BusinessIntent, TurnFacts
 
@@ -921,6 +1062,12 @@ async def run_scenario_detailed(
                         image_bytes=image_bytes,
                     )
                 _upsert_show_offer_bindings(result.state, result)
+                if not use_followup_double:
+                    runtime.apply_policy(
+                        result.state, inbound_text, result.turn_facts
+                    )
+                    await runtime.sync_task(result.state, inbound_text)
+                    runtime.last_state = result.state
         except Exception as exc:
             errors.append(f"[{name}] turn {idx}: process_turn raised {type(exc).__name__}: {exc}")
             break
@@ -1031,8 +1178,8 @@ async def run_scenario_detailed(
             "bot_status": _bot_status(result.state),
             "ownership_revision": int(getattr(result.state, "ownership_revision", 0) or 0),
             "suppressed_reason": suppressed_reason,
-            "wait_state": harness.wait_state,
-            "followup_sends": len(harness.sends),
+            "wait_state": _followup_wait(),
+            "followup_sends": _followup_send_count(),
             **event_meta,
         })
         trace_row = {
@@ -1137,7 +1284,7 @@ async def run_scenario_detailed(
             llm_calls=turn_llm_calls,
             inbound_persisted=True,
             suppressed_reason=suppressed_reason,
-            followup=harness.snapshot(),
+            followup=_followup_snap(),
         )
         inv_msgs = [str(v) for v in violations]
         for v in inv_msgs:
@@ -1239,9 +1386,9 @@ async def run_scenario_detailed(
     handoff_seen = any(
         str(t.get("action") or "").upper() == "HANDOFF_VENDOR" for t in transcript
     )
-    if harness.wait_state == "DORMANT":
+    if _followup_wait() == "DORMANT":
         obtained_terminal = "DORMANT"
-    elif harness.sends:
+    elif _followup_send_count():
         obtained_terminal = "FOLLOWUP_SENT"
     elif handoff_seen:
         obtained_terminal = "HANDOFF_VENDOR"
@@ -1301,16 +1448,26 @@ async def run_scenario_detailed(
         crm_lead_id=crm_lead_id,
         bot_status=own_final["botStatus"],
         ownership_revision=int(own_final["ownershipRevision"]),
-        followup_tasks=[t.as_dict() for t in harness.tasks],
-        followup_sends=len(harness.sends),
-        followup_composer_calls=harness.composer_calls,
-        wait_state=harness.wait_state,
-        clock_jumps=list(harness.clock_jumps),
-        followup_cancels=list(harness.cancels),
-        followup_claims=list(harness.claims),
-        followup_transitions=list(harness.transitions),
+        followup_tasks=runtime.task_dicts() if not use_followup_double else [t.as_dict() for t in harness.tasks],
+        followup_sends=_followup_send_count(),
+        followup_composer_calls=(
+            runtime.composer_calls if not use_followup_double else harness.composer_calls
+        ),
+        wait_state=_followup_wait(),
+        clock_jumps=list(runtime.clock_jumps if not use_followup_double else harness.clock_jumps),
+        followup_cancels=list(runtime.cancels if not use_followup_double else harness.cancels),
+        followup_claims=list(runtime.claims if not use_followup_double else harness.claims),
+        followup_transitions=list(
+            runtime.transitions if not use_followup_double else harness.transitions
+        ),
         inventory_overrides=list(inventory_overrides),
-        idempotency_keys=[t.idempotency_key for t in harness.tasks],
+        idempotency_keys=(
+            [t.get("idempotencyKey") for t in runtime.task_dicts() if t.get("idempotencyKey")]
+            if not use_followup_double
+            else [t.idempotency_key for t in harness.tasks]
+        ),
+        execution_mode=execution_mode,
+        followup_evidence=runtime.evidence.as_dict(),
     )
     for v in check_scenario(scenario=scenario, result=run, llm_real=llm_real):
         errors.append(str(v))
