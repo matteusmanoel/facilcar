@@ -61,13 +61,18 @@ _WEAK_ATTEMPT = re.compile(
     re.IGNORECASE,
 )
 
+_DOC_OBJECT = (
+    r"(documentacao|documentos|documento|comprovantes|comprovante|docs|cnh|holerite)"
+)
 _UNAVAILABLE = re.compile(
     r"\b("
-    r"nao\s+estou\s+com|nao\s+tenho|"
-    r"nao\s+consigo\s+(enviar|mandar|agora)|"
-    r"depois\s+(eu\s+)?(envio|mando)|"
-    r"agora\s+nao|"
-    r"nao\s+tenho\s+(os\s+)?(comprovantes|documentos|docs)"
+    r"nao\s+estou\s+com.{0,24}" + _DOC_OBJECT + r"|"
+    r"nao\s+tenho.{0,24}" + _DOC_OBJECT + r"|"
+    r"nao\s+consigo\s+(enviar|mandar).{0,24}" + _DOC_OBJECT + r"|"
+    r"depois\s+(eu\s+)?(envio|mando|vejo).{0,24}" + _DOC_OBJECT + r"|"
+    r"agora\s+nao.{0,24}" + _DOC_OBJECT + r"|"
+    r"estou\s+sem\s+(a\s+|os\s+)?" + _DOC_OBJECT + r"|"
+    r"sem\s+(a\s+|os\s+)?" + _DOC_OBJECT + r".{0,24}(agora|momento|maos|mao)"
     r")\b",
     re.IGNORECASE,
 )

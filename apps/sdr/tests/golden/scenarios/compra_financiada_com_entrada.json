@@ -107,7 +107,7 @@
       "expected_facts_after": {
         "name": "Carlos Souza"
       },
-      "invariant_two_concrete_slots": true,
+      "expected_action": "HANDOFF_VENDOR",
       "forbidden_in_outbound": [
         "reservado",
         "garanto",
@@ -127,7 +127,7 @@
           "visit_intent": true
         }
       },
-      "expected_action": "HANDOFF_VENDOR",
+      "expected_action": "REGISTER_VISIT_INTEREST",
       "forbidden_in_outbound": [
         "reservado",
         "garanto",

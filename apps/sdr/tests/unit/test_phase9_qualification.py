@@ -398,6 +398,10 @@ def test_m_unavailable_documents_defer_without_blocking_handoff() -> None:
     assert state.profile_complete is False
     plan = decide(state)
     assert plan.ask_field != "documents"
+    assert plan.action != Action.REGISTER_VISIT_INTEREST
+    assert "register_visit_interest" not in [
+        str((tc or {}).get("tool") or "") for tc in (plan.tool_calls or [])
+    ]
 
 
 def test_n_vendor_request_prevails_over_documents() -> None:
@@ -446,16 +450,18 @@ def test_r_handoff_ready_can_coexist_with_incomplete_profile() -> None:
     assert "proof_of_residence" in state.missing_fields
 
 
-def test_s_enrichment_does_not_exceed_limit() -> None:
+def test_s_remaining_documents_are_not_enrichment() -> None:
+    """Remaining proofs after CNH stay one documentary action even at the cap."""
     state = _financing_ready(
         document_received=True,
         enrichment_ask_count=ENRICHMENT_ASK_LIMIT,
         facts={"document_status": {"cnh": "received"}},
     )
-    assert should_ask_remaining_documents(state) is False
+    assert should_ask_remaining_documents(state) is True
     plan = decide(state)
-    assert plan.ask_field != "documents"
-    assert plan.action in {Action.REGISTER_VISIT_INTEREST, Action.HANDOFF_VENDOR}
+    assert plan.ask_field == "documents"
+    assert plan.action == Action.ASK_INFO
+    assert plan.reason_code == "remaining_documents"
 
 
 def test_t_one_reply_does_not_combine_remaining_docs_and_visit() -> None:

@@ -600,13 +600,19 @@ async def resolve_visual_vehicle(
         try:
             found = await candidate_lookup(attrs)
             candidates = [c for c in found if c.vehicle_id]
-        except Exception:
+        except Exception as exc:
             logger.exception("visual candidate lookup failed")
+            protocol = (
+                type(exc).__name__ == "AttributeError"
+                and "acquire" in str(exc).lower()
+            )
             return _stamp(
                 VisualVehicleResolution(
                     resolution_source=VisualResolutionSource.UNRESOLVED,
                     observed_attributes=attrs.as_dict(),
-                    fallback_reason="lookup_failed",
+                    fallback_reason=(
+                        "adapter_protocol_error" if protocol else "lookup_failed"
+                    ),
                     vision_attempted=True,
                     vision_model=vision_model,
                     vision_calls=1,

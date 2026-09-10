@@ -225,6 +225,8 @@ class ConversationCanonicalState:
     last_shown_price_cash: float | None = None
     # Turn-scoped: inbound this turn was a successfully processed document.
     document_received: bool = False
+    # Turn-scoped: inbound this turn stated documents are unavailable/deferred.
+    documents_unavailable_this_turn: bool = False
     # Completeness vs handoff (refreshed deterministically each turn).
     handoff_ready: bool = False
     profile_complete: bool = False

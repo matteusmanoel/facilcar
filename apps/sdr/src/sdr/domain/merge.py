@@ -240,6 +240,8 @@ def _apply_pending_and_scope(
 
 
 def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: str) -> None:
+    from sdr.domain.document_commitment import inbound_states_documents_unavailable
+
     deferred = list(state.deferred_fields or [])
     status = merge_document_status(state.facts.get("document_status"), None)
     parsed = parse_document_deferral(inbound_text)
@@ -271,6 +273,8 @@ def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: st
     if "documents" in deferred or any(c in deferred for c in DOCUMENT_COMPONENTS):
         collected = [c for c in collected if c != "documents"]
     state.collected_fields = collected
+    if inbound_states_documents_unavailable(inbound_text):
+        state.documents_unavailable_this_turn = True
 
 
 def _bump_lifecycle(state: ConversationCanonicalState) -> None:
@@ -347,6 +351,7 @@ def deterministic_merge(
         photo_request=False,
         location_request=False,
         document_received=False,
+        documents_unavailable_this_turn=False,
         pending_question=prev.pending_question,
         engagement_low_streak=prev.engagement_low_streak,
         visit_invited=prev.visit_invited,
@@ -444,6 +449,11 @@ def deterministic_merge(
     )
     state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
     _apply_document_deferral(state, inbound_text)
+    if inbound_text:
+        from sdr.domain.visit import explicit_in_person_visit
+
+        if explicit_in_person_visit(inbound_text):
+            state.visit_interest = True
     if state.facts.get("documents_deferred") is True:
         state.documents_asked = True
     if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:

@@ -4,6 +4,9 @@
   "clock": "2026-09-07T10:00:00-03:00",
   "expected_terminal": "HANDOFF_VENDOR",
   "expected_handoff_count": 1,
+  "expected_crm_same_lead": true,
+  "expected_summary_preserves_authorized": true,
+  "expected_summary_contains": ["Civic", "Carla"],
   "customer": {
     "name": "Carla Mendes",
     "phone": "5511988001100"

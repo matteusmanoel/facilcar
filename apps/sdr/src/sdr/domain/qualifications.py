@@ -586,11 +586,10 @@ def next_ask_field(state: ConversationCanonicalState) -> str | None:
         if field == "documents":
             from sdr.domain.qualification_policy import (
                 any_document_received,
-                enrichment_cap_reached,
                 should_ask_remaining_documents,
             )
 
-            if should_ask_remaining_documents(state) and not enrichment_cap_reached(state):
+            if should_ask_remaining_documents(state):
                 return "documents"
             if any_document_received(state) or getattr(state, "remaining_documents_asked", False):
                 continue

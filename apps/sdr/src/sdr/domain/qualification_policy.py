@@ -90,6 +90,11 @@ def documents_pack_complete(state: ConversationCanonicalState) -> bool:
 
 
 def should_ask_remaining_documents(state: ConversationCanonicalState) -> bool:
+    """Remaining financing proofs are not optional enrichment.
+
+    The enrichment cap must not suppress the single remaining-docs ask after
+    a partial receive (e.g. CNH only).
+    """
     if not remaining_document_components(state):
         return False
     if getattr(state, "remaining_documents_asked", False):
@@ -98,9 +103,24 @@ def should_ask_remaining_documents(state: ConversationCanonicalState) -> bool:
         return False
     if not any_document_received(state):
         return False
-    if enrichment_cap_reached(state):
-        return False
     return True
+
+
+def isolated_document_unavailability(state: ConversationCanonicalState) -> bool:
+    """Document deferral/unavailability without explicit visit evidence.
+
+    Visit interest is never inferred from missing proofs. Prior visit facts
+    on the state still count as visit evidence via ``visit_signal_this_turn``.
+    """
+    if visit_signal_this_turn(state):
+        return False
+    if getattr(state, "needs_visit_slot_offer", False):
+        return False
+    if getattr(state, "documents_unavailable_this_turn", False):
+        return True
+    if state.facts.get("documents_deferred") is True and not remaining_document_components(state):
+        return True
+    return False
 
 
 def enrichment_cap_reached(state: ConversationCanonicalState) -> bool:

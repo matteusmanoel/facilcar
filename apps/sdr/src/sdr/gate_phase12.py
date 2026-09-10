@@ -143,7 +143,7 @@ async def _run_labeled(path: Path, label: str) -> Any:
     run = await run_scenario_detailed(
         scenario,
         show_trace=True,
-        pool=object(),
+        pool=None,
         llm_real=True,
         use_live_inventory=False,
     )

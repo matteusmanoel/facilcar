@@ -52,7 +52,9 @@ def _records_from_ref(raw: Mapping[str, Any] | None) -> list[FingerprintRecord]:
 
 
 async def _candidate_lookup(attrs: ObservedAttributes, pool: Any) -> list[InventoryCandidate]:
-    if pool is None:
+    from sdr.infrastructure.isolated_inventory import pool_protocol_compatible
+
+    if not pool_protocol_compatible(pool):
         return []
     from sdr.domain.inventory_search import InventorySearchRequest
     from sdr.tools.inventory import search_with_request

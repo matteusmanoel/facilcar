@@ -206,6 +206,7 @@
         "proof_of_residence"
       ],
       "observe_cnh_actions": true,
+      "forbidden_action": "REGISTER_VISIT_INTEREST",
       "forbidden_in_outbound": [
         "storage",
         "bucket",
@@ -216,7 +217,12 @@
         "reservado",
         "garanto",
         "aprovado",
-        "100% financiado"
+        "100% financiado",
+        "visita",
+        "9h30",
+        "14h",
+        "segunda-feira",
+        "horário"
       ]
     },
     {

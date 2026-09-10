@@ -75,7 +75,14 @@ INVARIANT_CATALOG: list[str] = [
     "GLOBAL: duplicate_vehicle_label",
     "GLOBAL: ask_field_question_mismatch",
     "GLOBAL: difference_financing_skips_installment",
-    "GLOBAL: dialogue_alignment",
+    "GLOBAL: document_unavailability_not_visit",
+    "GLOBAL: document_unavailability_no_unsolicited_followup",
+    "GLOBAL: cnh_partial_not_visit",
+    "GLOBAL: documents_received_regressed",
+    "GLOBAL: adapter_protocol_error",
+    "SCENARIO: summary_omits_authorized_primary",
+    "SCENARIO: summary_generic_primary_label",
+    "SCENARIO: technical_pass_terminal_only",
     "SCENARIO: cnh_deferred_not_granular",
     "SCENARIO: refinancing_false_complete",
     "SCENARIO: paid_off_described_as_financed",
@@ -699,6 +706,70 @@ def check_turn(
                     f"{component} marked received after this turn: {status}",
                 )
 
+    inbound_text = ""
+    if inbound is not None:
+        inbound_text = str(getattr(inbound, "effective_text", None) or "")
+    if not inbound_text:
+        inbound_text = str(turn_def.get("inbound") or "")
+    from sdr.domain.document_commitment import inbound_states_documents_unavailable
+    from sdr.domain.visit import explicit_in_person_visit
+    from sdr.domain.qualification_policy import remaining_document_components
+
+    action_u = plan.action.value.upper() if hasattr(plan.action, "value") else str(plan.action).upper()
+    tools = [str((tc or {}).get("tool") or "") for tc in (getattr(plan, "tool_calls", None) or [])]
+    visit_acted = (
+        action_u == "REGISTER_VISIT_INTEREST"
+        or "register_visit_interest" in tools
+        or getattr(plan, "primary_action", None) == "invite_visit"
+    )
+    visit_evidence = bool(
+        explicit_in_person_visit(inbound_text)
+        or getattr(getattr(state, "signals", None), "visit_intent", False)
+        or getattr(state, "needs_visit_slot_offer", False)
+        or getattr(state, "visit_date", None)
+        or getattr(state, "visit_time", None)
+        or getattr(state, "visit_period", None)
+        or getattr(state, "visit_preferred_time", None)
+    )
+    folded_in = inbound_text.lower()
+    callback_asked = any(
+        token in folded_in
+        for token in ("pode me chamar", "me chama", "pode chamar", "me liga", "me manda mensagem")
+    )
+    if inbound_states_documents_unavailable(inbound_text) and not visit_evidence:
+        if visit_acted:
+            fail(
+                "GLOBAL: document_unavailability_not_visit",
+                f"isolated document unavailability produced visit action={action_u}",
+            )
+        if not callback_asked:
+            pause = getattr(getattr(result, "turn_facts", None), "pause_reason", None)
+            if pause in {"DOCUMENTS_UNAVAILABLE", "DOCUMENTS_PROMISED"}:
+                fail(
+                    "GLOBAL: document_unavailability_no_unsolicited_followup",
+                    f"follow-up pause without callback: pause={pause!r}",
+                )
+    if (
+        state is not None
+        and getattr(state, "document_received", False)
+        and remaining_document_components(state)
+        and visit_acted
+        and not visit_evidence
+        and not bool(getattr(getattr(state, "signals", None), "explicit_handoff", False))
+    ):
+        fail(
+            "GLOBAL: cnh_partial_not_visit",
+            "partial document receipt invited a visit in the same turn",
+        )
+
+    vis = getattr(state, "last_visual_resolution", None) if state is not None else None
+    fallback = vis.get("fallback_reason") if isinstance(vis, dict) else getattr(vis, "fallback_reason", None)
+    if fallback == "adapter_protocol_error":
+        fail(
+            "GLOBAL: adapter_protocol_error",
+            "isolated inventory adapter raised a protocol error",
+        )
+
     if turn_def.get("storage_simulated") or (
         inbound is not None
         and isinstance(getattr(inbound, "raw_message_ref", None), dict)
@@ -1244,6 +1315,83 @@ def check_scenario(
         leaks = pii_leaks(blob)
         if leaks:
             fail("SCENARIO: artifact_pii", f"leaks={leaks[:5]!r}")
+
+    received_seen: dict[str, str] = {}
+    for row in getattr(result, "traces", None) or []:
+        after = (row.get("state_after") or {}).get("facts") or {}
+        status = after.get("document_status") if isinstance(after.get("document_status"), dict) else {}
+        for component, prior in received_seen.items():
+            if prior == "received" and status.get(component) not in (None, "received"):
+                fail(
+                    "GLOBAL: documents_received_regressed",
+                    f"{component} was received then became {status.get(component)!r}",
+                )
+        for component, value in status.items():
+            if value == "received":
+                received_seen[str(component)] = "received"
+        if row.get("visual_fallback_reason") == "adapter_protocol_error":
+            fail(
+                "GLOBAL: adapter_protocol_error",
+                f"turn {row.get('turn_id')} visual lookup used an invalid pool",
+            )
+
+    summary_all = scenario.get("expected_summary_contains") or []
+    if summary_all:
+        blob = (result.vendor_summary or "").lower()
+        missing = [str(n) for n in summary_all if str(n).lower() not in blob]
+        if missing:
+            fail(
+                "SCENARIO: expected_summary_contains",
+                f"missing {missing!r} in summary: {(result.vendor_summary or '')[:180]}",
+            )
+
+    state = getattr(result, "final_state", None)
+    summary_text = result.vendor_summary or ""
+    if state is not None and getattr(state, "primary_vehicle_id", None) and summary_text:
+        from sdr.domain.vehicle_catalog import catalog_summary_label, conversational_label_for_id
+
+        presented = getattr(state, "presented_vehicle_catalog", None)
+        presented_map = presented if isinstance(presented, dict) else None
+        canonical = catalog_summary_label(
+            state.primary_vehicle_id, presented=presented_map
+        ) or conversational_label_for_id(
+            state.primary_vehicle_id, presented=presented_map
+        )
+        generic = str(
+            (state.facts or {}).get("desired_model")
+            or (state.facts or {}).get("desired_vehicle_text")
+            or ""
+        ).strip()
+        if canonical and generic and canonical.lower() != generic.lower():
+            folded = summary_text.lower()
+            if generic.lower() in folded and canonical.lower() not in folded:
+                distinctive = [
+                    tok
+                    for tok in canonical.replace("/", " ").split()
+                    if tok.lower() not in generic.lower().split() and len(tok) > 1
+                ]
+                if distinctive and not any(tok.lower() in folded for tok in distinctive):
+                    fail(
+                        "SCENARIO: summary_generic_primary_label",
+                        f"canonical={canonical!r} summary={summary_text[:160]!r}",
+                    )
+
+    if scenario.get("expected_summary_preserves_authorized"):
+        needles = scenario.get("expected_summary_contains") or scenario.get("expected_summary_contains_any") or []
+        blob = (result.vendor_summary or "").lower()
+        if needles and not any(str(n).lower() in blob for n in needles):
+            fail(
+                "SCENARIO: summary_omits_authorized_primary",
+                f"authorized facts missing from post-resume summary: {(result.vendor_summary or '')[:180]}",
+            )
+
+    obs = getattr(result, "commercial_observations", None) or []
+    for item in obs:
+        if item.get("code") == "cnh_multi_action":
+            fail(
+                "SCENARIO: technical_pass_terminal_only",
+                "partial CNH produced concurrent commercial actions",
+            )
 
     return violations
 

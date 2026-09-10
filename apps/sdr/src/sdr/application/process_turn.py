@@ -640,6 +640,10 @@ async def process_turn(
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
 
+    from sdr.infrastructure.isolated_inventory import coerce_isolated_pool
+
+    pool = coerce_isolated_pool(pool)
+
     listing_meta = inbound.raw_message_ref or {}
     listing_ref = listing_meta.get("listing_id") or listing_meta.get("listing_url")
     state.listing_reference = str(listing_ref) if listing_ref else None

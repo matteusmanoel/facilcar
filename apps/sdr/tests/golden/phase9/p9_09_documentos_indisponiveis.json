@@ -33,6 +33,8 @@
     {
       "inbound": "Não estou com os documentos agora",
       "response_mode": "voluntary_fact",
+      "forbidden_action": "REGISTER_VISIT_INTEREST",
+      "expected_followup_sends": 0,
       "forbidden_in_outbound": [
         "reservado",
         "garanto",
@@ -43,7 +45,12 @@
         "handoff",
         "triagem",
         "ia enviar",
-        "prometeu"
+        "prometeu",
+        "visita",
+        "9h30",
+        "14h",
+        "segunda-feira",
+        "terça-feira"
       ]
     }
   ]

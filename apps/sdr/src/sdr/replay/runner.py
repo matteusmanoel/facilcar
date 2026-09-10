@@ -136,6 +136,10 @@ def _initial_state(scenario: dict[str, Any]) -> Any:
             except ValueError:
                 pass
         setattr(state, k, v)
+    if state.last_shown_vehicle_ids and not state.last_inventory_search_key:
+        from sdr.domain.decision import inventory_search_key
+
+        state.last_inventory_search_key = inventory_search_key(state.facts)
     return state
 
 
@@ -376,6 +380,7 @@ async def run_scenario_detailed(
     from sdr.domain.clock import GOLDEN_CLOCK_ISO, set_clock
     from sdr.domain.types import Action
     from sdr.infrastructure.isolated_crm import IsolatedCrmStore
+    from sdr.infrastructure.isolated_inventory import IsolatedInventoryAdapter, coerce_isolated_pool
     from tests.golden.fixtures.seed_inventory_adapter import SEED_VERSION, seed_sha256
     from tests.golden.invariants import (
         INVARIANT_CATALOG,
@@ -546,7 +551,7 @@ async def run_scenario_detailed(
 
     understand = counting_understand
 
-    process_pool = pool if pool is not None else object()
+    process_pool = coerce_isolated_pool(pool) or IsolatedInventoryAdapter()
     understanding_model = None
     composer_model = None
     if llm_real:
@@ -1255,6 +1260,9 @@ async def run_scenario_detailed(
             "suppressed_reason": suppressed_reason,
             "inbound_persisted": True,
             "runtime_call_count": 1,
+            "visual_fallback_reason": (
+                vis.get("fallback_reason") if isinstance(vis, dict) else None
+            ),
             **event_meta,
         }
         traces.append(trace_row)
@@ -1372,6 +1380,17 @@ async def run_scenario_detailed(
             crm_report = crm_store.verify(result.state.thread_id)
             trace_row["crm_payload"] = stored
             trace_row["crm_persist"] = crm_report
+            from sdr.domain.vendor_summary import compose_vendor_summary
+
+            try:
+                composed = compose_vendor_summary(result.state)
+                vendor_summary = composed.text
+                summary_validation = composed.validation
+                summary_origin = composed.origin
+                summary_used_fallback = composed.used_fallback
+                summary_used_llm = bool(composed.used_llm)
+            except Exception as exc:
+                errors.append(f"[{name}] turn {idx}: summary_recompose — {exc}")
 
         state = result.state
 
@@ -1404,6 +1423,18 @@ async def run_scenario_detailed(
             obtained_terminal = last_action
 
     own_final = _ownership_snapshot(state)
+    if state is not None:
+        from sdr.domain.vendor_summary import compose_vendor_summary
+
+        try:
+            composed_final = compose_vendor_summary(state)
+            vendor_summary = composed_final.text
+            summary_validation = composed_final.validation
+            summary_origin = composed_final.origin
+            summary_used_fallback = composed_final.used_fallback
+            summary_used_llm = bool(composed_final.used_llm)
+        except Exception as exc:
+            errors.append(f"[{name}] summary_recompose_final — {exc}")
     run = ScenarioRunResult(
         ok=False,
         errors=errors,

@@ -1175,7 +1175,14 @@ _CALL_ME_TOKENS = (
     "me liga",
     "me manda mensagem",
 )
-_DOCUMENT_TOKENS = ("comprovante", "documento", "cnh", "holerite", "imposto de renda")
+_DOCUMENT_TOKENS = (
+    "comprovante",
+    "documento",
+    "documentacao",
+    "cnh",
+    "holerite",
+    "imposto de renda",
+)
 _PARTNER_TOKENS = (
     "marido",
     "esposa",

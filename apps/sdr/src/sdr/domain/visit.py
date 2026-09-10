@@ -44,8 +44,13 @@ _DECLINE = re.compile(
     re.I,
 )
 _INTEREST = re.compile(
-    r"\b(?:quero\s+ir|vou\s+(?:a[ií]|na\s+loja|conhecer|ver)|"
-    r"visita|passar\s+(?:a[ií]|na\s+loja)|conhecer\s+o\s+(?:carro|ve[ií]culo))\b",
+    r"\b(?:quero\s+ir|vou\s+(?:a[ií]|na\s+loja|conhecer)|"
+    r"visita|passar\s+(?:a[ií]|na\s+loja)|conhecer\s+(?:a\s+loja|o\s+(?:carro|ve[ií]culo))|"
+    r"levo.{0,48}(?:na\s+loja|a[ií]|l[aá])|"
+    r"levar\s+pessoalmente|"
+    r"posso\s+ir|"
+    r"ir\s+(?:(?:à|a|pra|para)\s+loja|a[ií]|l[aá])"
+    r")\b",
     re.I,
 )
 _TODAY = re.compile(r"\bhoje\b", re.I)
@@ -354,6 +359,20 @@ def has_visit_preference(state: Any) -> bool:
     if getattr(state, "visit_preferred_time", None):
         return True
     return False
+
+
+def explicit_in_person_visit(text: str) -> bool:
+    """True only for an in-person visit speech act.
+
+    Calendar words alone (amanhã, hoje, sábado) and follow-up suppressor
+    tokens (em vez de, ver o carro, na loja) are not visit evidence.
+    """
+    raw = _fold(text)
+    if not raw:
+        return False
+    if _DECLINE.search(raw):
+        return False
+    return bool(_INTEREST.search(raw))
 
 
 def is_visit_calendar_utterance(text: str, *, now: datetime | None = None) -> bool:
