@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { listPublishedBlogPosts } from "@/features/content/server/queries";
+import { BlogCard } from "@/features/content/ui/BlogCard";
 
 export const metadata = {
   title: "Blog",
@@ -19,38 +19,9 @@ export default async function BlogPage() {
         {posts.length === 0 ? (
           <p className="mt-8 text-facil-muted">Nenhum post publicado.</p>
         ) : (
-          <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid items-stretch gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             {posts.map((post) => (
-              <Link
-                key={post.id}
-                href={`/blog/${post.slug}`}
-                className="group overflow-hidden rounded-2xl border border-facil-border bg-facil-card shadow-sm transition hover:border-facil-orange/30 hover:shadow-lg"
-              >
-                <div className="aspect-video overflow-hidden bg-facil-surface">
-                  {post.coverImageUrl ? (
-                    <img
-                      src={post.coverImageUrl}
-                      alt=""
-                      className="h-full w-full object-cover transition group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-gradient-to-br from-facil-black to-zinc-800 text-sm font-bold text-facil-orange">
-                      FácilCar
-                    </div>
-                  )}
-                </div>
-                <div className="p-5">
-                  <h2 className="font-bold text-foreground group-hover:text-facil-orange line-clamp-2">
-                    {post.title}
-                  </h2>
-                  {post.excerpt && (
-                    <p className="mt-2 line-clamp-2 text-sm text-facil-muted">{post.excerpt}</p>
-                  )}
-                  <span className="mt-3 inline-block text-sm font-semibold text-facil-orange">
-                    Ler mais →
-                  </span>
-                </div>
-              </Link>
+              <BlogCard key={post.id} post={post} />
             ))}
           </div>
         )}

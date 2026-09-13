@@ -17,6 +17,7 @@
   --facil-accent-foreground: #ffffff;
   --facil-accent-muted: #fff3eb;
   --facil-popover: #ffffff;
+  --cookie-banner-offset: 0px;
 }
 
 .dark {
@@ -49,6 +50,7 @@
   --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
   /* Big Shoulders via stylesheet em layout.tsx (evita warning do Turbopack/next/font) */
   --font-display: "Big Shoulders", var(--font-outfit), ui-sans-serif, sans-serif;
+  --font-hero: var(--font-plus-jakarta), var(--font-outfit), ui-sans-serif, sans-serif;
 }
 
 html {
@@ -62,6 +64,10 @@ body {
 }
 
 /* ── Typography helpers ───────────────────────────────────── */
+.font-hero {
+  font-family: var(--font-hero);
+}
+
 .font-display {
   font-family: var(--font-display);
   font-weight: 800;
@@ -76,6 +82,71 @@ body {
 
 .btn-facil-outline {
   @apply inline-flex items-center justify-center rounded-lg border-2 border-facil-orange bg-transparent px-5 py-2.5 text-sm font-semibold text-facil-orange transition hover:bg-facil-orange hover:text-white;
+}
+
+@keyframes featured-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes featured-marquee-y {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+.featured-marquee-track {
+  animation: featured-marquee 40s linear infinite;
+  will-change: transform;
+}
+
+.featured-marquee-track-y {
+  animation: featured-marquee-y 36s linear infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .featured-marquee-track,
+  .featured-marquee-track-y {
+    animation: none;
+  }
+}
+
+@keyframes hero-cta-chevron {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  32% {
+    transform: translateX(0.38rem);
+  }
+  48% {
+    transform: translateX(0.08rem);
+  }
+  64% {
+    transform: translateX(0.5rem);
+  }
+}
+
+.hero-cta-chevron {
+  animation: hero-cta-chevron 1.35s cubic-bezier(0.45, 0, 0.55, 1) 1.15s infinite;
+}
+
+.group:hover .hero-cta-chevron {
+  animation-duration: 0.85s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-cta-chevron {
+    animation: none;
+  }
 }
 
 .section-dark {

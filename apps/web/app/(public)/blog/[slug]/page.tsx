@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
-import { SITE_URL, buildBlogPostingJsonLd } from "@/lib/seo";
+import { DEFAULT_OG_IMAGE, SITE_URL, buildBlogPostingJsonLd } from "@/lib/seo";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "article",
       locale: "pt_BR",
       url,
-      ...(post.coverImageUrl ? { images: [{ url: post.coverImageUrl, alt: title }] } : {}),
+      images: [{ url: post.coverImageUrl || DEFAULT_OG_IMAGE, alt: title }],
       ...(post.publishedAt ? { publishedTime: post.publishedAt.toISOString() } : {}),
     },
   };
@@ -56,7 +56,7 @@ export default async function BlogPostPage({ params }: Props) {
             <img
               src={post.coverImageUrl}
               alt=""
-              className="aspect-video w-full object-cover"
+              className="aspect-[4/3] w-full object-cover"
             />
           </div>
         )}

@@ -2,6 +2,7 @@ const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL?.trim() || "http://localhost:3000";
 
 export const SITE_URL = siteUrl;
+export const DEFAULT_OG_IMAGE = "/og-image.png";
 
 type SiteSettingsForSeo = {
   siteName: string;

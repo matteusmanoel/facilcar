@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getPageBySlug } from "./queries";
-import { SITE_URL } from "@/lib/seo";
+import { DEFAULT_OG_IMAGE, SITE_URL } from "@/lib/seo";
 
 export async function cmsPageMetadata(
   slug: string,
@@ -19,6 +19,7 @@ export async function cmsPageMetadata(
       locale: "pt_BR",
       type: "website",
       url: `${SITE_URL}/${slug}`,
+      images: [{ url: DEFAULT_OG_IMAGE, alt: title }],
     },
   };
 }
