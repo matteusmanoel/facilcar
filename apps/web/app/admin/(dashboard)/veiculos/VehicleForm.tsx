@@ -31,6 +31,8 @@ type VehicleForForm = {
   slug: string;
   status: string;
   type: string;
+  bodyStyle: string | null;
+  inspectionResult: string | null;
   title: string;
   brandId: string;
   model: string;
@@ -122,7 +124,7 @@ const TRANS_LABELS: Record<string, string> = {
 };
 
 const STEP_FIELDS: Record<number, (keyof CreateVehicleInput)[]> = {
-  0: ["title", "brandId", "model", "type", "status"],
+  0: ["title", "brandId", "model", "type", "status", "bodyStyle", "inspectionResult"],
   1: ["engineDisplacementLiters"],
   2: [],
   3: [],
@@ -139,6 +141,17 @@ const HISTORY_LABELS: Record<string, string> = {
   AUCTION: "Leilão",
   RECOVERED_CLAIM: "Recuperado de sinistro",
   AUCTION_AND_RECOVERED_CLAIM: "Leilão e recuperado de sinistro",
+};
+const BODY_STYLES = ["SEDAN", "HATCH", "SUV"] as const;
+const BODY_STYLE_LABELS: Record<string, string> = {
+  SEDAN: "Sedan",
+  HATCH: "Hatch",
+  SUV: "SUV",
+};
+const INSPECTION_RESULTS = ["APPROVED", "REJECTED"] as const;
+const INSPECTION_LABELS: Record<string, string> = {
+  APPROVED: "Aprovado na perícia",
+  REJECTED: "Reprovado na perícia",
 };
 
 const SELECT_NONE = "__none__";
@@ -307,6 +320,9 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
     defaultValues: {
       status: (vehicle?.status as CreateVehicleInput["status"]) ?? "DRAFT",
       type: (vehicle?.type as CreateVehicleInput["type"]) ?? "CAR",
+      bodyStyle: (vehicle?.bodyStyle as CreateVehicleInput["bodyStyle"]) ?? undefined,
+      inspectionResult:
+        (vehicle?.inspectionResult as CreateVehicleInput["inspectionResult"]) ?? undefined,
       title: vehicle?.title ?? "",
       brandId: vehicle?.brandId ?? brands[0]?.id ?? "",
       model: vehicle?.model ?? "",
@@ -354,6 +370,8 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
   const imageUrls = watch("imageUrls");
   const brandId = watch("brandId");
   const vehicleType = watch("type");
+  const bodyStyle = watch("bodyStyle");
+  const inspectionResult = watch("inspectionResult");
   const vehicleStatus = watch("status");
   const fuelType = watch("fuelType");
   const transmission = watch("transmission");
@@ -548,6 +566,8 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
       formData.set("aceitaSemEntrada", typed.aceitaSemEntrada ? "true" : "false");
       formData.set("partnerIds", (typed.partnerIds ?? []).join(","));
       if (typed.fuelType === undefined) formData.set("fuelType", "");
+      if (typed.bodyStyle === undefined) formData.set("bodyStyle", "");
+      if (typed.inspectionResult === undefined) formData.set("inspectionResult", "");
       if (isEdit) formData.set("id", vehicle!.id);
 
       const result = isEdit ? await updateVehicle(formData) : await createVehicle(formData);
@@ -635,8 +655,47 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                     required
                     error={errors.type?.message}
                     value={vehicleType}
-                    onValueChange={(v) => setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true })}
+                    onValueChange={(v) => {
+                      setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true });
+                      if (v !== "CAR") {
+                        setValue("bodyStyle", undefined, { shouldValidate: true });
+                      }
+                    }}
                     items={TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
+                  />
+                  {vehicleType === "CAR" ? (
+                    <FormSelect
+                      label="Recorte de carroceria"
+                      error={errors.bodyStyle?.message}
+                      value={bodyStyle ? String(bodyStyle) : SELECT_NONE}
+                      onValueChange={(v) =>
+                        setValue(
+                          "bodyStyle",
+                          (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["bodyStyle"],
+                          { shouldValidate: true },
+                        )
+                      }
+                      items={[
+                        { value: SELECT_NONE, label: "Não informado" },
+                        ...BODY_STYLES.map((s) => ({ value: s, label: BODY_STYLE_LABELS[s] })),
+                      ]}
+                    />
+                  ) : null}
+                  <FormSelect
+                    label="Resultado da perícia"
+                    error={errors.inspectionResult?.message}
+                    value={inspectionResult ? String(inspectionResult) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue(
+                        "inspectionResult",
+                        (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["inspectionResult"],
+                        { shouldValidate: true },
+                      )
+                    }
+                    items={[
+                      { value: SELECT_NONE, label: "Não informado" },
+                      ...INSPECTION_RESULTS.map((s) => ({ value: s, label: INSPECTION_LABELS[s] })),
+                    ]}
                   />
                   <FormSelect
                     label="Status"

@@ -8,7 +8,7 @@ import {
   VEHICLE_WRITE_ROLES,
   requireAdminRole,
 } from "@/features/auth/server/rbac";
-import { createVehicleSchema } from "@/schemas/vehicle";
+import { createVehicleSchema, updateVehicleSchema } from "@/schemas/vehicle";
 import type { VehicleStatus } from "@prisma/client";
 import { slugify } from "@/features/vehicle/server/slug";
 import { uniqueSlug } from "@/features/vehicle/server/unique-slug";
@@ -101,6 +101,8 @@ export async function createVehicle(formData: FormData) {
       plateFinal: plateFinalFromPlate(normalizedPlate) ?? (data.plateFinal?.trim() || null),
       stockType: data.stockType ?? null,
       commercialHistory: data.commercialHistory ?? null,
+      bodyStyle: data.type === "CAR" ? data.bodyStyle ?? null : null,
+      inspectionResult: data.inspectionResult ?? null,
       priceCash: announcedPrice ?? null,
       priceTradeIn: data.priceTradeIn ?? null,
       pricePromotional: data.pricePromotional ?? null,
@@ -147,13 +149,14 @@ export async function updateVehicle(formData: FormData) {
   if (!id) return { ok: false, error: "id obrigatório" };
 
   const raw = Object.fromEntries(formData.entries());
-  const parsed = createVehicleSchema.partial().safeParse({
+  const parsed = updateVehicleSchema.safeParse({
+    id,
     ...raw,
     ...parseVehicleFormBooleans(raw),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().fieldErrors };
 
-  const { imageUrls, features: featuresStr, partnerIds, plate, ...data } = parsed.data;
+  const { imageUrls, features: featuresStr, partnerIds, plate, id: _vehicleId, ...data } = parsed.data;
 
   const updatePayload: Record<string, unknown> = {};
   if (data.slug != null) updatePayload.slug = data.slug;
@@ -187,6 +190,12 @@ export async function updateVehicle(formData: FormData) {
   }
   if (data.stockType !== undefined) updatePayload.stockType = data.stockType ?? null;
   if (data.commercialHistory !== undefined) updatePayload.commercialHistory = data.commercialHistory ?? null;
+  if ("bodyStyle" in raw) {
+    updatePayload.bodyStyle = data.type === "MOTORCYCLE" || data.type === "UTILITY" || data.type === "OTHER"
+      ? null
+      : data.bodyStyle ?? null;
+  }
+  if ("inspectionResult" in raw) updatePayload.inspectionResult = data.inspectionResult ?? null;
   if (data.priceCash !== undefined) updatePayload.priceCash = data.priceCash ?? null;
   if (data.priceTradeIn !== undefined) updatePayload.priceTradeIn = data.priceTradeIn ?? null;
   if (data.pricePromotional !== undefined) updatePayload.pricePromotional = data.pricePromotional ?? null;
