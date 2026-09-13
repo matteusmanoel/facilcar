@@ -62,7 +62,7 @@ export function RangeSliderField({
           <div
             className={cn(
               "flex items-center gap-2 rounded-lg border border-facil-border bg-facil-card px-3",
-              compact ? "h-10 w-[13.5rem] shrink-0" : "h-10 w-full",
+              compact ? "h-10 w-full sm:w-[13.5rem] sm:shrink-0" : "h-10 w-full",
             )}
             onPointerEnter={() => setHoverOpen(true)}
             onPointerLeave={() => {

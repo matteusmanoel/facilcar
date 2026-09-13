@@ -13,7 +13,7 @@ import { VehicleDetailAccordion } from "@/features/vehicle/ui/VehicleDetailAccor
 import { VehicleCard } from "@/features/catalog/ui/VehicleCard";
 import { BRAND } from "@/lib/brand";
 import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
-import { buildCarJsonLd } from "@/lib/seo";
+import { DEFAULT_OG_IMAGE, buildCarJsonLd } from "@/lib/seo";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description,
       ...(coverImage
         ? { images: [{ url: coverImage, width: 1200, height: 630, alt: title }] }
-        : {}),
+        : { images: [{ url: DEFAULT_OG_IMAGE, alt: title }] }),
     },
   };
 }
@@ -114,20 +114,11 @@ export default async function VehicleDetailPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(carJsonLd) }}
       />
       <div className="mx-auto max-w-7xl">
-        <Link
-          href="/estoque"
-          className="text-sm font-medium text-facil-orange hover:underline"
-        >
-          ← Voltar ao estoque
-        </Link>
-
+      
         <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_min(100%,400px)] lg:items-start lg:gap-10">
           {/* Coluna principal: título + galeria + accordion */}
           <header className="min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex flex-wrap gap-2">
-              <span className="badge-green-solid">
-                Revisado / conferido
-              </span>
               <span className="rounded-full bg-facil-orange/15 px-3 py-1 text-xs font-bold text-facil-orange">
                 Documentação em dia
               </span>
@@ -179,7 +170,11 @@ export default async function VehicleDetailPage({ params }: Props) {
           </header>
 
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-            <VehicleGallery images={sortedImages} title={vehicle.title} />
+            <VehicleGallery
+              images={sortedImages}
+              title={vehicle.title}
+              inspectionResult={vehicle.inspectionResult}
+            />
           </div>
 
           {/* Sidebar: simulação de financiamento */}

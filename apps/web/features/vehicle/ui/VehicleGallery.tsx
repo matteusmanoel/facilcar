@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Dialog, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import { VehicleImage } from "@/components/shared/VehicleImage";
 import { wrapGalleryIndex } from "@/features/vehicle/lib/gallery-nav";
+import { InspectionSeal } from "@/features/catalog/ui/InspectionSeal";
 import { cn } from "@/lib/cn";
 
 type Img = { id: string; url: string; alt?: string | null };
@@ -13,7 +14,15 @@ type Img = { id: string; url: string; alt?: string | null };
 const navBtnClass =
   "flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200/80 bg-white/95 text-zinc-700 shadow-md backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 md:h-12 md:w-12";
 
-export function VehicleGallery({ images, title }: { images: Img[]; title: string }) {
+export function VehicleGallery({
+  images,
+  title,
+  inspectionResult,
+}: {
+  images: Img[];
+  title: string;
+  inspectionResult?: string | null;
+}) {
   const [active, setActive] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -58,6 +67,7 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
       <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm">
         <div className="relative aspect-[4/3] w-full md:aspect-[16/10]">
           <VehicleImage src={null} alt={title} className="h-full w-full object-cover" />
+          <InspectionSeal result={inspectionResult} />
         </div>
       </div>
     );
@@ -80,6 +90,7 @@ export function VehicleGallery({ images, title }: { images: Img[]; title: string
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 60vw, 800px"
             priority
           />
+          <InspectionSeal result={inspectionResult} />
           <button
             type="button"
             onClick={() => setLightboxOpen(true)}
