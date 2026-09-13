@@ -1,72 +1,56 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createSellVehicleLead } from "../server/actions";
 import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
 import { formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
+import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
 
 const inputClass = publicFormInputClass;
 const labelClass = publicFormLabelClass;
 const MAX_PHOTOS = 5;
 
 export function SellVehicleForm() {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [phoneValue, setPhoneValue] = useState("");
   const [photoCount, setPhotoCount] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
 
   async function handleSubmit(formData: FormData) {
+    const payload = new FormData();
+    for (const [key, value] of formData.entries()) {
+      payload.append(key, value);
+    }
+
     setStatus("submitting");
     setErrorMessage("");
-    const result = await createSellVehicleLead(formData);
+    const result = await createSellVehicleLead(payload);
     if (result.success) {
-      setStatus("success");
-      formRef.current?.reset();
-      setPhoneValue("");
-      setPhotoCount(0);
-    } else {
-      setStatus("error");
-      setErrorMessage(result.error);
+      router.push(
+        buildFormThankYouPath({
+          kind: "venda",
+          name: formData.get("name"),
+        }),
+      );
+      return;
     }
-  }
 
-  if (status === "success") {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl bg-green-50 px-6 py-8 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            className="text-green-600"
-            aria-hidden
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        </div>
-        <p className="text-base font-semibold text-green-900">Pedido enviado!</p>
-        <p className="text-sm text-green-700">
-          Um dos nossos especialistas vai entrar em contato com a avaliação.
-        </p>
-        <button
-          type="button"
-          onClick={() => setStatus("idle")}
-          className="mt-2 text-sm text-facil-muted underline hover:text-foreground"
-        >
-          Enviar outro veículo
-        </button>
-      </div>
-    );
+    setStatus("error");
+    setErrorMessage(result.error);
   }
 
   return (
-    <form ref={formRef} action={handleSubmit} className="flex flex-col gap-4" noValidate>
+    <form
+      ref={formRef}
+      action={handleSubmit}
+      encType="multipart/form-data"
+      className="flex flex-col gap-4"
+      noValidate
+    >
       <label className={labelClass}>
         Nome completo *
         <input
@@ -188,7 +172,6 @@ export function SellVehicleForm() {
           accept="image/jpeg,image/png,image/webp"
           multiple
           className={`${inputClass} file:mr-3 file:rounded-md file:border-0 file:bg-facil-orange file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white`}
-          disabled={status === "submitting"}
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
             if (files.length > MAX_PHOTOS) {

@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { visibleSellPhotoUrls } from "@/features/lead/lib/sell-photos";
 import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 import { LeadDetailField } from "./LeadDetailField";
 import { LeadEditToolbar } from "./LeadEditToolbar";
@@ -78,6 +79,8 @@ export function LeadSellEditor({
     observations: observations ?? "",
   };
 
+  const photos = visibleSellPhotoUrls(photoUrls);
+
   const {
     register,
     handleSubmit,
@@ -118,6 +121,35 @@ export function LeadSellEditor({
             setEditing(false);
           }}
         />
+      </div>
+
+      <div className="mb-6 border-b border-facil-border pb-4">
+        <h3 className="text-xs font-medium text-facil-muted">
+          Fotos enviadas{photos.length > 0 ? ` · ${photos.length}` : ""}
+        </h3>
+        {photos.length > 0 ? (
+          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {photos.map((url, index) => (
+              <li key={`${url}-${index}`}>
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block overflow-hidden rounded-lg border border-facil-border bg-facil-surface"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt={`Foto ${index + 1} do veículo enviado pelo cliente`}
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-facil-muted">Nenhuma foto enviada neste pedido.</p>
+        )}
       </div>
 
       {editing ? (
@@ -237,22 +269,6 @@ export function LeadSellEditor({
         </dl>
       )}
 
-      {photoUrls.length > 0 ? (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {photoUrls.map((url) => (
-            <a
-              key={url}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="overflow-hidden rounded-lg border border-facil-border"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="Foto do veículo para venda" className="h-28 w-full object-cover" />
-            </a>
-          ))}
-        </div>
-      ) : null}
       {!editing && observations ? (
         <p className="mt-4 whitespace-pre-wrap text-sm text-facil-muted">{observations}</p>
       ) : null}

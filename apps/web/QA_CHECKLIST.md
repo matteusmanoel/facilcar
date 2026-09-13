@@ -21,7 +21,7 @@ npm run build && npm run start
 - [ ] Home (`/`) com destaques e links
 - [ ] `/estoque` — filtros + **Filtrar**
 - [ ] `/estoque/[slug]` — ficha + interesse
-- [ ] `/financiamento`, `/vender-seu-veiculo` — submit → sucesso
+- [ ] `/financiamento`, `/vender-seu-veiculo` — submit → `/obrigado` (mensagem + ícone) → home em 10s + toast no canto inferior direito
 - [ ] Institucionais: `/quem-somos`, `/politica-de-privacidade`, `/politica-de-cookies`, `/termos-de-uso`, `/nosso-estoque`, `/trabalhe-conosco`
 - [ ] `/blog` e `/blog/[slug]`
 
@@ -32,6 +32,7 @@ npm run build && npm run start
 - [ ] Login: `admin@facilcar.demo` / `ChangeMe123!`
 - [ ] `/admin/veiculos`, novo, editar
 - [ ] `/admin/leads` + detalhe + status
+- [ ] Lead de venda: fotos enviadas no formulário aparecem na ficha
 - [ ] `/admin/paginas`, `/admin/blog`, `/admin/configuracoes`
 - [ ] **Sair** → `/admin/login`
 
