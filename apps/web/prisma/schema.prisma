@@ -38,6 +38,21 @@ enum VehicleType {
   @@schema("facilcar")
 }
 
+enum VehicleBodyStyle {
+  SEDAN
+  HATCH
+  SUV
+
+  @@schema("facilcar")
+}
+
+enum VehicleInspectionResult {
+  APPROVED
+  REJECTED
+
+  @@schema("facilcar")
+}
+
 enum FuelType {
   GASOLINE
   ETHANOL
@@ -178,6 +193,8 @@ model Vehicle {
   slug              String         @unique
   status            VehicleStatus
   type              VehicleType
+  bodyStyle         VehicleBodyStyle?
+  inspectionResult  VehicleInspectionResult?
   title             String
   shortDescription  String?
   description       String?
@@ -242,6 +259,8 @@ model Vehicle {
   @@index([publishedAt])
   @@index([stockType])
   @@index([commercialHistory])
+  @@index([bodyStyle])
+  @@index([inspectionResult])
 }
 
 model VehicleImage {

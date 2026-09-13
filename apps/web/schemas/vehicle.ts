@@ -16,6 +16,8 @@ const commercialHistoryEnum = z.enum([
   "RECOVERED_CLAIM",
   "AUCTION_AND_RECOVERED_CLAIM",
 ]);
+const bodyStyleEnum = z.enum(["SEDAN", "HATCH", "SUV"]);
+const inspectionResultEnum = z.enum(["APPROVED", "REJECTED"]);
 
 function emptyToUndefined(value: unknown) {
   if (value === "" || value === null || value === undefined) return undefined;
@@ -50,7 +52,7 @@ function optionalNonNegativeNumber(message: string) {
   );
 }
 
-export const createVehicleSchema = z.object({
+const vehicleFieldsSchema = z.object({
   slug: z
     .string()
     .regex(/^[a-z0-9-]*$/, "Slug: apenas minúsculas, números e hífens")
@@ -86,6 +88,8 @@ export const createVehicleSchema = z.object({
   plateFinal: z.string().max(1, "Use apenas um caractere").optional(),
   stockType: z.preprocess(emptyToUndefined, stockTypeEnum.optional()),
   commercialHistory: z.preprocess(emptyToUndefined, commercialHistoryEnum.optional()),
+  bodyStyle: z.preprocess(emptyToUndefined, bodyStyleEnum.optional()),
+  inspectionResult: z.preprocess(emptyToUndefined, inspectionResultEnum.optional()),
   partnerIds: z.preprocess((value) => {
     if (value == null || value === "") return [];
     if (Array.isArray(value)) return value;
@@ -123,9 +127,26 @@ export const createVehicleSchema = z.object({
   features: z.string().optional(),  // one label per line
 });
 
+function refineBodyStyleForType(
+  data: { bodyStyle?: string; type?: string },
+  ctx: z.RefinementCtx,
+) {
+  if (data.bodyStyle && data.type && data.type !== "CAR") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["bodyStyle"],
+      message: "Recorte de carroceria só se aplica a carro.",
+    });
+  }
+}
+
+export const createVehicleSchema = vehicleFieldsSchema.superRefine(refineBodyStyleForType);
 export type CreateVehicleInput = z.infer<typeof createVehicleSchema>;
 
-export const updateVehicleSchema = createVehicleSchema.partial().extend({
-  id: z.string().min(1, "ID é obrigatório"),
-});
+export const updateVehicleSchema = vehicleFieldsSchema
+  .partial()
+  .extend({
+    id: z.string().min(1, "ID é obrigatório"),
+  })
+  .superRefine(refineBodyStyleForType);
 export type UpdateVehicleInput = z.infer<typeof updateVehicleSchema>;
