@@ -20,8 +20,18 @@ import {
   parseOptionalNumber,
 } from "@/features/lead/lib/edit-values";
 import { nextPrimaryVehicleId } from "@/features/lead/lib/vehicle-label";
+import {
+  claimLeadAction as claimLeadFromOwnership,
+  resumeConversationAction as resumeConversationFromOwnership,
+} from "./conversation-ownership";
 
-export { claimLeadAction, resumeConversationAction } from "./conversation-ownership";
+export async function claimLeadAction(leadId: string, clientOwnerId?: unknown) {
+  return claimLeadFromOwnership(leadId, clientOwnerId);
+}
+
+export async function resumeConversationAction(leadId: string, reason?: string) {
+  return resumeConversationFromOwnership(leadId, reason);
+}
 
 const NOT_DELETED = { deletedAt: null } as const;
 

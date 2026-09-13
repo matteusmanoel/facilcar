@@ -31,7 +31,7 @@ export default async function VenderVeiculoPage() {
               rel="noopener noreferrer"
               className="mt-8 inline-flex rounded-xl bg-facil-orange px-8 py-3.5 font-bold hover:bg-facil-orange-hover"
             >
-              Falar no WhatsApp
+              Falar com quem entende
             </a>
           )}
         </div>
