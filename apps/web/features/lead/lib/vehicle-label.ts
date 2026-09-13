@@ -19,6 +19,21 @@ function factsInterestText(metadataJson: unknown): string | null {
   return null;
 }
 
+/** Explicit isPrimary only — never the first row of an unordered list. */
+export function selectExplicitPrimary<T extends { isPrimary?: boolean }>(rows: T[]): T | null {
+  return rows.find((item) => item.isPrimary === true) ?? null;
+}
+
+export function nextPrimaryVehicleId(
+  selectedIds: string[],
+  currentPrimaryId: string | null | undefined,
+): string | null {
+  const ids = selectedIds.filter(Boolean);
+  const current = (currentPrimaryId ?? "").trim();
+  if (current && ids.includes(current)) return current;
+  return null;
+}
+
 export function leadVehicleLabel(lead: {
   vehicle?: { title: string } | null;
   vehicleInterests?: Array<{ isPrimary: boolean; vehicle: { title: string } }>;
@@ -28,7 +43,7 @@ export function leadVehicleLabel(lead: {
   if (linked) return linked;
 
   const interests = lead.vehicleInterests ?? [];
-  const primary = interests.find((item) => item.isPrimary) ?? interests[0];
+  const primary = selectExplicitPrimary(interests);
   const interestTitle = primary?.vehicle?.title?.trim();
   if (interestTitle) return interestTitle;
 

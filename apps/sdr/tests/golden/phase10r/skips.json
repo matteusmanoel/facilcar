@@ -1,0 +1,49 @@
+{
+  "baseline_commit": "64f13185354051cfb144aeb21626367d6b637389",
+  "count_before": 8,
+  "count_after": 8,
+  "replaced": [],
+  "policy": "Leave pre-existing environmental skips. Replace only Phase 10 ownership skips that a fake/store can cover.",
+  "skips": [
+    {
+      "nodeid": "tests/integration/test_corolla_engine_replay.py::test_corolla_engine_replay_with_remote_stock",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_corolla_engine_replay.py::test_fixture_exists",
+      "reason": "module skipif: authoritative DATABASE_URL not configured (local yaml exists check)",
+      "classification": "PREEXISTING_UNRELATED"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_only_published_and_corolla_found",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_exact_engine_ranks_and_serializes",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_different_engine_is_alternative_not_match",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_null_engine_is_unknown_not_incompatible",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_missing_stock_is_empty_not_failure",
+      "reason": "authoritative DATABASE_URL (oulknepjqhyiyjbiuqtg) not configured",
+      "classification": "JUSTIFIED_ENVIRONMENTAL"
+    },
+    {
+      "nodeid": "tests/integration/test_inventory_remote.py::test_db_error_never_classifies_as_empty_stock",
+      "reason": "module skipif: authoritative DATABASE_URL not configured (pure classifier, no pool)",
+      "classification": "PREEXISTING_UNRELATED"
+    }
+  ]
+}

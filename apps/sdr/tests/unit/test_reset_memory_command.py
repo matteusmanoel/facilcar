@@ -45,6 +45,8 @@ async def test_handle_reset_memory_clears_state_and_confirms() -> None:
     )
     orch.conversations.reset_conversation_memory = AsyncMock(return_value=fresh)
     orch.conversations.insert_bot_outbound = AsyncMock(return_value="out-1")
+    orch.conversations.find_open_bot_reservation = AsyncMock(return_value=None)
+    orch.conversations.update_bot_provider_id = AsyncMock(return_value="out-1")
     orch.conversations.finalize_batch_messages = AsyncMock()
 
     batch = InboundBatch(
@@ -100,6 +102,8 @@ async def test_handle_reset_memory_survives_confirmation_send_timeout() -> None:
     )
     orch.conversations.reset_conversation_memory = AsyncMock(return_value=fresh)
     orch.conversations.insert_bot_outbound = AsyncMock(return_value="out-1")
+    orch.conversations.find_open_bot_reservation = AsyncMock(return_value=None)
+    orch.conversations.update_bot_provider_id = AsyncMock(return_value="out-1")
     orch.conversations.finalize_batch_messages = AsyncMock()
 
     batch = InboundBatch(

@@ -80,43 +80,49 @@ async def test_cnh_extraction_fields() -> None:
 @pytest.mark.asyncio
 async def test_conflict_asks_confirmation() -> None:
     """When text/state CPF ≠ document CPF → ask_confirmation, do not overwrite."""
+    # Use real valid CPFs (checksum-verified) so normalize_cpf does not null them.
+    doc_cpf = "12345678909"   # valid CPF
+    state_cpf = "52998224725"  # valid CPF (529.982.247-25)
     client = _vision_client(
         {
             "name": "Ana",
-            "cpf": "22222222222",
+            "cpf": doc_cpf,
             "birth_date": None,
             "plate": None,
             "document_type": "CNH",
         }
     )
-    state_facts = {"cpf": "11111111111", "name": "Ana"}
+    state_facts = {"cpf": state_cpf, "name": "Ana"}
     extracted, conflict = await extract_document(
         b"fake",
         state_facts=state_facts,
         client=client,
     )
-    assert extracted.cpf == "22222222222"
+    assert extracted.cpf == doc_cpf
     assert conflict.needs_confirmation is True
     assert conflict.action == "ask_confirmation"
     assert "cpf" in conflict.conflicting_fields
     # Must not overwrite state CPF
-    assert conflict.merged_facts["cpf"] == "11111111111"
+    assert conflict.merged_facts["cpf"] == state_cpf
 
 
 def test_conflict_helper_same_cpf_no_confirmation() -> None:
-    state = {"cpf": "111.111.111-11"}
-    extracted = ExtractedDocument(cpf="11111111111", document_type="CNH")
+    # Use a real valid CPF (checksum-verified) so normalize_cpf returns the digits.
+    valid_cpf = "52998224725"  # 529.982.247-25
+    state = {"cpf": "529.982.247-25"}
+    extracted = ExtractedDocument(cpf=valid_cpf, document_type="CNH")
     result = check_extraction_conflicts(state, extracted)
     assert result.needs_confirmation is False
     assert result.action == "apply"
-    assert result.merged_facts["cpf"] == "11111111111"
+    assert result.merged_facts["cpf"] == valid_cpf
 
 
 def test_conflict_helper_empty_state_applies() -> None:
-    extracted = ExtractedDocument(cpf="12345678901", name="Bia", document_type="CNH")
+    valid_cpf = "12345678909"  # checksum-verified
+    extracted = ExtractedDocument(cpf=valid_cpf, name="Bia", document_type="CNH")
     result = check_extraction_conflicts({}, extracted)
     assert result.needs_confirmation is False
-    assert result.merged_facts["cpf"] == "12345678901"
+    assert result.merged_facts["cpf"] == valid_cpf
     assert result.merged_facts["name"] == "Bia"
 
 
@@ -145,7 +151,7 @@ async def test_processor_propagates_conflict() -> None:
     client = _vision_client(
         {
             "name": None,
-            "cpf": "99999999999",
+            "cpf": "12345678909",  # valid CPF, differs from state CPF below
             "birth_date": None,
             "plate": None,
             "document_type": "OTHER",
@@ -155,7 +161,7 @@ async def test_processor_propagates_conflict() -> None:
         b"x",
         content_type="DOCUMENT",
         mime_type="image/png",
-        state_facts={"cpf": "11111111111"},
+        state_facts={"cpf": "52998224725"},  # valid CPF, different from doc
         client=client,
     )
     assert result.conflict is not None

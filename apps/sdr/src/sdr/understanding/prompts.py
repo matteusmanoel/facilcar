@@ -22,7 +22,20 @@ Intent canônico:
   "vocês têm X?", "tem disponível?", "quero ver opções", "quero saber sobre X".
   NÃO exige intenção de fechar agora.
 - purchase_financing: compra com foco em financiamento.
-- trade / sale / consignment / refinancing: conforme o caso.
+- trade: cliente quer TROCAR o carro dele por outro veículo da loja
+  ("quero trocar", "tenho um X para dar na troca", "quero um Y e tenho um Z").
+  Sempre há dois veículos envolvidos: o que o cliente tem E o que ele quer.
+- sale: cliente quer VENDER o carro dele PARA A LOJA, sem necessariamente
+  comprar outro ("quero vender meu X", "tenho interesse em vender",
+  "gostaria de vender meu carro", "vocês compram carros?", "quanto pagam pelo meu X?").
+  Só há um veículo: o do cliente. NÃO extraia desired_model para sale.
+- consignment: cliente quer deixar o carro na loja para que a loja venda por ele
+  ("quero consignar", "posso deixar meu carro para vocês venderem?").
+- refinancing: cliente quer levantar dinheiro usando o próprio carro como garantia
+  ("quero refinanciar", "usar meu carro como garantia para empréstimo").
+- IMPORTANTE: "quero vender" ≠ "quero trocar". Use sale quando o cliente não
+  mencionar veículo que quer adquirir. Use trade apenas quando houver intenção
+  clara de adquirir outro veículo ao mesmo tempo.
 - smalltalk: saudação pura ou bate-papo sem conteúdo comercial.
 - unknown: só quando realmente não for possível classificar.
 
@@ -88,6 +101,21 @@ facts_entries — use SOMENTE estas chaves canônicas (value sempre string):
 - payment_method: cash (à vista) ou financing. Extraia quando o cliente disser
   "financiar", "à vista", "compra financiada". NÃO invente consórcio nem uso
   pessoal/empresa.
+- trade_color: cor do veículo de entrada/venda quando mencionada.
+- trade_has_financing: "true" se o cliente indicar que há financiamento em aberto
+  no veículo de entrada; "false" se indicar que está quitado.
+- trade_installment_value: valor da parcela atual do financiamento do veículo de entrada.
+- trade_installments_remaining: quantidade de parcelas restantes do financiamento
+  do veículo de entrada (número inteiro).
+- trade_has_debts: "true" se o cliente mencionar débitos (multas, licenciamento
+  pendente) no veículo de entrada; "false" se confirmar que está regular.
+- trade_debt_type: descrição livre dos débitos quando mencionados.
+- trade_price_expectation: expectativa de valor do cliente pelo próprio veículo
+  ("tenho em mente uns 40 mil", "acho que vale 35"). Só extraia quando o cliente
+  der um valor; nunca estime.
+- trade_in_owner_is_client: "true" se o documento do veículo está no nome do
+  cliente; "false" se estiver em nome de terceiro.
+- trade_renavam: RENAVAM do veículo quando o cliente informar.
 
 Nunca invente chaves fora desta lista. Lista vazia se nada concreto.
 Não pergunte motorização na triagem — só extraia se o cliente informar.
@@ -175,7 +203,15 @@ TURN_FACTS_JSON_SCHEMA: dict = {
                                 "budget, max_price, use_type, down_payment, "
                                 "timeline, city, name, year, color, "
                                 "vehicle_model, vehicle_year, mileage, "
-                                "amount_needed, leave_at_store, deal_type, payment_method"
+                                "amount_needed, leave_at_store, deal_type, payment_method, "
+                                "vehicle_status, vehicle_value, monthly_income, "
+                                "asking_price, desired_installment, "
+                                "trade_model, trade_year, sell_model, sell_year, "
+                                "trade_color, trade_has_financing, "
+                                "trade_installment_value, trade_installments_remaining, "
+                                "trade_has_debts, trade_debt_type, "
+                                "trade_price_expectation, trade_in_owner_is_client, "
+                                "trade_renavam"
                             ),
                         },
                         "value": {"type": "string"},

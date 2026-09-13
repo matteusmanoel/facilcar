@@ -133,10 +133,10 @@ class EvolutionClient:
 
         Returns the provider message id when present in the Evolution response.
 
-        Persistence contract: after a successful send, the **caller** must persist
-        a ``Message`` row with ``isBotSent=True`` (and ``providerMessageId`` set to
-        the returned id when available). That marker lets inbound ``fromMe``
-        webhooks distinguish bot-sent traffic from human seller replies.
+        Persistence contract: the caller must persist a reserved ``isBotSent``
+        row **before** this call, then update ``providerMessageId`` to the
+        returned id when present. That marker lets inbound ``fromMe`` webhooks
+        distinguish bot-sent traffic from human seller replies.
         """
         payload = await self._request(
             "POST",

@@ -1,0 +1,77 @@
+{
+  "name": "agendamento_semana",
+  "description": "Dois horários exatos; cliente escolhe 14h; encaminha ao time.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero comprar um Fiat Cronos à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Fiat Cronos",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Meu nome é Ana Ferreira",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Ana Ferreira"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Ana Ferreira"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "confirmação do vendedor",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

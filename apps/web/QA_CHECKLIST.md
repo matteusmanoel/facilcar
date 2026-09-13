@@ -22,7 +22,7 @@ npm run build && npm run start
 - [ ] `/estoque` — filtros + **Filtrar**
 - [ ] `/estoque/[slug]` — ficha + interesse
 - [ ] `/financiamento`, `/vender-seu-veiculo` — submit → sucesso
-- [ ] Institucionais: `/quem-somos`, `/politica-de-privacidade`, `/termos-de-uso`, `/nosso-estoque`, `/trabalhe-conosco`
+- [ ] Institucionais: `/quem-somos`, `/politica-de-privacidade`, `/politica-de-cookies`, `/termos-de-uso`, `/nosso-estoque`, `/trabalhe-conosco`
 - [ ] `/blog` e `/blog/[slug]`
 
 ## Admin

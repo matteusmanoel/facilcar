@@ -1,0 +1,52 @@
+{
+  "name": "g2_reply_strada_financia",
+  "description": "Quoted reply on Strada 2018 plus a 100% financing question.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero mais informações da Strada",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem",
+        "excelente opção"
+      ]
+    },
+    {
+      "inbound": "Gostei dessa opção. Financia 100%?",
+      "quoted_message_id": "replay-img-VH-STRADA-2018",
+      "response_mode": "quoted_selection",
+      "events": [
+        {
+          "content_type": "TEXT",
+          "text": "Gostei dessa opção. Financia 100%?",
+          "quoted_message_id": "replay-img-VH-STRADA-2018",
+          "delay_ms": 0,
+          "message_id": "p9r-strada-quote-1"
+        }
+      ],
+      "expected_primary_vehicle_id": "VH-STRADA-2018",
+      "forbidden_action": "SHOW_OFFERS",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { getSiteSettings } from "@/features/settings/server/queries";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { WhatsAppFloat } from "@/components/shared/WhatsAppFloat";
+import { CookieBanner } from "@/components/shared/CookieBanner";
 import { buildAutoDealerJsonLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function PublicLayout({
         youtubeUrl={settings?.youtubeUrl}
       />
       <WhatsAppFloat whatsappNumber={settings?.defaultWhatsappNumber} />
+      <CookieBanner />
     </div>
   );
 }

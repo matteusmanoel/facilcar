@@ -91,9 +91,11 @@ class TurnTracer:
         print(f"[SDR_TRACE] {payload}", flush=True)
 
     def _record(self, stage: str, **kwargs: Any) -> None:
-        if not self._enabled:
-            return
         self._stages.append({"stage": stage, **_sanitize(kwargs)})
+
+    @property
+    def stages(self) -> list[dict[str, Any]]:
+        return self._stages
 
     def inbound(
         self,
@@ -129,6 +131,30 @@ class TurnTracer:
             has_result=bool(result_text),
             text_len=len(result_text) if result_text else 0,
             error=error,
+        )
+
+    def visual(
+        self,
+        *,
+        resolution_source: str | None = None,
+        confidence: float | None = None,
+        candidate_vehicle_ids: list[str] | None = None,
+        matched_vehicle_id: str | None = None,
+        vision_attempted: bool = False,
+        vision_calls: int = 0,
+        fallback_reason: str | None = None,
+        ambiguity_reason: str | None = None,
+    ) -> None:
+        self._record(
+            "VISUAL_RESOLUTION",
+            resolution_source=resolution_source,
+            confidence=confidence,
+            candidate_vehicle_ids=candidate_vehicle_ids or [],
+            matched_vehicle_id=matched_vehicle_id,
+            vision_attempted=vision_attempted,
+            vision_calls=vision_calls,
+            fallback_reason=fallback_reason,
+            ambiguity_reason=ambiguity_reason,
         )
 
     def understanding(
@@ -185,6 +211,21 @@ class TurnTracer:
         tool_calls: list[dict[str, Any]],
         ask_field: str | None = None,
         inventory_search_key: str | None = None,
+        primary_action: str | None = None,
+        supporting_acts: list[str] | None = None,
+        forbidden_concurrent_actions: list[str] | None = None,
+        handoff_ready: bool | None = None,
+        profile_complete: bool | None = None,
+        primary_vehicle_id: str | None = None,
+        remaining_documents_asked: bool | None = None,
+        enrichment_ask_count: int | None = None,
+        primary_vehicle_label: str | None = None,
+        vehicle_label_source: str | None = None,
+        documents_received: list[str] | None = None,
+        documents_missing: list[str] | None = None,
+        documents_deferred: list[str] | None = None,
+        direct_question_detected: bool | None = None,
+        next_question: str | None = None,
     ) -> None:
         self._record(
             "DECISION",
@@ -193,6 +234,21 @@ class TurnTracer:
             planned_tools=[tc.get("tool") for tc in tool_calls],
             ask_field=ask_field,
             inventory_search_key=inventory_search_key,
+            primary_action=primary_action,
+            supporting_acts=supporting_acts or [],
+            forbidden_concurrent_actions=forbidden_concurrent_actions or [],
+            handoff_ready=handoff_ready,
+            profile_complete=profile_complete,
+            primary_vehicle_id=primary_vehicle_id,
+            remaining_documents_asked=remaining_documents_asked,
+            enrichment_ask_count=enrichment_ask_count,
+            primary_vehicle_label=primary_vehicle_label,
+            vehicle_label_source=vehicle_label_source,
+            documents_received=documents_received or [],
+            documents_missing=documents_missing or [],
+            documents_deferred=documents_deferred or [],
+            direct_question_detected=bool(direct_question_detected),
+            next_question=next_question,
         )
 
     def tools_executed(self, results: list[dict[str, Any]]) -> None:
@@ -216,6 +272,13 @@ class TurnTracer:
         conversational_affordance: str | None = None,
         budget_status: str | None = None,
         alternative_scope: str | None = None,
+        dialogue_acts: list[str] | None = None,
+        canonical_question: str | None = None,
+        facts_to_acknowledge: list[str] | None = None,
+        realized_acts: list[str] | None = None,
+        dialogue_violations: list[str] | None = None,
+        used_template_fallback: bool | None = None,
+        retries: int | None = None,
     ) -> None:
         self._record(
             "COMPOSER_INPUT",
@@ -226,6 +289,13 @@ class TurnTracer:
             conversational_affordance=conversational_affordance,
             budget_status=budget_status,
             alternative_scope=alternative_scope,
+            dialogue_acts=dialogue_acts or [],
+            canonical_question=canonical_question,
+            facts_to_acknowledge=facts_to_acknowledge or [],
+            realized_acts=realized_acts or [],
+            dialogue_violations=dialogue_violations or [],
+            used_template_fallback=bool(used_template_fallback),
+            retries=int(retries or 0),
         )
 
     def outbound(self, bubbles: list[str]) -> None:
@@ -245,6 +315,13 @@ class TurnTracer:
         anchor_message_id: str,
         composed_text: str | None = None,
         segments: list[dict[str, Any]] | None = None,
+        close_reason: str | None = None,
+        has_media: bool = False,
+        has_document: bool = False,
+        has_reply: bool = False,
+        runtime_call_count: int = 1,
+        worker_id: str | None = None,
+        message_count: int | None = None,
     ) -> None:
         self._record(
             "BATCH",
@@ -256,6 +333,13 @@ class TurnTracer:
             composed_text_len=len(composed_text) if composed_text else 0,
             composed_preview=(composed_text or "")[:120],
             segments=segments or [],
+            close_reason=close_reason,
+            has_media=has_media,
+            has_document=has_document,
+            has_reply=has_reply,
+            runtime_call_count=runtime_call_count,
+            worker_id=worker_id,
+            message_count=message_count if message_count is not None else len(included_ids),
         )
 
     def media_actions(self, actions: list[dict[str, Any]]) -> None:
@@ -279,6 +363,9 @@ class NoopTracer:
         pass
 
     def media(self, **_: Any) -> None:
+        pass
+
+    def visual(self, **_: Any) -> None:
         pass
 
     def understanding(self, **_: Any) -> None:

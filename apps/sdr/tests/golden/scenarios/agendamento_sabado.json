@@ -1,0 +1,97 @@
+{
+  "name": "agendamento_sabado",
+  "description": "Pedido de sábado; dois horários no sábado; escolha; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Tenho interesse no HB20, pago à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "HB20",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Pedro Alves",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Pedro Alves"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Pedro Alves"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Quero marcar uma visita, seria possível no sábado?",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "required_in_outbound_any": [
+        "sábado",
+        "sabado"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você"
+      ]
+    },
+    {
+      "inbound": "Pode ser de manhã, o primeiro horário",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "confirmação do vendedor",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

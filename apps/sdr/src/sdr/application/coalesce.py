@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sdr.domain.inbound import ContentType, MediaFailureCode, MediaStatus
+from sdr.domain.inbound import ContentType, MediaFailureCode, MediaStatus, QuotedContext
 from sdr.domain.inbound_batch import (
     InboundBatch,
     InboundSegment,
@@ -31,28 +31,44 @@ def content_type_from_row(row: Any) -> ContentType:
         return ContentType.TEXT
 
 
-def _media_ref_from_row(row: Any) -> dict | None:
+def _facts_from_row(row: Any) -> dict[str, Any]:
     raw = row["turnFactsJson"]
-    data: dict[str, Any] | None
     if raw is None:
-        return None
+        return {}
     if isinstance(raw, dict):
-        data = raw
-    elif isinstance(raw, str):
+        return raw
+    if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-            data = parsed if isinstance(parsed, dict) else None
+            return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
-            return None
-    else:
-        try:
-            data = dict(raw)
-        except Exception:
-            return None
+            return {}
+    try:
+        data = dict(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def quoted_from_row(row: Any) -> QuotedContext | None:
+    data = _facts_from_row(row)
     if not data:
         return None
-    ref = data.get("_sdr_media")
-    return ref if isinstance(ref, dict) else None
+    quoted_obj = data.get("_sdr_quoted")
+    stanza_id = data.get("_sdr_quoted_id")
+    quoted_text = None
+    quoted_type = None
+    if isinstance(quoted_obj, dict):
+        stanza_id = stanza_id or quoted_obj.get("stanzaId") or quoted_obj.get("stanza_id")
+        quoted_text = quoted_obj.get("quotedText") or quoted_obj.get("quoted_text")
+        quoted_type = quoted_obj.get("quotedType") or quoted_obj.get("quoted_type")
+    if not stanza_id and not quoted_text:
+        return None
+    return QuotedContext(
+        stanza_id=str(stanza_id) if stanza_id else None,
+        quoted_text=str(quoted_text) if quoted_text else None,
+        quoted_type=str(quoted_type) if quoted_type else None,
+    )
 
 
 def segment_from_row(
@@ -90,6 +106,14 @@ def segment_from_row(
         else:
             status = MediaStatus.NONE
 
+    facts = _facts_from_row(row)
+    document_extracted = facts.get("document_extracted")
+    if not isinstance(document_extracted, dict):
+        document_extracted = None
+    vehicle_hint = facts.get("vehicle_hint")
+    if not isinstance(vehicle_hint, dict):
+        vehicle_hint = None
+
     return InboundSegment(
         message_id=str(row["id"]),
         content_type=ctype,
@@ -101,6 +125,9 @@ def segment_from_row(
         created_at=row["createdAt"],
         caption=caption,
         order=order,
+        quoted=quoted_from_row(row),
+        vehicle_hint=vehicle_hint,
+        document_extracted=document_extracted,
     )
 
 
@@ -162,6 +189,7 @@ __all__ = [
     "compose_turn_from_batch",
     "content_type_from_row",
     "is_retry_seed",
+    "quoted_from_row",
     "segment_from_row",
     "select_snapshot_rows",
     "utc_now_naive",

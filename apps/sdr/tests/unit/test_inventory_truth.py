@@ -169,9 +169,12 @@ async def test_success_empty_updates_key_and_distinct_message(monkeypatch) -> No
     assert result.state.last_inventory_search_key is not None
     assert result.state.last_inventory_outcome == "SUCCESS_EMPTY"
     joined = " ".join(result.outbound_texts).lower()
-    assert "estoque atual" in joined
+    assert "estoque" in joined  # new copy uses "em estoque" / "estoque atual"
     assert "não consegui consultar" not in joined
     assert "não trabalhamos" not in joined
+    # New contract: directly asks for alternatives, no yes/no gate
+    assert "quer que eu veja" not in joined
+    assert "quer ver alternativas" not in joined
 
 
 @pytest.mark.asyncio

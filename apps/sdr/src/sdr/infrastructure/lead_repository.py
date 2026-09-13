@@ -10,6 +10,9 @@ from typing import Any
 
 import asyncpg
 
+from sdr.domain.commercial_snapshot import (
+    build_commercial_snapshot,
+)
 from sdr.domain.phone import normalize_phone
 from sdr.domain.types import (
     BusinessIntent,
@@ -20,15 +23,6 @@ from sdr.domain.vendor_summary import build_vendor_summary, is_placeholder_displ
 
 SCHEMA = "facilcar"
 logger = logging.getLogger(__name__)
-
-INTENT_TO_LEAD_TYPE: dict[BusinessIntent, str] = {
-    BusinessIntent.PURCHASE: "VEHICLE_INTEREST",
-    BusinessIntent.PURCHASE_FINANCING: "FINANCING",
-    BusinessIntent.TRADE: "TRADE_IN",
-    BusinessIntent.SALE: "SELL_VEHICLE",
-    BusinessIntent.CONSIGNMENT: "CONSIGNMENT",
-    BusinessIntent.REFINANCING: "REFINANCING",
-}
 
 
 def _new_id() -> str:
@@ -63,6 +57,10 @@ def _parse_birth_date_for_db(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
+
+
+def _parse_visit_date(value: Any) -> datetime | None:
+    return _parse_birth_date_for_db(value)
 
 
 def build_julia_summary(state: ConversationCanonicalState) -> str:
@@ -124,28 +122,26 @@ class LeadRepository:
         customer_id: str | None,
         conversation_id: str,
         name: str,
+        first_inbound: str | None = None,
     ) -> asyncpg.Record | None:
         """Create Lead only for commercial intent (not greeting/smalltalk)."""
         if state.intent in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK):
             return None
 
-        lead_type = INTENT_TO_LEAD_TYPE.get(state.intent, "CONTACT")
+        snapshot = build_commercial_snapshot(state, first_inbound=first_inbound, qualify=False)
+        lead_type = snapshot.lead_type
         phone = normalize_phone(state.customer.phone)
         now = _now()
         lead_id = _new_id()
-        temperature = (
-            state.temperature.value
-            if state.temperature
-            else LeadTemperature.WARM.value
-        )
-        summary = build_julia_summary(state)
+        temperature = snapshot.temperature or LeadTemperature.WARM.value
+        display_name = name if not is_placeholder_display_name(name) else (snapshot.name or name)
 
         sql = f'''
             INSERT INTO "{SCHEMA}"."Lead"
               ("id", "type", "status", "source", "channel", "name", "phone",
                "whatsapp", "customerId", "conversationId", "juliaSummary",
                "temperature", "message", "city", "state", "metadataJson",
-               "createdAt", "updatedAt")
+               "commercialRevision", "createdAt", "updatedAt")
             VALUES (
               $1,
               $2::"{SCHEMA}"."LeadType",
@@ -154,94 +150,130 @@ class LeadRepository:
               'WHATSAPP'::"{SCHEMA}"."LeadChannel",
               $3, $4, $4, $5, $6, $7,
               $8::"{SCHEMA}"."LeadTemperature",
-              $9, $10, $11, $12::jsonb, $13, $13
+              $9, $10, $11, $12::jsonb, $13, $14, $14
             )
             RETURNING *
         '''
-        city = (
-            str(state.facts.get("birth_city") or state.facts.get("city") or "").strip()
-            or None
-        )
-        uf = (
-            str(state.facts.get("birth_state") or state.facts.get("state") or "").strip()
-            or None
-        )
-        meta = {"intent": state.intent.value, "facts": state.facts}
         async with self._pool.acquire() as conn:
             lead = await conn.fetchrow(
                 sql,
                 lead_id,
                 lead_type,
-                name,
+                display_name,
                 phone,
                 customer_id,
                 conversation_id,
-                summary,
+                snapshot.julia_summary,
                 temperature,
-                summary,
-                city,
-                uf,
-                json.dumps(meta, ensure_ascii=False),
+                snapshot.original_message,
+                snapshot.city,
+                snapshot.state,
+                json.dumps(snapshot.metadata, ensure_ascii=False),
+                snapshot.revision,
                 now,
             )
-            await self._upsert_side_tables(conn, lead_id, state)
-            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
-            if not is_placeholder_display_name(name):
-                await self._sync_lead_name(conn, lead_id, name.strip())
+            await self._apply_snapshot_side_effects(conn, lead_id, state, snapshot, conversation_id)
+            if not is_placeholder_display_name(display_name):
+                await self._sync_lead_name(conn, lead_id, display_name.strip())
             return lead
 
-    async def mark_qualified_for_handoff(
+    async def sync_from_state(
         self,
         lead_id: str,
         state: ConversationCanonicalState,
+        *,
+        qualify: bool = False,
+        first_inbound: str | None = None,
+        conversation_id: str | None = None,
     ) -> asyncpg.Record | None:
-        """Handoff: status QUALIFIED, juliaSummary set, assignedToUserId = null."""
+        """Idempotent CRM flush from consolidated canonical state.
+
+        Stale revisions (commercialRevision < stored) are ignored. Handoff
+        qualifies once; later commercial updates refresh facts without a
+        second NEW_QUALIFIED notification.
+        """
         now = _now()
-        summary = build_julia_summary(state)
-        temperature = (
-            state.temperature.value
-            if state.temperature
-            else LeadTemperature.WARM.value
-        )
-        sql = f'''
-            UPDATE "{SCHEMA}"."Lead"
-            SET "status" = 'QUALIFIED'::"{SCHEMA}"."LeadStatus",
-                "juliaSummary" = $2,
-                "temperature" = $3::"{SCHEMA}"."LeadTemperature",
-                "assignedToUserId" = NULL,
-                "city" = COALESCE($5, "city"),
-                "state" = COALESCE($6, "state"),
-                "updatedAt" = $4
-            WHERE "id" = $1
-            RETURNING *
-        '''
-        city = (
-            str(state.facts.get("birth_city") or state.facts.get("city") or "").strip()
-            or None
-        )
-        uf = (
-            str(state.facts.get("birth_state") or state.facts.get("state") or "").strip()
-            or None
-        )
         async with self._pool.acquire() as conn:
-            lead = await conn.fetchrow(
-                sql, lead_id, summary, temperature, now, city, uf
+            current = await conn.fetchrow(
+                f'''
+                SELECT "id", "status", "commercialRevision", "message", "conversationId"
+                FROM "{SCHEMA}"."Lead"
+                WHERE "id" = $1 AND "deletedAt" IS NULL
+                ''',
+                lead_id,
             )
-            await self._upsert_side_tables(conn, lead_id, state)
-            await self._sync_shown_vehicles(conn, lead_id, list(state.last_shown_vehicle_ids))
+            if current is None:
+                return None
+            already = str(current["status"]) == "QUALIFIED"
+            snapshot = build_commercial_snapshot(
+                state,
+                first_inbound=first_inbound,
+                qualify=qualify,
+                already_qualified=already,
+            )
+            stored_rev = int(current["commercialRevision"] or 0)
+            if snapshot.revision < stored_rev:
+                return current
+            temperature = snapshot.temperature or LeadTemperature.WARM.value
+            status_sql = (
+                f'''"status" = 'QUALIFIED'::"{SCHEMA}"."LeadStatus",'''
+                if qualify or already
+                else ""
+            )
+            sql = f'''
+                UPDATE "{SCHEMA}"."Lead"
+                SET {status_sql}
+                    "juliaSummary" = $2,
+                    "temperature" = $3::"{SCHEMA}"."LeadTemperature",
+                    "assignedToUserId" = CASE WHEN $8 THEN NULL ELSE "assignedToUserId" END,
+                    "city" = COALESCE($5, "city"),
+                    "state" = COALESCE($6, "state"),
+                    "metadataJson" = $7::jsonb,
+                    "commercialRevision" = $9,
+                    "updatedAt" = $4
+                WHERE "id" = $1
+                  AND "commercialRevision" <= $9
+                RETURNING *
+            '''
+            lead = await conn.fetchrow(
+                sql,
+                lead_id,
+                snapshot.julia_summary,
+                temperature,
+                now,
+                snapshot.city,
+                snapshot.state,
+                json.dumps(snapshot.metadata, ensure_ascii=False),
+                bool(qualify),
+                snapshot.revision,
+            )
+            if lead is None:
+                return current
+            conv_id = conversation_id or current["conversationId"]
+            await self._apply_snapshot_side_effects(conn, lead_id, state, snapshot, conv_id)
             if not is_placeholder_display_name(state.customer.name):
                 await self._sync_lead_name(conn, lead_id, state.customer.name.strip())
-            if lead is not None:
-                await conn.execute(
+            if qualify and not already:
+                exists = await conn.fetchrow(
                     f'''
-                    INSERT INTO "{SCHEMA}"."SdrNotification"
-                      ("id", "leadId", "type", "createdAt")
-                    VALUES ($1, $2, 'NEW_QUALIFIED'::"{SCHEMA}"."SdrNotificationType", $3)
+                    SELECT 1 FROM "{SCHEMA}"."SdrNotification"
+                    WHERE "leadId" = $1
+                      AND "type" = 'NEW_QUALIFIED'::"{SCHEMA}"."SdrNotificationType"
+                    LIMIT 1
                     ''',
-                    _new_id(),
                     lead_id,
-                    now,
                 )
+                if exists is None:
+                    await conn.execute(
+                        f'''
+                        INSERT INTO "{SCHEMA}"."SdrNotification"
+                          ("id", "leadId", "type", "createdAt")
+                        VALUES ($1, $2, 'NEW_QUALIFIED'::"{SCHEMA}"."SdrNotificationType", $3)
+                        ''',
+                        _new_id(),
+                        lead_id,
+                        now,
+                    )
                 try:
                     await self._notify_failed_document_uploads(conn, lead_id, now)
                 except Exception:
@@ -250,6 +282,40 @@ class LeadRepository:
                         lead_id,
                     )
             return lead
+
+    async def mark_qualified_for_handoff(
+        self,
+        lead_id: str,
+        state: ConversationCanonicalState,
+        *,
+        first_inbound: str | None = None,
+        conversation_id: str | None = None,
+    ) -> asyncpg.Record | None:
+        """Handoff: status QUALIFIED, juliaSummary set, assignedToUserId = null."""
+        return await self.sync_from_state(
+            lead_id,
+            state,
+            qualify=True,
+            first_inbound=first_inbound,
+            conversation_id=conversation_id,
+        )
+
+    async def _apply_snapshot_side_effects(
+        self,
+        conn: asyncpg.Connection,
+        lead_id: str,
+        state: ConversationCanonicalState,
+        snapshot: Any,
+        conversation_id: str | None,
+    ) -> None:
+        await self._upsert_side_tables(conn, lead_id, state)
+        await self._sync_shown_vehicles(
+            conn,
+            lead_id,
+            list(snapshot.interest_ids or state.last_shown_vehicle_ids),
+            primary_vehicle_id=snapshot.primary_vehicle_id,
+        )
+        await self._upsert_visit(conn, lead_id, snapshot, conversation_id)
 
     async def notify_document_upload_failed(self, lead_id: str) -> None:
         try:
@@ -335,8 +401,10 @@ class LeadRepository:
         conn: asyncpg.Connection,
         lead_id: str,
         vehicle_ids: list[str],
+        *,
+        primary_vehicle_id: str | None = None,
     ) -> None:
-        """Persist published vehicles Júlia actually presented — never string-guess."""
+        """Persist presented vehicles. Primary is explicit — never list position."""
         ids = [str(v).strip() for v in vehicle_ids if str(v).strip()]
         if not ids:
             return
@@ -356,7 +424,8 @@ class LeadRepository:
         ordered = [vid for vid in ids if vid in published_set]
         if not ordered:
             return
-        primary = ordered[0]
+        explicit = (primary_vehicle_id or "").strip() or None
+        primary = explicit if explicit in published_set and explicit in ordered else None
         await conn.execute(
             f'''
             UPDATE "{SCHEMA}"."Lead"
@@ -376,7 +445,7 @@ class LeadRepository:
                 ''',
                 lead_id,
             )
-            for index, vid in enumerate(ordered):
+            for vid in ordered:
                 await conn.execute(
                     f'''
                     INSERT INTO "{SCHEMA}"."LeadVehicleInterest"
@@ -388,7 +457,7 @@ class LeadRepository:
                     _new_id(),
                     lead_id,
                     vid,
-                    index == 0,
+                    vid == primary,
                     _now(),
                 )
         except asyncpg.UndefinedTableError:
@@ -406,7 +475,7 @@ class LeadRepository:
             BusinessIntent.PURCHASE_FINANCING,
             BusinessIntent.REFINANCING,
         ) or payment == "financing":
-            await self._upsert_financing(conn, lead_id, facts)
+            await self._upsert_financing(conn, lead_id, state)
         if state.intent in (
             BusinessIntent.SALE,
             BusinessIntent.CONSIGNMENT,
@@ -414,32 +483,109 @@ class LeadRepository:
         ):
             await self._upsert_sell(conn, lead_id, facts)
 
+    async def _upsert_visit(
+        self,
+        conn: asyncpg.Connection,
+        lead_id: str,
+        snapshot: Any,
+        conversation_id: str | None,
+    ) -> None:
+        visit = snapshot.visit
+        if visit is None:
+            return
+        if not (
+            visit.interest
+            or visit.declined
+            or visit.date
+            or visit.time
+            or visit.display
+            or visit.raw
+            or visit.location_sent
+        ):
+            return
+        preferred = _parse_visit_date(visit.date)
+        existing = await conn.fetchrow(
+            f'''
+            SELECT "id" FROM "{SCHEMA}"."VisitInterest"
+            WHERE "leadId" = $1
+            ORDER BY "createdAt" DESC
+            LIMIT 1
+            ''',
+            lead_id,
+        )
+        if existing:
+            await conn.execute(
+                f'''
+                UPDATE "{SCHEMA}"."VisitInterest"
+                SET "conversationId" = COALESCE($1, "conversationId"),
+                    "dateHint" = COALESCE($2, "dateHint"),
+                    "period" = COALESCE($3, "period"),
+                    "notes" = COALESCE($4, "notes"),
+                    "preferredDate" = COALESCE($5, "preferredDate"),
+                    "preferredTime" = COALESCE($6, "preferredTime"),
+                    "originalText" = COALESCE($7, "originalText"),
+                    "accepted" = COALESCE($8, "accepted"),
+                    "declined" = COALESCE($9, "declined"),
+                    "locationSent" = $10,
+                    "interest" = $11
+                WHERE "id" = $12
+                ''',
+                conversation_id,
+                visit.display or visit.date,
+                visit.period,
+                visit.display,
+                preferred,
+                visit.time,
+                visit.raw,
+                visit.accepted if visit.accepted else None,
+                visit.declined if visit.declined else None,
+                bool(visit.location_sent),
+                bool(visit.interest),
+                existing["id"],
+            )
+            return
+        await conn.execute(
+            f'''
+            INSERT INTO "{SCHEMA}"."VisitInterest"
+              ("id", "leadId", "conversationId", "dateHint", "period", "notes",
+               "preferredDate", "preferredTime", "originalText", "accepted",
+               "declined", "locationSent", "interest", "createdAt")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ''',
+            _new_id(),
+            lead_id,
+            conversation_id,
+            visit.display or visit.date,
+            visit.period,
+            visit.display,
+            preferred,
+            visit.time,
+            visit.raw,
+            visit.accepted if visit.accepted else None,
+            visit.declined if visit.declined else None,
+            bool(visit.location_sent),
+            bool(visit.interest),
+            _now(),
+        )
+
     async def _upsert_financing(
         self,
         conn: asyncpg.Connection,
         lead_id: str,
-        facts: dict[str, Any],
+        state: ConversationCanonicalState,
     ) -> None:
+        from sdr.domain.commercial_snapshot import financing_snapshot
+
+        fin = financing_snapshot(state)
+        if fin is None:
+            return
         existing = await conn.fetchrow(
             f'''SELECT "id" FROM "{SCHEMA}"."FinancingRequest" WHERE "leadId" = $1''',
             lead_id,
         )
-        cpf = facts.get("cpf")
-        birth_raw = facts.get("birth_date")
-        birth_dt = _parse_birth_date_for_db(birth_raw)
-        down = facts.get("down_payment")
-        down_num: float | None
-        try:
-            down_num = float(down) if down is not None and down != "" else None
-        except (TypeError, ValueError):
-            down_num = None
-        vehicle_model = (
-            facts.get("desired_model")
-            or facts.get("vehicle_model")
-            or facts.get("model")
-        )
-        vehicle_year = facts.get("vehicle_year") or facts.get("year")
-        notes = facts.get("notes")
+        birth_dt = _parse_birth_date_for_db(fin.birth_date)
+        # desiredInstallments is prazo (month count). Never write R$/mês there.
+        installment_count = fin.desired_installments_count
         if existing:
             await conn.execute(
                 f'''
@@ -450,35 +596,45 @@ class LeadRepository:
                     "vehicleModel" = COALESCE($5, "vehicleModel"),
                     "vehicleYear" = COALESCE($6, "vehicleYear"),
                     "notes" = COALESCE($7, "notes"),
-                    "hasDriverLicense" = COALESCE($8, "hasDriverLicense")
+                    "hasDriverLicense" = COALESCE($8, "hasDriverLicense"),
+                    "desiredMonthlyPayment" = COALESCE($9, "desiredMonthlyPayment"),
+                    "desiredInstallments" = COALESCE($10, "desiredInstallments"),
+                    "vehicleId" = COALESCE($11, "vehicleId")
                 WHERE "leadId" = $1
                 ''',
                 lead_id,
-                cpf,
+                fin.cpf,
                 birth_dt,
-                down_num,
-                vehicle_model,
-                int(vehicle_year) if vehicle_year is not None else None,
-                notes,
-                True if facts.get("document_type") == "CNH" or cpf else None,
+                fin.down_payment,
+                fin.vehicle_model,
+                fin.vehicle_year,
+                fin.notes,
+                fin.has_driver_license,
+                fin.desired_monthly_payment,
+                installment_count,
+                fin.vehicle_id,
             )
             return
         await conn.execute(
             f'''
             INSERT INTO "{SCHEMA}"."FinancingRequest"
               ("id", "leadId", "cpf", "birthDate", "downPayment",
-               "vehicleModel", "vehicleYear", "notes", "hasDriverLicense")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               "vehicleModel", "vehicleYear", "notes", "hasDriverLicense",
+               "desiredMonthlyPayment", "desiredInstallments", "vehicleId")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ''',
             _new_id(),
             lead_id,
-            cpf,
+            fin.cpf,
             birth_dt,
-            down_num,
-            vehicle_model,
-            int(vehicle_year) if vehicle_year is not None else None,
-            notes,
-            True if facts.get("document_type") == "CNH" or cpf else None,
+            fin.down_payment,
+            fin.vehicle_model,
+            fin.vehicle_year,
+            fin.notes,
+            fin.has_driver_license,
+            fin.desired_monthly_payment,
+            installment_count,
+            fin.vehicle_id,
         )
 
     async def _upsert_sell(
@@ -500,7 +656,36 @@ class LeadRepository:
         )
         year = facts.get("sell_year") or facts.get("trade_year") or facts.get("year")
         mileage = facts.get("mileage") or facts.get("km")
+        extra_bits: list[str] = []
+        if facts.get("trade_color"):
+            extra_bits.append(f"cor {facts['trade_color']}")
+        financing = facts.get("trade_has_financing")
+        if financing is True:
+            parcela = facts.get("trade_installment_value")
+            restantes = facts.get("trade_installments_remaining")
+            bit = "financiamento em aberto"
+            if parcela is not None:
+                bit += f" parcela {parcela}"
+            if restantes is not None:
+                bit += f" restam {restantes}"
+            extra_bits.append(bit)
+        elif financing is False:
+            extra_bits.append("quitado")
+        debts = facts.get("trade_has_debts")
+        if debts is True:
+            extra_bits.append(
+                f"débitos: {facts.get('trade_debt_type')}"
+                if facts.get("trade_debt_type")
+                else "débitos pendentes"
+            )
+        elif debts is False:
+            extra_bits.append("sem débitos")
+        if facts.get("trade_price_expectation"):
+            extra_bits.append(f"expectativa {facts['trade_price_expectation']}")
+        extra = "; ".join(extra_bits)
         observations = facts.get("observations") or facts.get("notes")
+        if extra:
+            observations = f"{observations}; {extra}" if observations else extra
         if existing:
             await conn.execute(
                 f'''

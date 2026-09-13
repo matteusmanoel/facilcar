@@ -1,8 +1,11 @@
-"""Handoff rules — irreversible silence after confirmation.
+"""Handoff rules — commercial event, not automation shutdown.
 
 LLM may extract handoff-related signals. Deterministic code owns the final
 decision. ``high_purchase_intent`` must already be gated by the extractor
 (``gate_handoff_signals``) before reaching this module.
+
+``HANDOFF_SENT`` means the vendor was notified and the AI stays active.
+Silence begins only on explicit ``HUMAN_ACTIVE`` (assume).
 
 Evidence classes
 ----------------
@@ -90,102 +93,111 @@ def customer_handoff_bubbles(
     state: ConversationCanonicalState,
     reason_code: str | None = None,
 ) -> list[str]:
-    """WhatsApp close: context-appropriate thanks + specialist + site link.
-
-    reason_code drives the phrasing:
-    - "visit_intent" + visit_preferred_time → appointment confirmation
-    - "triage_actionable" / "visit_invitation_pre_handoff" → neutral handoff
-    - everything else → classic "Eu quem agradeço" (explicit handoff / offer)
-    """
+    """WhatsApp close: honest about what was collected; never fake completeness."""
     es = (state.language or "").lower().startswith("es")
     name = display_first_name(state.customer.name)
-    visit_time = state.visit_preferred_time
+    incomplete = not getattr(state, "profile_complete", False)
+    empty_lead = not (state.facts or {}) and not name
+    site = HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT
 
-    _VISIT_REASONS = {"visit_intent", "visit_slot_confirmed"}
-    _TRIAGE_REASONS = {"triage_actionable", "visit_invitation_pre_handoff"}
+    if reason_code == "explicit_vendor" or (
+        state.signals.explicit_handoff is True and empty_lead
+    ):
+        msg = (
+            "Claro. Vou encaminhar seu atendimento para um dos nossos vendedores continuar com você."
+            if not es
+            else "Claro. Voy a pasar tu atención a uno de nuestros vendedores para que continúe contigo."
+        )
+        return [msg]
 
-    if visit_time and reason_code in _VISIT_REASONS:
-        # Customer confirmed a visit slot — acknowledge the appointment.
-        if es:
-            thanks = (
-                f"Combinado{f', {name}' if name else ''}! "
-                f"Esperamos você {visit_time}. "
-                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
-                "Excelente dia!"
-            )
-        else:
-            thanks = (
-                f"Combinado{f', {name}' if name else ''}! "
-                f"Esperamos você {visit_time}. "
-                "Já reuni suas informações e logo um de nossos especialistas vai continuar com você. "
-                "Excelente dia!"
-            )
-    elif reason_code in _TRIAGE_REASONS:
-        # Triage complete without a specific visit slot — neutral warm close.
-        if es:
+    from sdr.domain.visit import should_send_store_location, visit_confirmation_bubbles
+
+    visit_bubbles = visit_confirmation_bubbles(
+        state,
+        include_location=should_send_store_location(state),
+        handoff=True,
+    )
+    if visit_bubbles:
+        return visit_bubbles
+
+    if reason_code in {
+        "triage_complete",
+        "triage_actionable",
+        "handoff_ready",
+        "visit_invitation_pre_handoff",
+    }:
+        if incomplete:
             thanks = (
                 f"Perfeito{f', {name}' if name else ''}! "
-                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+                "Vou encaminhar para um dos nossos vendedores continuar com você."
             )
         else:
             thanks = (
                 f"Perfeito{f', {name}' if name else ''}! "
-                "Já reuni tudo aqui e logo um de nossos especialistas vai continuar com você."
+                "Já organizei as informações e vou encaminhar para nossa equipe continuar com você."
             )
-    else:
-        # Default: explicit handoff / offer / high_purchase_intent.
-        if es:
-            thanks = (
-                f"Yo te agradezco{f', {name}' if name else ''}. Ya reuní tu información "
-                "y pronto uno de nuestros especialistas se pondrá en contacto. "
-                "Que tengas un excelente día."
-            )
-        else:
-            thanks = (
-                f"Eu quem agradeço{f', {name}' if name else ''}. Já reuni suas informações "
-                "e logo um dos nossos especialistas entrará em contato. Tenha um excelente dia."
-            )
+        return [thanks, site]
 
-    return [thanks, HANDOFF_SITE_BUBBLE_ES if es else HANDOFF_SITE_BUBBLE_PT]
+    thanks = (
+        f"Claro{f', {name}' if name else ''}. "
+        "Vou encaminhar seu atendimento para um dos nossos vendedores continuar com você."
+    )
+    return [thanks, site]
 
 
 def should_handoff_now(state: ConversationCanonicalState) -> bool:
     """True when gated signals require immediate handoff (bypass triage).
 
-    Does NOT include triage actionability — that is a separate decision path
-    that must respect inventory-first policy in the Decision Engine.
+    Visit intent without a recorded preference is not immediate handoff —
+    Decision may still invite once, then close when qualification is ready.
+    Exact clock time is never required.
     """
     if state.lifecycle.status in (
         LifecycleStatus.HANDOFF_SENT,
         LifecycleStatus.HUMAN_ACTIVE,
+        LifecycleStatus.AI_RESUMED,
     ):
         return False
     sig = state.signals
-    return any(
-        (
-            sig.explicit_handoff is True,
-            sig.explicit_offer is True,
-            sig.high_purchase_intent is True,
-            sig.visit_intent is True,
-        )
-    )
+    if sig.explicit_handoff is True:
+        return True
+    if sig.explicit_offer is True:
+        return True
+    if sig.high_purchase_intent is True:
+        return True
+    if sig.visit_intent is True:
+        from sdr.domain.visit import has_visit_preference
+
+        if getattr(state, "visit_accepted_offered", False) or getattr(state, "visit_time", None):
+            return True
+        if state.visit_invited and has_visit_preference(state):
+            return True
+    return False
 
 
 def is_ai_silenced(state: ConversationCanonicalState) -> bool:
-    """HUMAN_ACTIVE and HANDOFF_SENT forbid further AI replies."""
-    return state.lifecycle.status in (
-        LifecycleStatus.HANDOFF_SENT,
-        LifecycleStatus.HUMAN_ACTIVE,
-    )
+    """Only HUMAN_ACTIVE forbids further AI replies."""
+    return state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
 
 
 def mark_handoff_sent(state: ConversationCanonicalState, reason: str | None = None) -> None:
-    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (exactly one auto message)."""
+    """Transition READY_FOR_HANDOFF → HANDOFF_SENT (vendor notified, AI still active).
+
+    Stamps ``vendor_notified_at`` once. Manual status mutation is not dispatch
+    evidence; this action is.
+    """
     if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE:
         return
     state.lifecycle.status = LifecycleStatus.HANDOFF_SENT
     if reason:
         state.lifecycle.handoff_reason = reason
+    if not state.handoff_at:
+        from sdr.domain.clock import now_brt
+
+        state.handoff_at = now_brt().isoformat()
+    from sdr.domain.ownership import confirm_vendor_dispatch
+
+    confirm_vendor_dispatch(state)
 
 
 def mark_human_active(state: ConversationCanonicalState) -> None:

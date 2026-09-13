@@ -1,0 +1,32 @@
+{
+  "name": "pedido_de_vendedor",
+  "description": "Handoff imediato sem fingir coleta.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Pode me transferir para um vendedor?",
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {
+          "explicit_handoff": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": [
+        "encaminh",
+        "vendedor"
+      ],
+      "forbidden_in_outbound": [
+        "já reuni",
+        "já organizei",
+        "qual modelo",
+        "seria compra ou troca",
+        "visita",
+        "horário"
+      ]
+    }
+  ]
+}

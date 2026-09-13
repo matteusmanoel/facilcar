@@ -1,0 +1,48 @@
+{
+  "name": "g4_human_assume",
+  "description": "G4 — vendor assume cancels pending follow-up. Zero LLM on later inbound. Zero follow-up send.",
+  "execution_mode": "production_policy",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_followup_sends": 0,
+  "expected_artifact_clean": true,
+  "expected_no_llm_when_cancelled": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000014"},
+  "turns": [
+    {
+      "inbound": "Pode me chamar amanhã às 14h sobre os documentos.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada"}
+      },
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "forbidden_action": "HANDOFF_VENDOR"
+    },
+    {
+      "admin_event": {"type": "assume", "actor_user_id": "user-1"},
+      "principal_event": true,
+      "expected_bot_status": "HUMAN_ACTIVE"
+    },
+    {
+      "inbound": "Quero financiar a Strada sem entrada",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada", "down_payment": 0}
+      },
+      "expected_action": "NO_REPLY",
+      "expected_outbound_empty": true,
+      "expected_llm_calls": 0,
+      "expected_inbound_persisted": true,
+      "expected_bot_status": "HUMAN_ACTIVE",
+      "expected_suppressed_reason": "ai_silenced"
+    },
+    {
+      "clock_jump": "2026-09-08T14:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 0,
+      "expected_llm_calls": 0
+    }
+  ]
+}

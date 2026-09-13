@@ -1,17 +1,24 @@
 import Link from "next/link";
 import { VehicleImage } from "@/components/shared/VehicleImage";
-import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
+import { InspectionSeal } from "@/features/catalog/ui/InspectionSeal";
+import { bodyStyleLabels } from "@/features/vehicle/lib/labels";
 import { cn } from "@/lib/cn";
 
 export type VehicleCardVehicle = {
   id: string;
   slug: string;
   title: string;
+  model?: string | null;
+  version?: string | null;
   priceCash?: unknown;
+  yearManufacture?: number | null;
   yearModel?: number | null;
   mileage?: number | null;
   fuelType?: string | null;
   transmission?: string | null;
+  bodyStyle?: string | null;
+  inspectionResult?: string | null;
+  brand?: { name: string; logoUrl?: string | null } | string | null;
   images?: { url: string }[] | null;
 };
 
@@ -32,6 +39,20 @@ function formatPrice(priceCash: unknown): string {
   return `R$ ${n.toLocaleString("pt-BR")}`;
 }
 
+function brandName(brand: VehicleCardVehicle["brand"]): string | null {
+  if (!brand) return null;
+  if (typeof brand === "string") return brand;
+  return brand.name || null;
+}
+
+function yearLabel(vehicle: VehicleCardVehicle): string | null {
+  if (vehicle.yearManufacture && vehicle.yearModel) {
+    if (vehicle.yearManufacture === vehicle.yearModel) return String(vehicle.yearModel);
+    return `${vehicle.yearManufacture}/${vehicle.yearModel}`;
+  }
+  return vehicle.yearModel ? String(vehicle.yearModel) : vehicle.yearManufacture ? String(vehicle.yearManufacture) : null;
+}
+
 export function VehicleCard({
   vehicle,
   featured = false,
@@ -42,57 +63,61 @@ export function VehicleCard({
   className,
 }: Props) {
   const firstImage = Array.isArray(vehicle.images) ? vehicle.images[0] : null;
-  const fuel = vehicle.fuelType
-    ? (fuelLabels[vehicle.fuelType] ?? vehicle.fuelType)
-    : null;
-  const trans = vehicle.transmission
-    ? (transLabels[vehicle.transmission] ?? vehicle.transmission)
-    : null;
   const Heading = headingLevel;
+  const brand = brandName(vehicle.brand);
+  const years = yearLabel(vehicle);
+  const bodyLabel = vehicle.bodyStyle ? (bodyStyleLabels[vehicle.bodyStyle] ?? vehicle.bodyStyle) : null;
+  const heading = brand ? `${brand} ${vehicle.model || vehicle.title}` : vehicle.title;
+  const subtitle =
+    vehicle.version?.trim() ||
+    (brand ? vehicle.title : null);
 
   return (
     <Link href={`/estoque/${vehicle.slug}`} className={cn("vehicle-card group", className)}>
-      <div className="relative aspect-[16/10] shrink-0 overflow-hidden bg-facil-surface">
+      <div className={cn("relative shrink-0 overflow-hidden bg-facil-surface", compact ? "aspect-[16/10]" : "aspect-[4/3]")}>
         <VehicleImage
           src={firstImage?.url}
           alt={vehicle.title}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
           priority={priority}
         />
-        {featured ? <span className="absolute left-3 top-3 badge-orange">Destaque</span> : null}
-        {vehicle.yearModel ? (
-          <span className="absolute right-3 top-3 badge-zinc">{vehicle.yearModel}</span>
+        {featured ? <span className="absolute left-3 top-3 z-10 badge-orange">Destaque</span> : null}
+        <InspectionSeal result={vehicle.inspectionResult} />
+        {bodyLabel ? (
+          <span className="absolute bottom-3 left-3 z-10 rounded-full bg-white/95 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 shadow-sm">
+            {bodyLabel}
+          </span>
         ) : null}
       </div>
       <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col bg-zinc-50 shadow-inner dark:bg-zinc-900/40",
+          "flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-900/40",
           compact ? "p-4" : "p-5",
         )}
       >
         <Heading
           className={cn(
             "line-clamp-2 font-bold leading-snug text-zinc-950 transition-colors group-hover:text-facil-orange dark:text-zinc-50",
-            compact ? "min-h-10 text-sm" : "min-h-12 text-base",
+            compact ? "text-sm" : "text-lg",
           )}
         >
-          {vehicle.title}
+          {heading}
         </Heading>
-        <p className={cn("mt-2 font-black text-facil-orange", compact ? "text-xl" : "text-2xl")}>
-          {formatPrice(vehicle.priceCash)}
-        </p>
-        <div className={cn("mt-3 flex min-h-7 flex-wrap content-start gap-1.5", compact && "min-h-6")}>
-          {vehicle.mileage != null ? (
-            <span className="badge-zinc">{vehicle.mileage.toLocaleString("pt-BR")} km</span>
-          ) : null}
-          {fuel ? <span className="badge-zinc">{fuel}</span> : null}
-          {trans ? <span className="badge-zinc">{trans}</span> : null}
+        {subtitle && subtitle !== heading ? (
+          <p className="mt-1 line-clamp-1 text-sm text-facil-muted">{subtitle}</p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-facil-muted">
+          {years ? <span>{years}</span> : null}
+          {vehicle.mileage != null ? <span>{vehicle.mileage.toLocaleString("pt-BR")} km</span> : null}
         </div>
-        {footerLabel ? (
-          <p className="mt-auto pt-3 text-xs font-semibold text-facil-orange">{footerLabel}</p>
-        ) : (
-          <div className="mt-auto" />
-        )}
+        <div className="mt-auto flex items-end justify-between gap-3 pt-4">
+          <p className={cn("font-black text-zinc-950 dark:text-zinc-50", compact ? "text-xl" : "text-2xl")}>
+            {formatPrice(vehicle.priceCash)}
+          </p>
+          <span className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition group-hover:border-facil-orange group-hover:text-facil-orange dark:border-zinc-700 dark:text-zinc-200">
+            {footerLabel ?? "Ver mais"}
+          </span>
+        </div>
       </div>
     </Link>
   );

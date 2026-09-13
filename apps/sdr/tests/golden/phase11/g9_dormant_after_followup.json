@@ -1,0 +1,44 @@
+{
+  "name": "g9_dormant_after_followup",
+  "description": "G9 — after the single follow-up, no reply → DORMANT. No second automatic message.",
+  "execution_mode": "production_policy",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "DORMANT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "DORMANT",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000019"},
+  "turns": [
+    {
+      "inbound": "Pode me chamar amanhã às 14h.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada"}
+      },
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "forbidden_action": "HANDOFF_VENDOR"
+    },
+    {
+      "clock_jump": "2026-09-08T14:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP"
+    },
+    {
+      "clock_jump": {"hours": 25},
+      "scheduler_tick": {"kind": "dormant"},
+      "principal_event": true,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "DORMANT"
+    },
+    {
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "DORMANT"
+    }
+  ]
+}

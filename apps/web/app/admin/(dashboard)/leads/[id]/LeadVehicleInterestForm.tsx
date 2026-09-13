@@ -23,7 +23,7 @@ export function LeadVehicleInterestForm({
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-facil-muted">
-        Veículos de interesse. O primeiro da lista é o primário (WON → vendido).
+        Veículos de interesse. O primário é o escolhido pelo cliente; a ordem da lista não define o primário.
       </p>
       <MultiSelect
         options={vehicles.map((v) => ({ value: v.id, label: v.title }))}

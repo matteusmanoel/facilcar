@@ -1,0 +1,83 @@
+{
+  "name": "gol_nao_encontrado",
+  "description": "Gol ausente no seed (SUCCESS_EMPTY); alternativa Argo; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Tem Gol disponível?",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Gol"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_EMPTY"
+      ],
+      "forbidden_in_outbound": [
+        "não trabalhamos com",
+        "A FacilCar não trabalha"
+      ]
+    },
+    {
+      "inbound": "Pode ser um Argo então, à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Argo",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Sou Carla Mota",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Carla Mota"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Pode ser o primeiro horário",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    }
+  ]
+}

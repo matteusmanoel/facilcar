@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Outfit } from "next/font/google";
+import { Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import { PostHogInit } from "@/components/analytics/PostHogInit";
 import { AppThemeProvider } from "@/components/app-theme-provider";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import { BRAND } from "@/lib/brand";
-import { SITE_URL } from "@/lib/seo";
+import { DEFAULT_OG_IMAGE, SITE_URL } from "@/lib/seo";
 import { normalizePublicTheme } from "@/lib/theme";
 import "./globals.css";
 
@@ -12,6 +12,13 @@ const outfit = Outfit({
   variable: "--font-outfit",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+const plusJakarta = Plus_Jakarta_Sans({
+  variable: "--font-plus-jakarta",
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
 
@@ -29,10 +36,6 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s | ${siteName}`,
     },
     description,
-    icons: {
-      icon: "/facilcar-logo.jpg",
-      apple: "/facilcar-logo.jpg",
-    },
     openGraph: {
       title,
       description,
@@ -40,13 +43,13 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       siteName,
       url: SITE_URL,
-      images: [{ url: "/facilcar-logo.jpg", alt: siteName }],
+      images: [{ url: DEFAULT_OG_IMAGE, alt: siteName }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: ["/facilcar-logo.jpg"],
+      images: [DEFAULT_OG_IMAGE],
     },
     robots: {
       index: true,
@@ -73,7 +76,7 @@ export default async function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className={`${outfit.variable} antialiased`}>
+      <body className={`${outfit.variable} ${plusJakarta.variable} antialiased`}>
         <AppThemeProvider publicTheme={publicTheme}>
           <PostHogInit />
           {children}

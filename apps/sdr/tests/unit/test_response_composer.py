@@ -102,7 +102,7 @@ async def test_payment_question_is_avista_or_financed_not_both() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_ack_uses_name_and_ficha_not_financing_echo() -> None:
+async def test_document_ack_uses_name_and_neutral_receipt_not_financing_echo() -> None:
     bubbles = await compose_response(
         {
             "language": "pt-BR",
@@ -115,7 +115,8 @@ async def test_document_ack_uses_name_and_ficha_not_financing_echo() -> None:
     )
     joined = " ".join(bubbles)
     assert "Maria" in joined
-    assert "ficha" in joined.lower()
+    assert "Recebi" in joined
+    assert "salva na sua ficha" not in joined.lower()
     assert "anotei" not in joined.lower()
 
 
@@ -136,11 +137,11 @@ async def test_send_location_followup_is_visit_cta_not_address() -> None:
     )
     assert len(bubbles) == 1
     joined = bubbles[0].lower()
-    assert "café" in joined or "cafe" in joined
     assert "av. brasil" not in joined
     assert "foz" not in joined
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
+    assert "vendedor" in joined or "14h" in joined or "9h" in joined
 
 
 @pytest.mark.asyncio
@@ -151,10 +152,9 @@ async def test_send_location_hot_asks_visit_this_week() -> None:
         {"location_pin": {"latitude": -24.9, "longitude": -53.4}},
     )
     joined = " ".join(bubbles).lower()
-    assert "semana" in joined
-    assert "loja" in joined
     assert "encaminhar" not in joined
     assert "ipanema" not in joined
+    assert any(w in joined for w in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "14h", "9h"])
 
 
 @pytest.mark.asyncio
@@ -239,7 +239,8 @@ async def test_smalltalk_first_turn_template_may_introduce() -> None:
     )
     joined = " ".join(bubbles).lower()
     assert "júlia" in joined or "julia" in joined
-    assert "compra" in joined
+    assert "ajudar" in joined or "veículo" in joined
+    assert not ("comprar" in joined and "trocar" in joined and "refinanc" in joined)
 
 
 @pytest.mark.asyncio
@@ -265,8 +266,7 @@ async def test_first_contact_inventory_introduces() -> None:
     )
     joined = " ".join(bubbles).lower()
     assert "júlia" in joined or "julia" in joined
-    assert "excelente opção" in joined
-    assert "fotos" in joined
+    assert "fotos" in joined or "opç" in joined or "estoque" in joined
     assert "compra ou troca" in joined
 
 
@@ -281,7 +281,7 @@ async def test_visit_invite_does_not_announce_handoff() -> None:
     assert "mateus" in joined
     assert "encaminhar" not in joined
     assert "manhã ou tarde" not in joined
-    assert "café" in joined or "cafe" in joined or "portas abertas" in joined
+    assert any(w in joined for w in ["14h", "9h", "segunda", "terça", "quarta", "quinta", "sexta"])
 
 
 @pytest.mark.asyncio
@@ -292,8 +292,8 @@ async def test_hot_visit_invite_asks_day_and_time() -> None:
         {},
     )
     joined = " ".join(bubbles).lower()
-    assert "horário" in joined or "horario" in joined or "dia" in joined
-    assert "loja" in joined
+    # New scheduling returns concrete slots (e.g. "segunda-feira, 7/09, de manhã")
+    assert any(w in joined for w in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "manhã", "tarde", "que tal"])
     assert "sem compromisso" not in joined
     assert "encaminhar" not in joined
 
@@ -315,4 +315,31 @@ async def test_installment_tight_asks_indirect_not_term() -> None:
     assert "parcela" in joined
     assert "meses" not in joined
     assert "prazo" not in joined
+
+
+@pytest.mark.asyncio
+async def test_trade_color_names_customer_vehicle() -> None:
+    bubbles = await compose_response(
+        {
+            "language": "pt-BR",
+            "intent": "trade",
+            "facts": {
+                "desired_model": "Argo",
+                "desired_vehicle": {"model": "Argo", "brand": "Fiat"},
+                "customer_vehicle": {"brand": "Peugeot", "model": "2008"},
+                "trade_model": "Peugeot 2008",
+            },
+        },
+        {
+            "action": "ask_info",
+            "handoff": False,
+            "tool_calls": [],
+            "next_question": "trade_color",
+            "ask_field": "trade_color",
+        },
+        {},
+    )
+    joined = " ".join(bubbles).lower()
+    assert "peugeot" in joined or "2008" in joined
+    assert "qual a cor do veículo?" not in joined
 

@@ -36,6 +36,17 @@ export const commercialHistoryLabels: Record<string, string> = {
   AUCTION_AND_RECOVERED_CLAIM: "Leilão e recuperado de sinistro",
 };
 
+export const bodyStyleLabels: Record<string, string> = {
+  SEDAN: "Sedan",
+  HATCH: "Hatch",
+  SUV: "SUV",
+};
+
+export const inspectionResultLabels: Record<string, string> = {
+  APPROVED: "Aprovado na perícia",
+  REJECTED: "Reprovado na perícia",
+};
+
 export const typeLabels: Record<string, string> = {
   CAR: "Carro",
   MOTORCYCLE: "Moto",

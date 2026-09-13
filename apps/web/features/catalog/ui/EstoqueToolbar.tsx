@@ -20,6 +20,7 @@ import {
 import { useDebounce } from "@/hooks/useDebounce";
 import { cn } from "@/lib/cn";
 import type { PriceBounds } from "@/features/catalog/lib/price-range";
+import { BODY_STYLE_FILTERS } from "@/features/catalog/lib/public-catalog";
 
 const ALL_BRANDS = "__all__";
 
@@ -63,6 +64,7 @@ type CurrentFilters = {
   brand?: string;
   sort: string;
   type?: string;
+  bodyStyle?: string;
   fuelType?: string;
   transmission?: string;
   priceMin?: number;
@@ -71,7 +73,7 @@ type CurrentFilters = {
   yearMax?: number;
 };
 
-const EXTRA_KEYS = ["marca", "tipo", "combustivel", "cambio", "anoMin", "anoMax"] as const;
+const EXTRA_KEYS = ["marca", "tipo", "carroceria", "combustivel", "cambio", "anoMin", "anoMax"] as const;
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{children}</label>;
@@ -105,6 +107,7 @@ export function EstoqueToolbar({
 
   const [draftBrand, setDraftBrand] = useState(current.brand ?? "");
   const [draftType, setDraftType] = useState(current.type ?? "");
+  const [draftBodyStyle, setDraftBodyStyle] = useState(current.bodyStyle ?? "");
   const [draftFuel, setDraftFuel] = useState(current.fuelType ?? "");
   const [draftTrans, setDraftTrans] = useState(current.transmission ?? "");
   const [draftYearMin, setDraftYearMin] = useState(current.yearMin != null ? String(current.yearMin) : "");
@@ -116,6 +119,7 @@ export function EstoqueToolbar({
     setPriceMax(current.priceMax != null ? String(current.priceMax) : "");
     setDraftBrand(current.brand ?? "");
     setDraftType(current.type ?? "");
+    setDraftBodyStyle(current.bodyStyle ?? "");
     setDraftFuel(current.fuelType ?? "");
     setDraftTrans(current.transmission ?? "");
     setDraftYearMin(current.yearMin != null ? String(current.yearMin) : "");
@@ -169,6 +173,7 @@ export function EstoqueToolbar({
       };
       setOrDelete("marca", draftBrand);
       setOrDelete("tipo", draftType);
+      setOrDelete("carroceria", draftBodyStyle);
       setOrDelete("combustivel", draftFuel);
       setOrDelete("cambio", draftTrans);
       setOrDelete("anoMin", draftYearMin.trim());
@@ -183,6 +188,7 @@ export function EstoqueToolbar({
     setPriceMax("");
     setDraftBrand("");
     setDraftType("");
+    setDraftBodyStyle("");
     setDraftFuel("");
     setDraftTrans("");
     setDraftYearMin("");
@@ -194,23 +200,16 @@ export function EstoqueToolbar({
     setDrawerOpen(false);
   }
 
-  const hasAny =
-    extraCount > 0 ||
-    Boolean(current.q) ||
-    current.priceMin != null ||
-    current.priceMax != null ||
-    current.sort !== "newest";
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[180px] flex-1">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative w-full sm:min-w-[180px] sm:flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400" />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar modelo, marca…"
-            className="h-10 pl-9 pr-8"
+            className="h-10 w-full pl-9 pr-8"
             aria-label="Buscar veículos"
           />
           {q ? (
@@ -242,7 +241,7 @@ export function EstoqueToolbar({
             })
           }
         >
-          <SelectTrigger size="lg" className="w-[11.5rem] shrink-0" aria-label="Ordenar">
+          <SelectTrigger size="lg" className="w-full sm:w-[11.5rem] sm:shrink-0" aria-label="Ordenar">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -258,7 +257,7 @@ export function EstoqueToolbar({
           type="button"
           variant="outline"
           size="sm"
-          className="h-10"
+          className="h-10 w-full sm:w-auto"
           onClick={() => setDrawerOpen(true)}
         >
           <ListFilter className="h-4 w-4" />
@@ -269,21 +268,20 @@ export function EstoqueToolbar({
             </span>
           ) : null}
         </Button>
-
-        <div className="flex h-10 w-[4.75rem] shrink-0 items-center">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn("h-10 w-full", !hasAny && "invisible")}
-            tabIndex={hasAny ? 0 : -1}
-            aria-hidden={!hasAny}
-            onClick={clearAll}
-          >
-            Limpar
-          </Button>
-        </div>
       </div>
+
+      <FilterChips
+        multiple={false}
+        className="w-full"
+        options={[...BODY_STYLE_FILTERS]}
+        value={current.bodyStyle ?? ""}
+        onChange={(value) =>
+          commit((sp) => {
+            if (value) sp.set("carroceria", value);
+            else sp.delete("carroceria");
+          })
+        }
+      />
 
       <p className={cn("text-xs font-medium text-zinc-600 dark:text-zinc-400", isPending && "opacity-60")}>
         {resultCount} veículo(s)
@@ -317,6 +315,15 @@ export function EstoqueToolbar({
             <div>
               <FieldLabel>Tipo</FieldLabel>
               <FilterChips multiple={false} options={TYPES} value={draftType} onChange={setDraftType} />
+            </div>
+            <div>
+              <FieldLabel>Carroceria</FieldLabel>
+              <FilterChips
+                multiple={false}
+                options={[...BODY_STYLE_FILTERS]}
+                value={draftBodyStyle}
+                onChange={setDraftBodyStyle}
+              />
             </div>
             <div>
               <FieldLabel>Combustível</FieldLabel>

@@ -46,6 +46,7 @@ class InventoryOutcome(str, Enum):
 
     SUCCESS_FOUND = "SUCCESS_FOUND"
     SUCCESS_EMPTY = "SUCCESS_EMPTY"
+    SUCCESS_SOLD = "SUCCESS_SOLD"       # vehicle exists in catalog but is sold / unpublished
     FAILED_RETRYABLE = "FAILED_RETRYABLE"
     FAILED_TERMINAL = "FAILED_TERMINAL"
     NOT_EXECUTED = "NOT_EXECUTED"
@@ -61,8 +62,10 @@ class LifecycleStatus(str, Enum):
     BOT_ACTIVE = "BOT_ACTIVE"
     QUALIFYING = "QUALIFYING"
     READY_FOR_HANDOFF = "READY_FOR_HANDOFF"
+    # Vendor notified; AI remains active (HANDOFF_SENT_AI_ACTIVE).
     HANDOFF_SENT = "HANDOFF_SENT"
     HUMAN_ACTIVE = "HUMAN_ACTIVE"
+    AI_RESUMED = "AI_RESUMED"
     HUMAN_CLOSED = "HUMAN_CLOSED"
 
 
@@ -124,6 +127,12 @@ class TurnFacts:
     photo_request: bool | None = None
     # Protocol: customer asked for the store location this turn.
     location_request: bool | None = None
+    # Pause / follow-up suggestions — LLM may fill these; code decides wait-state.
+    # None means omitted: merge must not clear previously known values.
+    pause_reason: str | None = None
+    temporal_commitment: Any = None
+    consent_level: str | None = None
+    pause_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -181,6 +190,11 @@ class ConversationCanonicalState:
     budget_status: BudgetStatus = BudgetStatus.UNKNOWN
     # Last published vehicles presented this thread (ids only).
     last_shown_vehicle_ids: list[str] = field(default_factory=list)
+    # Explicit customer-chosen primary — never inferred from list position.
+    primary_vehicle_id: str | None = None
+    primary_vehicle_chosen_at: float | None = None
+    presented_vehicle_bindings: list[Any] = field(default_factory=list)
+    current_offer_set_id: str | None = None
     # Turn-scoped protocol flag — True only when this inbound asked for photos.
     photo_request: bool = False
     # Turn-scoped protocol flag — True only when this inbound asked for the store.
@@ -195,6 +209,12 @@ class ConversationCanonicalState:
     visit_preferred_time: str | None = None
     # Documents (CNH / holerite) already requested or received this thread.
     documents_asked: bool = False
+    # Remaining financing components (income/residence) already requested once.
+    remaining_documents_asked: bool = False
+    # Optional asks after the lead became handoff_ready. Capped by policy.
+    enrichment_ask_count: int = 0
+    # Cadastral snapshots for vehicles presented this thread (id → record).
+    presented_vehicle_catalog: dict[str, Any] = field(default_factory=dict)
     # Desired monthly installment already asked (nice-to-have; does not block).
     installment_asked: bool = False
     # Installment-vs-price mismatch already offered this thread.
@@ -205,6 +225,61 @@ class ConversationCanonicalState:
     last_shown_price_cash: float | None = None
     # Turn-scoped: inbound this turn was a successfully processed document.
     document_received: bool = False
+    # Turn-scoped: inbound this turn stated documents are unavailable/deferred.
+    documents_unavailable_this_turn: bool = False
+    # Completeness vs handoff (refreshed deterministically each turn).
+    handoff_ready: bool = False
+    profile_complete: bool = False
+    missing_fields: list[str] = field(default_factory=list)
+    deferred_fields: list[str] = field(default_factory=list)
+    collected_fields: list[str] = field(default_factory=list)
+    # Visit slots offered this thread (exact labels from scheduling).
+    offered_visit_slots: list[str] = field(default_factory=list)
+    # Structured visit preference — never mixed into a single string.
+    visit_interest: bool = False
+    visit_declined: bool = False
+    visit_date: str | None = None
+    visit_period: str | None = None
+    visit_time: str | None = None
+    visit_raw: str | None = None
+    visit_within_hours: bool | None = None
+    visit_accepted_offered: bool = False
+    location_sent: bool = False
+    # Turn-scoped visit flags — reset on merge.
+    visit_courtesy: bool = False
+    visit_declined_this_turn: bool = False
+    needs_visit_slot_offer: bool = False
+    # Turn-scoped: inbound was thanks-only, no new commercial facts.
+    courtesy_only: bool = False
+    # Turn-scoped commercial questions from this inbound — never persist to Redis.
+    unanswered_questions: list[dict[str, Any]] = field(default_factory=list)
+    # Turn-scoped: visual resolution ran on this inbound (do not persist).
+    visual_applied_this_turn: bool = False
+    # Unequivocal listing identity from inbound (id / url / media metadata).
+    listing_reference: str | None = None
+    last_inventory_match: dict[str, Any] | None = None
+    # Last visual vehicle resolution (sanitized dict — no bytes / base64).
+    last_visual_resolution: dict[str, Any] | None = None
+    # Compare-and-set for CRM sync — stale revisions must not overwrite newer.
+    crm_revision: int = 0
+    # Conversation ownership — Postgres columns win on load.
+    ownership_revision: int = 0
+    context_revision: int = 0
+    assumed_by_user_id: str | None = None
+    assumed_at: str | None = None
+    resumed_by_user_id: str | None = None
+    resumed_at: str | None = None
+    resume_reason: str | None = None
+    handoff_at: str | None = None
+    # Dispatch evidence — set only after HANDOFF_VENDOR persist is confirmed.
+    vendor_notified_at: str | None = None
+    # Follow-up wait-state — separate from lifecycle.botStatus ownership.
+    # Values: FollowUpWaitState; LLM omission must not clear this.
+    wait_state: str = "ACTIVE_QUALIFICATION"
+    # FollowUpRecord (sdr.domain.followup) — pause, consent, schedule, attempts.
+    followup: Any = None
+    # Durable opt-out (Conversation.sdrOptedOutAt). Survives /deletar.
+    sdr_opted_out_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -267,6 +342,8 @@ class ResponseDirective:
     expose_errors: bool = False
     # Media / tool failure code for sandbox recovery copy.
     failure_code: str | None = None
+    # Semantic obligations for this turn (acts, questions, restrictions).
+    dialogue_plan: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -278,6 +355,10 @@ class ActionPlan:
     next_question: str | None = None
     reason_code: str | None = None
     reason: str | None = None
+    primary_action: str | None = None
+    supporting_acts: list[str] = field(default_factory=list)
+    forbidden_concurrent_actions: list[str] = field(default_factory=list)
+    qualification_trace: dict[str, Any] = field(default_factory=dict)
 
 
 INTENT_TO_BUSINESS_TYPE: dict[BusinessIntent, BusinessType] = {

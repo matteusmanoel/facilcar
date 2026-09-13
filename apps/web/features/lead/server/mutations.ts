@@ -19,7 +19,19 @@ import {
   parseOptionalInt,
   parseOptionalNumber,
 } from "@/features/lead/lib/edit-values";
-import { interpretClaimCount } from "./claim-result";
+import { nextPrimaryVehicleId } from "@/features/lead/lib/vehicle-label";
+import {
+  claimLeadAction as claimLeadFromOwnership,
+  resumeConversationAction as resumeConversationFromOwnership,
+} from "./conversation-ownership";
+
+export async function claimLeadAction(leadId: string, clientOwnerId?: unknown) {
+  return claimLeadFromOwnership(leadId, clientOwnerId);
+}
+
+export async function resumeConversationAction(leadId: string, reason?: string) {
+  return resumeConversationFromOwnership(leadId, reason);
+}
 
 const NOT_DELETED = { deletedAt: null } as const;
 
@@ -111,6 +123,7 @@ export async function updateLeadNoteAction(leadId: string, note: string) {
   revalidatePath(`/admin/leads/${leadId}`);
 }
 
+/** CRM dropdown assignment only. Must not set Conversation HUMAN_ACTIVE. */
 export async function updateLeadAssignmentAction(leadId: string, assignedToUserId: string | null) {
   await requireLeadManager();
 
@@ -131,39 +144,6 @@ export async function updateLeadAssignmentAction(leadId: string, assignedToUserI
 
   revalidatePath(`/admin/leads/${leadId}`);
   revalidatePath("/admin/leads");
-}
-
-/**
- * Atomic claim: only succeeds when lead is unassigned and not deleted.
- * First writer wins under concurrent Assumir clicks.
- */
-export async function claimLeadAction(leadId: string) {
-  let userId: string;
-  try {
-    const { user } = await requireLeadManager();
-    userId = user.id;
-  } catch (e) {
-    return handleAuthError(e);
-  }
-
-  const result = await prisma.lead.updateMany({
-    where: {
-      id: leadId,
-      assignedToUserId: null,
-      deletedAt: null,
-    },
-    data: { assignedToUserId: userId },
-  });
-
-  const interpreted = interpretClaimCount(result.count);
-  if (!interpreted.ok) return interpreted;
-
-  revalidatePath(`/admin/leads/${leadId}`);
-  revalidatePath("/admin/leads");
-  revalidatePath("/admin/crm");
-  revalidatePath("/admin");
-
-  return { ok: true as const };
 }
 
 export async function createManualLeadAction(input: unknown) {
@@ -465,7 +445,10 @@ export async function updateLeadVehicleInterestsAction(leadId: string, vehicleId
   const uniqueIds = Array.from(new Set(vehicleIds.filter(Boolean)));
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, ...NOT_DELETED },
-    select: { id: true },
+    select: {
+      id: true,
+      vehicleInterests: { select: { vehicleId: true, isPrimary: true } },
+    },
   });
   if (!lead) {
     return { ok: false as const, error: "Lead não encontrado" };
@@ -481,16 +464,18 @@ export async function updateLeadVehicleInterestsAction(leadId: string, vehicleId
     }
   }
 
-  const primaryId = uniqueIds[0] ?? null;
+  const currentPrimary =
+    lead.vehicleInterests.find((item) => item.isPrimary)?.vehicleId ?? null;
+  const primaryId = nextPrimaryVehicleId(uniqueIds, currentPrimary);
 
   await prisma.$transaction(async (tx) => {
     await tx.leadVehicleInterest.deleteMany({ where: { leadId } });
     if (uniqueIds.length > 0) {
       await tx.leadVehicleInterest.createMany({
-        data: uniqueIds.map((vehicleId, index) => ({
+        data: uniqueIds.map((vehicleId) => ({
           leadId,
           vehicleId,
-          isPrimary: index === 0,
+          isPrimary: vehicleId === primaryId,
         })),
       });
     }

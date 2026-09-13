@@ -164,6 +164,17 @@ def test_merge_turn_facts_preserves_sdr_media() -> None:
     assert merged2[BATCH_JSON_KEY]["message_ids"] == ["m1"]
 
 
+def test_merge_turn_facts_preserves_sdr_visual() -> None:
+    existing = {
+        "_sdr_media": {"key": {"id": "x"}},
+        "_sdr_visual": {"resolution_source": "exact_media", "matched_vehicle_id": "veh-1"},
+    }
+    patch = {BATCH_JSON_KEY: {"batch_id": "b1", "status": "ERROR"}}
+    merged = merge_turn_facts(existing, patch)
+    assert merged["_sdr_visual"]["matched_vehicle_id"] == "veh-1"
+    assert merged["_sdr_media"]["key"]["id"] == "x"
+
+
 def test_retry_same_batch_ids_no_duplicate_when_outbound_sent() -> None:
     result = BatchResult(
         outbound_texts=["resposta única"],

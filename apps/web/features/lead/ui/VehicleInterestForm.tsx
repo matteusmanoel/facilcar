@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createVehicleInterestLead } from "../server/actions";
 import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
+import { scrollPublicFieldIntoView } from "@/lib/public-form";
 
 type Props = { vehicleId: string };
 
@@ -30,7 +31,7 @@ export function VehicleInterestForm({ vehicleId }: Props) {
       <p className={publicFormLabelClass}>Preencha os campos com seus dados</p>
       <label className={publicFormLabelClass}>
         Nome completo *
-        <input name="name" required autoComplete="name" className={fieldClass} placeholder="Seu nome" />
+        <input name="name" required autoComplete="name" className={fieldClass} placeholder="Seu nome" onFocus={scrollPublicFieldIntoView} />
       </label>
       <label className={publicFormLabelClass}>
         DDD + Celular *
@@ -41,11 +42,12 @@ export function VehicleInterestForm({ vehicleId }: Props) {
           autoComplete="tel"
           className={fieldClass}
           placeholder="(00) 00000-0000"
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
       <label className={publicFormLabelClass}>
         E-mail
-        <input name="email" type="email" autoComplete="email" className={fieldClass} placeholder="seu@email.com" />
+        <input name="email" type="email" autoComplete="email" className={fieldClass} placeholder="seu@email.com" onFocus={scrollPublicFieldIntoView} />
       </label>
       <label className={publicFormLabelClass}>
         Mensagem <span className="font-normal text-facil-muted">(opcional)</span>
@@ -54,6 +56,7 @@ export function VehicleInterestForm({ vehicleId }: Props) {
           rows={3}
           className={`${fieldClass} resize-y min-h-[5rem]`}
           placeholder="Dúvidas ou melhor horário para contato"
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
       {status === "success" && (

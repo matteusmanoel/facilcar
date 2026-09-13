@@ -1,0 +1,84 @@
+{
+  "name": "p9_10_todos_documentos",
+  "description": "Full documentary pack received; remaining-docs ask must not repeat.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 4,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Bruno Azevedo"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Seguem CNH, renda e residência",
+      "content_type": "DOCUMENT",
+      "mime_type": "application/pdf",
+      "document_extracted": {
+        "document_type": "CNH",
+        "name": "Bruno Azevedo"
+      },
+      "events": [
+        {
+          "content_type": "DOCUMENT",
+          "text": "CNH",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "CNH",
+            "name": "Bruno Azevedo"
+          },
+          "delay_ms": 0,
+          "message_id": "p9-pack-cnh"
+        },
+        {
+          "content_type": "DOCUMENT",
+          "text": "comprovante de renda",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "INCOME_PROOF"
+          },
+          "delay_ms": 400,
+          "message_id": "p9-pack-income"
+        },
+        {
+          "content_type": "DOCUMENT",
+          "text": "comprovante de residência",
+          "mime_type": "application/pdf",
+          "document_extracted": {
+            "document_type": "RESIDENCE_PROOF"
+          },
+          "delay_ms": 800,
+          "message_id": "p9-pack-res"
+        }
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

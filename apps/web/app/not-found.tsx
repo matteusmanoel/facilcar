@@ -3,6 +3,7 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { PublicNotFound } from "@/components/shared/PublicNotFound";
 import { WhatsAppFloat } from "@/components/shared/WhatsAppFloat";
+import { CookieBanner } from "@/components/shared/CookieBanner";
 import { getSiteSettings } from "@/features/settings/server/queries";
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default async function RootNotFound() {
         youtubeUrl={settings?.youtubeUrl}
       />
       <WhatsAppFloat whatsappNumber={settings?.defaultWhatsappNumber} />
+      <CookieBanner />
     </div>
   );
 }

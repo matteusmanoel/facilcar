@@ -8,10 +8,10 @@ import {
 } from "@/features/auth/server/require-admin-session";
 import { canAccessSdrDocuments } from "@/features/sdr/server/document-access";
 import {
-  getVehicleImagesS3Client,
-  getVehicleStorageBucket,
-  isVehicleStorageConfigured,
-} from "@/features/storage/server/s3-client";
+  isSdrDocumentSigningConfigured,
+  resolveSdrDocumentDownload,
+} from "@/features/sdr/server/document-download";
+import { getObjectStorageS3Client } from "@/features/storage/server/s3-client";
 import { prisma } from "@/lib/db";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -29,6 +29,7 @@ function attachmentDisposition(fileName: string): string {
 /**
  * Signed GET URL for an SdrDocument storage object.
  * CRM operators (LEAD_ROLES, including LEAD_MANAGER) may open signed URLs.
+ * Bucket and key come from persisted document rows — never from the request.
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
@@ -44,37 +45,53 @@ export async function GET(_req: Request, context: RouteContext) {
 
     const doc = await prisma.sdrDocument.findUnique({
       where: { id },
-      select: { id: true, storageKey: true, mimeType: true },
+      select: {
+        id: true,
+        leadId: true,
+        storageKey: true,
+        storageBucket: true,
+        storageStatus: true,
+        mimeType: true,
+      },
     });
 
     if (!doc) {
       return NextResponse.json({ error: "Documento não encontrado" }, { status: 404 });
     }
 
-    const storageKey = (doc.storageKey || "").trim();
-    if (!storageKey || storageKey.startsWith("stub/")) {
+    const resolved = resolveSdrDocumentDownload({
+      storageKey: doc.storageKey,
+      storageBucket: doc.storageBucket,
+      storageStatus: doc.storageStatus,
+      legacyReadBucket: process.env.STORAGE_BUCKET_NAME,
+    });
+
+    if (!resolved.ok) {
       return NextResponse.json(
-        { error: "Falha no upload — anexe o documento manualmente." },
-        { status: 404 },
+        {
+          code: resolved.code,
+          error: "Arquivo ainda não está disponível internamente.",
+        },
+        { status: 409 },
       );
     }
 
-    if (!isVehicleStorageConfigured()) {
+    if (!isSdrDocumentSigningConfigured()) {
       return NextResponse.json(
         {
           error:
-            "Private document storage is not configured. Set STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STORAGE_BUCKET_NAME for signed downloads of SdrDocument objects.",
+            "Private document storage is not configured. Set STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY.",
         },
         { status: 501 },
       );
     }
 
     try {
-      const client = getVehicleImagesS3Client();
-      const fileName = fileNameFromStorageKey(storageKey);
+      const client = getObjectStorageS3Client();
+      const fileName = fileNameFromStorageKey(resolved.key);
       const command = new GetObjectCommand({
-        Bucket: getVehicleStorageBucket(),
-        Key: storageKey,
+        Bucket: resolved.bucket,
+        Key: resolved.key,
         ResponseContentType: doc.mimeType ?? undefined,
         ResponseContentDisposition: attachmentDisposition(fileName),
       });

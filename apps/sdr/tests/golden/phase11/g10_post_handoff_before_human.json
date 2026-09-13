@@ -1,0 +1,53 @@
+{
+  "name": "g10_post_handoff_before_human",
+  "description": "G10 — follow-up still eligible after handoff while bot is active. One handoff. Human assume before send still cancels.",
+  "execution_mode": "production_policy",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_handoff_count": 1,
+  "expected_followup_sends": 0,
+  "expected_artifact_clean": true,
+  "expected_no_llm_when_cancelled": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000020"},
+  "turns": [
+    {
+      "inbound": "Pode me passar para um vendedor?",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "UNKNOWN",
+        "facts": {},
+        "signals": {"explicit_handoff": true}
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "required_in_outbound_any": ["encaminh", "vendedor"]
+    },
+    {
+      "inbound": "Vou ver com meu marido e te retorno amanhã às 14h.",
+      "principal_event": true,
+      "response_mode": "voluntary_fact",
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"name": "Bruno Silva", "desired_model": "Strada"}
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP"
+    },
+    {
+      "clock_jump": "2026-09-08T14:00:00-03:00",
+      "principal_event": true,
+      "expected_followup_sends": 0
+    },
+    {
+      "admin_event": {"type": "assume", "actor_user_id": "user-1"},
+      "principal_event": true,
+      "expected_bot_status": "HUMAN_ACTIVE"
+    },
+    {
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 0,
+      "expected_llm_calls": 0
+    }
+  ]
+}

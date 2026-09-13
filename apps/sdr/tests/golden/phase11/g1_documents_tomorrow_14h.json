@@ -1,0 +1,42 @@
+{
+  "name": "g1_documents_tomorrow_14h",
+  "description": "G1 — documents unavailable + explicit callback tomorrow 14h. Not a send promise.",
+  "execution_mode": "production_policy",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "FOLLOWUP_SENT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+  "expected_scheduled_at": "2026-09-08T14:00:00-03:00",
+  "expected_pause_reason": "DOCUMENTS_UNAVAILABLE",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000011"},
+  "turns": [
+    {
+      "inbound": "Não estou com os comprovantes agora. Pode me chamar amanhã às 14h.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada", "desired_year": 2018}
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "expected_followup_sends": 0,
+      "forbidden_in_outbound": ["vi que você sumiu", "lead", "CRM", "handoff", "aprovado", "100% financiado"]
+    },
+    {
+      "clock_jump": "2026-09-08T13:00:00-03:00",
+      "principal_event": true,
+      "expected_followup_sends": 0,
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP"
+    },
+    {
+      "clock_jump": "2026-09-08T14:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+      "forbidden_in_outbound": ["vi que você sumiu", "lead", "CRM", "handoff", "reservado", "aprovado", "ia enviar", "prometeu", "mandaria"]
+    }
+  ]
+}

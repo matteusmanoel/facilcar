@@ -10,9 +10,17 @@ import re
 import unicodedata
 from typing import Any
 
+from sdr.domain.debts import compute_debt_status, merge_checks, parse_debt_utterance
+from sdr.domain.document_status import parse_document_deferral
 from sdr.domain.facts_schema import normalize_facts, normalize_money_value
 from sdr.domain.pending_interaction import PendingResolution
+from sdr.domain.scheduling import resolve_slot_choice
 from sdr.domain.types import BusinessIntent, ConversationCanonicalState, TurnFacts
+from sdr.domain.vehicle_roles import (
+    canonicalize_vehicle_roles,
+    get_customer_vehicle,
+    parse_packed_vehicle_attrs,
+)
 
 _CASH = re.compile(
     r"\b(?:[aà]\s*vista|avista|dinheiro|pix|cart[aã]o)\b",
@@ -29,8 +37,7 @@ _NO_DOWN = re.compile(
     re.I,
 )
 _SHORT_YES = re.compile(
-    r"^\s*(?:sim|pode|claro|ok|okay|vou|vamos|consigo|essa\s+semana|"
-    r"ainda\s+essa\s+semana|pode\s+ser|fechado|combinado)\b",
+    r"^\s*(?:sim|pode|claro|ok|okay|vou|vamos|consigo|pode\s+ser|fechado|combinado)\b",
     re.I,
 )
 _SHORT_NO = re.compile(
@@ -41,10 +48,37 @@ _VISIT_POSITIVE = re.compile(
     r"(?:seria\s+[oó]timo|[oó]timo|legal|quero\s+ir|topa|combinado|pode\s+ser|fechado)",
     re.I,
 )
+
+# Matches a specific day or time reference that anchors a visit slot.
+# Includes "essa semana" / "próxima semana" and weekday names, with optional
+# "-feira" suffix and "que vem" modifier.
 _VISIT_TIME = re.compile(
-    r"\b(?:hoje|amanh[ãa]|essa\s+semana|segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo|"
-    r"manh[ãa]|tarde|noite|\d{1,2}\s*h(?:oras)?|\d{1,2}:\d{2})\b"
+    r"\b(?:"
+    r"(?:segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:[\s-]feira)?"
+    r"|hoje|amanh[ãa]"
+    r"|essa\s+semana|esta\s+semana"
+    r"|pr[oó]xim[ao]\s+(?:semana|segunda|ter[cç]a|quarta|quinta|sexta|s[áa]bado|domingo)"
+    r"|semana\s+que\s+vem"
+    r"|manh[ãa]|tarde|noite"
+    r"|\d{1,2}\s*h(?:oras)?|\d{1,2}:\d{2}"
+    r")"
+    r"(?:\s+que\s+vem)?"
     r"(?:\s+(?:ao?\s+)?(?:meio[\s-]dia|manh[ãa]|tarde|noite|\d{1,2}:\d{2}|\d{1,2}h))?",
+    re.I,
+)
+
+# Detects a time-of-day component within the matched slot (hour, period of day).
+# A slot without this is day-only → needs a follow-up question for the hour.
+_VISIT_TIME_OF_DAY = re.compile(
+    r"\b(?:meio[\s-]dia|\d{1,2}:\d{2}|\d{1,2}\s*h(?:oras)?|manh[ãa]|tarde|noite)\b",
+    re.I,
+)
+
+# Negation language that invalidates a "this week" time match.
+# "Essa semana estou corrido" = busy this week → NOT a visit confirmation.
+_VISIT_NEGATION = re.compile(
+    r"\b(?:corrido|ocupado|chei[ao]|puxado|n[aã]o\s+consigo|n[aã]o\s+posso|"
+    r"sem\s+tempo|meio\s+(?:corrido|ocupado|difícil|puxado))\b",
     re.I,
 )
 _INSTALLMENT_SKIP = re.compile(
@@ -53,6 +87,21 @@ _INSTALLMENT_SKIP = re.compile(
 )
 _TRADE = re.compile(r"\b(?:troca|trocar|permuta)\b", re.I)
 _PURCHASE = re.compile(r"\b(?:compra|comprar|comprando)\b", re.I)
+_FINES_ONLY = re.compile(
+    r"n[aã]o\s+tenho\s+multas|sem\s+multas|multas?\s+n[aã]o|s[oó]\s+n[aã]o\s+tenho\s+multa",
+    re.I,
+)
+_CLEAR_DEBTS = re.compile(
+    r"tudo\s+em\s+dia|sem\s+d[eé]bitos|nada\s+pendente|regularizado|"
+    r"sem\s+pend[eê]ncias|n[aã]o\s+tenho\s+d[eé]bito",
+    re.I,
+)
+_DOCS_LATER = re.compile(
+    r"n[aã]o\s+tenho\s+(agora|no\s+momento)|depois\s+eu\s+(envio|mando)|"
+    r"mando\s+depois|envio\s+depois|n[aã]o\s+tenho\s+(a\s+)?(cnh|holerite|documento)|"
+    r"(enviar|envio|mando|mandar|posso\s+enviar).{0,40}depois",
+    re.I,
+)
 
 
 def _norm(text: str) -> str:
@@ -117,27 +166,88 @@ def overlay_pending_question(
             if money is not None:
                 extra["desired_installment"] = money
     elif pending == "visit":
-        # Protocol: we just invited a visit. A concrete slot is confirmation;
-        # a short yes without time still counts as visit_intent; a positive
-        # without a slot stays on the visit question so Decision can ask when.
-        time_m = _VISIT_TIME.search(text)
-        if time_m:
-            extra["timeline"] = time_m.group(0)
+        chosen = resolve_slot_choice(text, list(state.offered_visit_slots or []))
+        if chosen:
+            extra["timeline"] = chosen
             facts.signals.visit_intent = True
-        elif _SHORT_YES.search(text) and len(text.split()) <= 8:
-            facts.signals.visit_intent = True
-        elif _VISIT_POSITIVE.search(text) and len(text.split()) <= 12:
-            pass
+        else:
+            time_m = _VISIT_TIME.search(text)
+            if time_m:
+                slot = time_m.group(0)
+                has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+                if not has_time and _VISIT_NEGATION.search(text):
+                    alt_m = _VISIT_TIME.search(text, time_m.end())
+                    if alt_m:
+                        slot = alt_m.group(0)
+                        has_time = bool(_VISIT_TIME_OF_DAY.search(slot))
+                    else:
+                        slot = None
+                if slot:
+                    extra["timeline"] = slot
+                    if has_time or _SHORT_YES.search(text) or _VISIT_POSITIVE.search(text):
+                        facts.signals.visit_intent = True
+            elif _SHORT_YES.search(text) and len(text.split()) <= 8:
+                facts.signals.visit_intent = True
     elif pending == "alternatives_ok" and facts.pending_resolution is None:
         if _SHORT_YES.search(text) and len(text.split()) <= 10:
             facts.pending_resolution = PendingResolution.ACCEPT
         elif _SHORT_NO.search(text) and len(text.split()) <= 12:
             facts.pending_resolution = PendingResolution.REJECT
+    elif pending == "trade_has_financing":
+        if _SHORT_YES.search(text):
+            extra["trade_has_financing"] = True
+        elif _SHORT_NO.search(text):
+            extra["trade_has_financing"] = False
+    elif pending == "trade_has_debts":
+        fragment = parse_debt_utterance(text)
+        if not fragment:
+            if _SHORT_YES.search(text):
+                extra["trade_has_debts"] = True
+            elif _SHORT_NO.search(text) and not _FINES_ONLY.search(text):
+                extra["trade_has_debts"] = False
+    elif pending == "documents":
+        parsed = parse_document_deferral(text)
+        if parsed or _DOCS_LATER.search(text) or _SHORT_NO.search(text):
+            extra["documents_deferred"] = True
+            extra["document_status"] = parsed or {
+                "cnh": "deferred",
+                "proof_of_residence": "deferred",
+                "proof_of_income": "deferred",
+            }
+    elif pending == "trade_in_owner_is_client":
+        if _SHORT_YES.search(text):
+            extra["trade_in_owner_is_client"] = True
+        elif _SHORT_NO.search(text):
+            extra["trade_in_owner_is_client"] = False
+    elif pending == "trade_installment_value":
+        money = normalize_money_value(text)
+        if money is not None:
+            extra["trade_installment_value"] = money
+    elif pending == "trade_installments_remaining":
+        m = re.search(r"\b(\d+)\b", text)
+        if m:
+            extra["trade_installments_remaining"] = int(m.group(1))
+    elif pending == "trade_price_expectation":
+        debt_fragment = parse_debt_utterance(text)
+        if not (debt_fragment.get("debt_checks") or debt_fragment.get("all_clear")):
+            money = normalize_money_value(text)
+            if money is not None:
+                extra["trade_price_expectation"] = money
 
     # Financing language records payment mode only when this utterance says so
     # and the field is not already canonical. Re-emitting known facts every turn
     # made the Composer ack "financiado" on unrelated inbound (documents, etc.).
-    if _FINANCING.search(text) and not state.facts.get("payment_method"):
+    # Financing language records deal payment mode only when this utterance
+    # is not answering the used-car financing roteiro (quitado / parcela atual).
+    if (
+        _FINANCING.search(text)
+        and not state.facts.get("payment_method")
+        and pending not in {
+            "trade_has_financing",
+            "trade_installment_value",
+            "trade_installments_remaining",
+        }
+    ):
         extra.setdefault("payment_method", "financing")
         if facts.intent in (BusinessIntent.UNKNOWN, BusinessIntent.PURCHASE, BusinessIntent.SMALLTALK):
             facts.intent = BusinessIntent.PURCHASE_FINANCING
@@ -164,9 +274,86 @@ def overlay_pending_question(
     ):
         extra.setdefault("deal_type", "purchase")
 
-    if not extra:
-        return facts
+    if pending in {"trade_year", "trade_color", "mileage", "trade_model"}:
+        packed = parse_packed_vehicle_attrs(text)
+        if packed.get("year"):
+            extra.setdefault("trade_year", packed["year"])
+        if packed.get("color"):
+            extra.setdefault("trade_color", packed["color"])
+        if packed.get("mileage") is not None:
+            extra.setdefault("mileage", packed["mileage"])
 
-    canonical_extra, _rejected = normalize_facts(extra, source_text=inbound_text)
-    facts.facts = {**facts.facts, **canonical_extra}
+    if (
+        _CASH.search(text)
+        and not facts.facts.get("payment_method")
+        and "payment_method" not in extra
+        and not state.facts.get("payment_method")
+    ):
+        extra.setdefault("payment_method", "cash")
+
+    if re.search(r"diferen", text, re.I) and (_CASH.search(text) or _FINANCING.search(text)):
+        extra["payment_applies_to"] = "difference"
+        if _CASH.search(text):
+            extra["payment_method"] = "cash"
+        elif _FINANCING.search(text):
+            extra["payment_method"] = "financing"
+
+    parsed_docs = parse_document_deferral(text)
+    if parsed_docs and "document_status" not in extra:
+        extra["documents_deferred"] = True
+        extra["document_status"] = parsed_docs
+
+    debt_fragment = parse_debt_utterance(text)
+    prev_checks = get_customer_vehicle(state.facts).get("debt_checks")
+    if debt_fragment.get("all_clear"):
+        extra["trade_has_debts"] = False
+        extra["debt_status"] = "clear"
+        extra["debt_checks"] = debt_fragment.get("debt_checks")
+    elif debt_fragment.get("has_debts"):
+        extra["trade_has_debts"] = True
+        extra["debt_status"] = "has_debts"
+        extra["debt_checks"] = merge_checks(prev_checks, debt_fragment.get("debt_checks"))
+        if debt_fragment.get("debt_types"):
+            extra["trade_debt_type"] = debt_fragment["debt_types"]
+    elif debt_fragment.get("debt_checks"):
+        facts.facts.pop("trade_has_debts", None)
+        extra.pop("trade_has_debts", None)
+        extra["debt_checks"] = merge_checks(prev_checks, debt_fragment["debt_checks"])
+        status = compute_debt_status(extra["debt_checks"])
+        extra["debt_status"] = status
+        if status == "clear":
+            extra["trade_has_debts"] = False
+        elif status == "has_debts":
+            extra["trade_has_debts"] = True
+
+    if extra:
+        canonical_extra, _rejected = normalize_facts(extra, source_text=inbound_text)
+        facts.facts = {**facts.facts, **canonical_extra}
+    prev_cv = get_customer_vehicle(state.facts)
+    if prev_cv and not facts.facts.get("customer_vehicle"):
+        facts.facts["customer_vehicle"] = dict(prev_cv)
+    facts.facts = canonicalize_vehicle_roles(
+        facts.facts,
+        facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent,
+    )
+    return facts
+
+
+def overlay_consignment_acceptance(
+    facts: TurnFacts,
+    state: ConversationCanonicalState,
+    inbound_text: str,
+) -> TurnFacts:
+    """Opening 'deixar em consignação' is commercial acceptance of leave_at_store."""
+    intent = facts.intent if facts.intent != BusinessIntent.UNKNOWN else state.intent
+    if intent != BusinessIntent.CONSIGNMENT:
+        return facts
+    if facts.facts.get("leave_at_store") is not None:
+        return facts
+    if state.facts.get("leave_at_store") is not None:
+        return facts
+    text = _norm(inbound_text)
+    if re.search(r"deixar.{0,80}(na\s+loja|em\s+consign)", text, re.I):
+        extra, _rejected = normalize_facts({"leave_at_store": True}, source_text=inbound_text)
+        facts.facts = {**facts.facts, **extra}
     return facts

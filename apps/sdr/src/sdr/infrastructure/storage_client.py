@@ -1,19 +1,20 @@
-"""SDR document upload via S3-compatible API (same bucket as the web admin)."""
+"""SDR document upload via S3-compatible API — private documents bucket only."""
 
 from __future__ import annotations
 
 import logging
 import os
-import secrets
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sdr.domain.document_storage import FORBIDDEN_DOCUMENT_BUCKETS, resolve_documents_bucket
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_BUCKET = "vehicle-images"
-CUSTOMER_PREFIX = "customer-documents"
+
+class DocumentsBucketNotConfigured(RuntimeError):
+    """SDR_DOCUMENTS_BUCKET missing or points at the public catalog bucket."""
 
 
 @dataclass(slots=True)
@@ -30,26 +31,13 @@ def _env(name: str, default: str = "") -> str:
 
 
 def get_documents_bucket() -> str:
-    """Preferred private documents bucket, with fallback to the catalog bucket.
-
-    ``SDR_DOCUMENTS_BUCKET`` may not exist yet in Supabase Storage; the catalog
-    ``STORAGE_BUCKET_NAME`` (typically ``vehicle-images``) is known to work and
-    already hosts ``customer-documents/`` keys when needed.
-    """
-    return (
-        _env("SDR_DOCUMENTS_BUCKET")
-        or _env("STORAGE_BUCKET_NAME")
-        or DEFAULT_BUCKET
-    )
-
-
-def _documents_bucket_candidates() -> list[str]:
-    primary = get_documents_bucket()
-    candidates = [primary]
-    for extra in (_env("STORAGE_BUCKET_NAME"), DEFAULT_BUCKET, "vehicle-images"):
-        if extra and extra not in candidates:
-            candidates.append(extra)
-    return candidates
+    """Private documents bucket. Never falls back to ``vehicle-images``."""
+    bucket = resolve_documents_bucket(_env("SDR_DOCUMENTS_BUCKET"))
+    if not bucket:
+        raise DocumentsBucketNotConfigured(
+            "SDR_DOCUMENTS_BUCKET must be set to a private documents bucket"
+        )
+    return bucket
 
 
 def is_storage_configured() -> bool:
@@ -57,24 +45,8 @@ def is_storage_configured() -> bool:
         _env("STORAGE_ENDPOINT")
         and _env("STORAGE_ACCESS_KEY")
         and _env("STORAGE_SECRET_KEY")
+        and resolve_documents_bucket(_env("SDR_DOCUMENTS_BUCKET"))
     )
-
-
-def build_storage_key(
-    customer_id: str,
-    document_type: str,
-    *,
-    extension: str = "bin",
-    timestamp: int | None = None,
-    rand: str | None = None,
-) -> str:
-    """Path: customer-documents/{customerId}/{type}_{ts}_{rand}.ext"""
-    ts = timestamp if timestamp is not None else int(time.time())
-    suffix = rand if rand is not None else secrets.token_hex(3)
-    doc = (document_type or "OTHER").strip().lower().replace(" ", "_")
-    ext = extension.lstrip(".") or "bin"
-    safe_owner = (customer_id or "unknown").strip() or "unknown"
-    return f"{CUSTOMER_PREFIX}/{safe_owner}/{doc}_{ts}_{suffix}.{ext}"
 
 
 def extension_for_mime(mime_type: str | None, filename: str | None = None) -> str:
@@ -99,7 +71,6 @@ def extension_for_mime(mime_type: str | None, filename: str | None = None) -> st
 
 
 def _s3_client() -> Any:
-    """Build boto3 S3 client matching web ``s3-client.ts`` env pattern."""
     import boto3
     from botocore.client import Config
 
@@ -115,81 +86,35 @@ def _s3_client() -> Any:
     )
 
 
-def upload_document(
-    data: bytes,
-    *,
-    customer_id: str | None = None,
-    document_type: str = "OTHER",
-    mime_type: str | None = None,
-    filename: str | None = None,
-    force_stub: bool | None = None,
-    lead_id: str | None = None,
-) -> UploadResult:
-    """Upload to the catalog bucket under ``customer-documents/{customerId}/``.
+class BotoObjectStore:
+    """S3-compatible adapter used by DocumentStorageService."""
 
-    ``lead_id`` is accepted as a legacy alias for ``customer_id``.
-    If STORAGE_* is missing (or ``force_stub``), returns a stub key for tests.
-    If storage is configured but upload fails, ``uploaded=False`` and empty key.
-    """
-    owner = (customer_id or lead_id or "unknown").strip() or "unknown"
-    ext = extension_for_mime(mime_type, filename)
-    key = build_storage_key(owner, document_type, extension=ext)
-    bucket = get_documents_bucket()
-    size = len(data or b"")
+    def put_object(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: str | None = None,
+    ) -> None:
+        if bucket in FORBIDDEN_DOCUMENT_BUCKETS:
+            raise DocumentsBucketNotConfigured(
+                "refusing to upload customer documents to the catalog bucket"
+            )
+        extra: dict[str, Any] = {}
+        if content_type:
+            extra["ContentType"] = content_type
+        _s3_client().put_object(Bucket=bucket, Key=key, Body=body or b"", **extra)
 
-    use_stub = force_stub if force_stub is not None else not is_storage_configured()
-    if use_stub:
-        stub_key = f"stub/{key}"
-        logger.debug("storage_client: stub upload key=%s size=%s", stub_key, size)
-        return UploadResult(
-            storage_key=stub_key,
-            bucket=bucket,
-            stub=True,
-            byte_size=size,
-            uploaded=False,
-        )
-
-    client = _s3_client()
-    extra: dict[str, Any] = {}
-    if mime_type:
-        extra["ContentType"] = mime_type
-
-    last_error: Exception | None = None
-    for candidate in _documents_bucket_candidates():
+    def head_object(self, *, bucket: str, key: str) -> dict | None:
         try:
-            client.put_object(Bucket=candidate, Key=key, Body=data or b"", **extra)
-            if candidate != bucket:
-                logger.warning(
-                    "storage_client: primary bucket %s failed; uploaded to fallback %s key=%s",
-                    bucket,
-                    candidate,
-                    key,
-                )
-            return UploadResult(
-                storage_key=key,
-                bucket=candidate,
-                stub=False,
-                byte_size=size,
-                uploaded=True,
-            )
+            resp = _s3_client().head_object(Bucket=bucket, Key=key)
         except Exception as exc:
-            last_error = exc
-            logger.warning(
-                "storage_client: put_object failed bucket=%s key=%s err=%s",
-                candidate,
-                key,
-                exc,
-            )
-
-    logger.error(
-        "storage_client: upload failed all buckets key=%s last_error=%s",
-        key,
-        last_error,
-    )
-    return UploadResult(
-        storage_key="",
-        bucket=bucket,
-        stub=False,
-        byte_size=size,
-        uploaded=False,
-    )
+            code = ""
+            response = getattr(exc, "response", None)
+            if isinstance(response, dict):
+                code = str((response.get("Error") or {}).get("Code") or "")
+            if code in {"404", "NoSuchKey", "NotFound"} or "404" in str(exc):
+                return None
+            raise
+        return {"content_length": resp.get("ContentLength")}

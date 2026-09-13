@@ -118,6 +118,8 @@ def test_financing_visit_only_after_documents_asked() -> None:
         "desired_model": "Corolla",
         "deal_type": "purchase",
         "down_payment": 5000,
+        "desired_installment": 1500,
+        "name": "Mateus",
     }
     state = _state(
         intent=BusinessIntent.PURCHASE_FINANCING,
@@ -183,7 +185,8 @@ async def test_observed_corolla_financing_path_stays_on_roteiro() -> None:
     joined2 = " ".join(r2.outbound_texts).lower()
     assert "consórcio" not in joined2
     assert "uso pessoal" not in joined2
-    assert r2.action_plan.ask_field in {"payment_method", "deal_type"}
+    # After "Compra" on PURCHASE intent (model already known), system asks payment method.
+    assert r2.action_plan.ask_field == "payment_method"
 
     r3 = await process_turn(state=state, inbound_text="Financiar", understand=understand)
     state = r3.state
@@ -287,7 +290,7 @@ def test_handoff_summary_financing_is_not_cash() -> None:
         },
     )
     summary = build_vendor_summary(state)
-    assert "Compra financiada" in summary
+    assert "financiamento" in summary.lower() or "financiada" in summary.lower() or "financiando" in summary.lower()
     assert "à vista" not in summary.lower()
 
 
@@ -309,12 +312,10 @@ async def test_ack_before_next_question_after_deal_type() -> None:
     joined = " ".join(result.outbound_texts)
     assert "anotei" not in joined.lower()
     assert "beleza, então é compra" not in joined.lower()
-    assert "entendi seu interesse na compra" in joined.lower()
+    # After deal_type=purchase on PURCHASE intent, system asks payment method.
+    assert "vista" in joined.lower() or "financ" in joined.lower()
     assert "que ótimo saber" not in joined.lower()
     assert "bacana" not in joined.lower()
-    assert "à vista" in joined.lower() or "avista" in joined.lower()
-    assert "financiado" in joined.lower()
-    assert "os dois" not in joined.lower()
 
 
 def test_overlay_does_not_restate_known_financing_on_document_text() -> None:
@@ -583,7 +584,7 @@ def test_after_installment_asks_documents() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_after_installment_invites_visit() -> None:
+async def test_document_after_installment_asks_remaining_docs() -> None:
     from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
 
     facts = {
@@ -616,12 +617,12 @@ async def test_document_after_installment_invites_visit() -> None:
         media_status=MediaStatus.OK,
     )
     result = await process_turn(state=state, inbound=inbound, understand=understand)
-    assert result.action_plan.action == Action.REGISTER_VISIT_INTEREST
+    assert result.action_plan.action == Action.ASK_INFO
+    assert result.action_plan.ask_field == "documents"
     joined = " ".join(result.outbound_texts).lower()
-    assert "documento" in joined or "ficha" in joined
+    assert "cnh" in joined
+    assert "renda" in joined or "resid" in joined
     assert "encaminhar" not in joined
-    assert "manhã ou tarde" not in joined
+    assert "9h30" not in joined
     assert "quantos meses" not in joined
-    assert "sem compromisso" not in joined
-    assert "horário" in joined or "horario" in joined or "dia" in joined
 

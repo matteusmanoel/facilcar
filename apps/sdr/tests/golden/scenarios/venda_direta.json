@@ -1,0 +1,159 @@
+{
+  "name": "venda_direta",
+  "description": "Venda do Corolla do cliente, sem veículo desejado, até handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "sale",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Gostaria de vender meu Corolla",
+      "response_mode": "intent_change",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_model": "Corolla"
+        }
+      },
+      "expected_action": "ASK_INFO",
+      "expected_facts_after": {
+        "trade_model": "corolla"
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "2020, prata, 50000 km",
+      "responds_to_field": "trade_year",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_year": "2020",
+          "trade_color": "prata",
+          "mileage": 50000
+        }
+      },
+      "expected_facts_after": {
+        "trade_year": "2020",
+        "trade_color": "prata",
+        "mileage": 50000
+      },
+      "expected_ask_field_in": [
+        "trade_has_financing"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura",
+        "qual a cor"
+      ]
+    },
+    {
+      "inbound": "Está quitado",
+      "responds_to_field": "trade_has_financing",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_has_financing": false
+        }
+      },
+      "expected_ask_field_in": [
+        "trade_has_debts"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Tudo em dia",
+      "responds_to_field": "trade_has_debts",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_has_debts": false
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Espero uns 80 mil",
+      "responds_to_field": "trade_price_expectation",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "trade_price_expectation": 80000
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    },
+    {
+      "inbound": "Sou Bruno Azevedo",
+      "responds_to_field": "name",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {
+          "name": "Bruno Azevedo"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser o segundo horário",
+      "responds_to_field": "visit",
+      "understand_return": {
+        "intent": "SALE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "ajudar com a troca",
+        "troca do seu carro",
+        "qual modelo você procura"
+      ]
+    }
+  ]
+}

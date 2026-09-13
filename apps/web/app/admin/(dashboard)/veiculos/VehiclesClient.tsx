@@ -213,7 +213,7 @@ function VehicleActionsMenu({
               className="cursor-pointer"
               onClick={() => setArchiveOpen(true)}
             >
-              Arquivar
+              Excluir
             </DropdownMenuItem>
           ) : null}
           {vehicle.status === "PUBLISHED" ? (

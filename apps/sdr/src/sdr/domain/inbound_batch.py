@@ -23,11 +23,13 @@ from enum import Enum
 from typing import Any, Sequence
 import uuid
 
+from sdr.domain.commands import is_reset_memory_command
 from sdr.domain.inbound import (
     ContentType,
     InboundTurn,
     MediaFailureCode,
     MediaStatus,
+    QuotedContext,
 )
 
 
@@ -55,6 +57,9 @@ class InboundSegment:
     # Image caption stays on the same segment (never a separate turn item).
     caption: str | None = None
     order: int = 0
+    quoted: QuotedContext | None = None
+    vehicle_hint: dict[str, Any] | None = None
+    document_extracted: dict[str, Any] | None = None
 
     def resolved_text(self) -> str | None:
         """Natural-language contribution of this segment for Understanding."""
@@ -194,6 +199,51 @@ def select_snapshot_rows(
     return included
 
 
+def _row_text_for_command(row: Any) -> str | None:
+    if isinstance(row, dict):
+        return row.get("text") or row.get("transcription")
+    return row["text"] or row["transcription"]
+
+
+def dedupe_snapshot_rows(rows: Sequence[Any]) -> list[Any]:
+    """Drop duplicate ids and duplicate providerMessageId within one snapshot."""
+    seen_ids: set[str] = set()
+    seen_provider: set[str] = set()
+    out: list[Any] = []
+    for row in rows:
+        mid = str(row["id"] if isinstance(row, dict) else row["id"])
+        if mid in seen_ids:
+            continue
+        raw_pid = row["providerMessageId"] if isinstance(row, dict) else row["providerMessageId"]
+        pid = str(raw_pid or "").strip()
+        if pid and pid in seen_provider:
+            continue
+        seen_ids.add(mid)
+        if pid:
+            seen_provider.add(pid)
+        out.append(row)
+    return out
+
+
+def first_batch_partition(rows: Sequence[Any]) -> list[Any]:
+    """Split a closed snapshot so ``/deletar`` is never mixed with commercial text.
+
+    - If the first message is the reset command, only that message is claimed.
+    - Otherwise claim consecutive commercial messages until (not including) the command.
+    """
+    if not rows:
+        return []
+    first_text = _row_text_for_command(rows[0])
+    if is_reset_memory_command(first_text):
+        return list(rows[:1])
+    out: list[Any] = []
+    for row in rows:
+        if is_reset_memory_command(_row_text_for_command(row)):
+            break
+        out.append(row)
+    return out
+
+
 def parse_batch_from_turn_facts(raw: Any) -> dict[str, Any] | None:
     """Extract ``_sdr_batch`` from Message.turnFactsJson."""
     data: dict[str, Any]
@@ -252,10 +302,11 @@ def compose_inbound_turn(
 ) -> InboundTurn:
     """Build one InboundTurn from ordered typed segments.
 
-    Understanding sees ``effective_text`` = non-empty segment texts joined by
-    newlines. Failed media segments do not contribute text (and do not become
-    greetings). Dominant content_type is the first non-text modality if any,
-    else TEXT. Image+caption remain a single segment.
+    Understanding sees ``effective_text`` = author segment texts joined by
+    newlines. Quoted/reply text is preserved on ``InboundTurn.quoted`` and is
+    never mixed into ``effective_text``. Failed media segments do not contribute
+    text (and do not become greetings). Dominant content_type is the first
+    non-text modality if any, else TEXT. Image+caption remain a single segment.
     """
     ordered = sorted(segments, key=lambda s: s.order)
     texts: list[str] = []
@@ -295,6 +346,49 @@ def compose_inbound_turn(
         media_status = MediaStatus.NONE
         text = joined or None
 
+    quoted: list[QuotedContext] = [s.quoted for s in ordered if s.quoted is not None]
+    has_media = any(
+        s.content_type in (ContentType.IMAGE, ContentType.AUDIO) for s in ordered
+    )
+    has_document = any(s.content_type == ContentType.DOCUMENT for s in ordered)
+    document_extracted = next((s.document_extracted for s in ordered if s.document_extracted), None)
+    document_extracted_list = [s.document_extracted for s in ordered if s.document_extracted]
+    vehicle_hint = next((s.vehicle_hint for s in ordered if s.vehicle_hint), None)
+
+    raw_message_ref: dict[str, Any] = {
+        "batch_id": batch_id,
+        "segment_count": len(ordered),
+        "message_ids": [s.message_id for s in ordered],
+        "has_reply": bool(quoted),
+        "has_media": has_media,
+        "has_document": has_document,
+        "quoted": [
+            {
+                "stanza_id": q.stanza_id,
+                "quoted_type": q.quoted_type,
+                "quoted_text": q.quoted_text,
+            }
+            for q in quoted
+        ],
+        "segments": [
+            {
+                "message_id": s.message_id,
+                "content_type": s.content_type.value,
+                "order": s.order,
+                "media_status": s.media_status.value,
+                "has_text": bool(s.resolved_text()),
+                "has_quote": s.quoted is not None,
+            }
+            for s in ordered
+        ],
+    }
+    if document_extracted:
+        raw_message_ref["document_extracted"] = document_extracted
+    if len(document_extracted_list) > 1:
+        raw_message_ref["document_extracted_list"] = document_extracted_list
+    if vehicle_hint:
+        raw_message_ref["vehicle_hint"] = vehicle_hint
+
     return InboundTurn(
         thread_id=thread_id,
         content_type=dominant if joined or dominant == ContentType.TEXT else dominant,
@@ -303,20 +397,7 @@ def compose_inbound_turn(
         failure_code=failure_code if media_status == MediaStatus.FAILED else None,
         provider_message_id=provider_ids[0] if provider_ids else None,
         mime_type=mime_type,
-        raw_message_ref={
-            "batch_id": batch_id,
-            "segment_count": len(ordered),
-            "message_ids": [s.message_id for s in ordered],
-            "segments": [
-                {
-                    "message_id": s.message_id,
-                    "content_type": s.content_type.value,
-                    "order": s.order,
-                    "media_status": s.media_status.value,
-                    "has_text": bool(s.resolved_text()),
-                }
-                for s in ordered
-            ],
-        },
+        raw_message_ref=raw_message_ref,
         segments=list(ordered),
+        quoted=quoted,
     )

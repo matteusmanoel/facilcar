@@ -122,3 +122,44 @@ def test_document_name_replaces_whatsapp_placeholder() -> None:
     merged = deterministic_merge(prev, facts)
     assert merged.customer.name == "João Souza"
 
+
+def test_unknown_turn_intent_does_not_overwrite_canonical_sale() -> None:
+    prev = _state(
+        intent=BusinessIntent.SALE,
+        facts={"trade_model": "Corolla", "trade_has_financing": False},
+    )
+    facts = TurnFacts(
+        intent=BusinessIntent.UNKNOWN,
+        facts={"name": "Bruno Azevedo"},
+        signals=HandoffSignals(),
+    )
+    merged = deterministic_merge(prev, facts)
+    assert facts.intent == BusinessIntent.UNKNOWN
+    assert merged.intent == BusinessIntent.SALE
+    assert merged.facts.get("name") == "Bruno Azevedo"
+    assert merged.facts.get("trade_model") == "Corolla"
+
+
+def test_merge_preserves_ownership_fields() -> None:
+    from sdr.domain.types import LifecycleState, LifecycleStatus
+
+    prev = _state(
+        lifecycle=LifecycleState(status=LifecycleStatus.AI_RESUMED),
+        ownership_revision=2,
+        assumed_by_user_id="user-1",
+        resumed_by_user_id="user-1",
+        resume_reason="seller_released",
+        handoff_at="2026-09-07T10:00:00-03:00",
+        vendor_notified_at="2026-09-07T10:00:00-03:00",
+    )
+    facts = TurnFacts(intent=BusinessIntent.PURCHASE, facts={"desired_model": "Civic"})
+    merged = deterministic_merge(prev, facts)
+    assert merged.lifecycle.status == LifecycleStatus.AI_RESUMED
+    assert merged.ownership_revision == 2
+    assert merged.assumed_by_user_id == "user-1"
+    assert merged.resumed_by_user_id == "user-1"
+    assert merged.resume_reason == "seller_released"
+    assert merged.handoff_at == "2026-09-07T10:00:00-03:00"
+    assert merged.vendor_notified_at == "2026-09-07T10:00:00-03:00"
+
+

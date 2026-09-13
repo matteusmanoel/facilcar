@@ -7,6 +7,7 @@ import {
   publicFormLabelClass,
 } from "@/lib/theme";
 import { formatCPF, formatPhoneBR } from "@/lib/input-masks";
+import { scrollPublicFieldIntoView } from "@/lib/public-form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 
@@ -124,6 +125,7 @@ export function FinancingSimulationForm({
           className={inputClass}
           placeholder="Seu nome completo"
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -140,6 +142,7 @@ export function FinancingSimulationForm({
           value={cpfValue}
           onChange={(e) => setCpfValue(formatCPF(e.target.value))}
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -154,6 +157,7 @@ export function FinancingSimulationForm({
           max={maxBirth}
           className={inputClass}
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -170,6 +174,7 @@ export function FinancingSimulationForm({
           value={phoneValue}
           onChange={(e) => setPhoneValue(formatPhoneBR(e.target.value))}
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -189,6 +194,7 @@ export function FinancingSimulationForm({
               className={`${inputClass} !mt-0 pl-9`}
               placeholder="0"
               disabled={status === "submitting"}
+              onFocus={scrollPublicFieldIntoView}
             />
           </div>
         </label>
@@ -207,6 +213,7 @@ export function FinancingSimulationForm({
               className={`${inputClass} !mt-0 pl-9`}
               placeholder="0"
               disabled={status === "submitting"}
+              onFocus={scrollPublicFieldIntoView}
             />
           </div>
         </label>
@@ -223,6 +230,7 @@ export function FinancingSimulationForm({
           <SelectTrigger
             className={cn(inputClass, "h-auto min-h-11")}
             aria-label="Prazo desejado"
+            onFocus={scrollPublicFieldIntoView}
           >
             <SelectValue placeholder="Selecione o prazo" />
           </SelectTrigger>
@@ -249,6 +257,7 @@ export function FinancingSimulationForm({
               className={inputClass}
               placeholder={String(new Date().getFullYear())}
               disabled={status === "submitting"}
+              onFocus={scrollPublicFieldIntoView}
             />
           </label>
           <label className={labelClass}>
@@ -260,6 +269,7 @@ export function FinancingSimulationForm({
               className={inputClass}
               placeholder="Ex: Onix, HB20..."
               disabled={status === "submitting"}
+              onFocus={scrollPublicFieldIntoView}
             />
           </label>
         </div>
@@ -314,10 +324,6 @@ export function FinancingSimulationForm({
           </>
         )}
       </button>
-
-      <p className="text-center text-xs text-facil-muted">
-        100% gratuito · Sem consulta ao SPC/Serasa nesta etapa · Seus dados são protegidos
-      </p>
     </form>
   );
 }

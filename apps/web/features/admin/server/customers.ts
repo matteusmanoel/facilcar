@@ -87,6 +87,8 @@ export async function getCustomerById(id: string) {
               id: true,
               documentType: true,
               extractionStatus: true,
+              storageStatus: true,
+              storageBucket: true,
               createdAt: true,
               mimeType: true,
               storageKey: true,

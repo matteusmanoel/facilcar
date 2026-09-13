@@ -1,0 +1,93 @@
+{
+  "G1": {
+    "contract": "Documents unavailable + explicit callback tomorrow 14h: one task, correct time, no invented send promise",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g1_documents_tomorrow_14h"],
+    "golden": "tests/golden/phase11/g1_documents_tomorrow_14h.json",
+    "gate": "G1",
+    "llm": true,
+    "repeats": 2,
+    "policy_mode": "production_policy",
+    "scheduler_mode": "controlled_tick",
+    "persistence_mode": "isolated",
+    "scheduler_hosted": false
+  },
+  "G2": {
+    "contract": "Spouse without time: permission-style reply, at most one next-business-day retomada, no second attempt",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g2_spouse_without_time"],
+    "golden": "tests/golden/phase11/g2_spouse_without_time.json",
+    "gate": "G2",
+    "llm": true,
+    "repeats": 2,
+    "policy_mode": "production_policy",
+    "scheduler_mode": "controlled_tick",
+    "persistence_mode": "isolated",
+    "scheduler_hosted": false
+  },
+  "G3": {
+    "contract": "Reply before due cancels pending task; inbound processed; zero old follow-up",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g3_reply_before_due"],
+    "golden": "tests/golden/phase11/g3_reply_before_due.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G4": {
+    "contract": "Human assume cancels follow-up; zero LLM; zero outbound automation",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g4_human_assume"],
+    "golden": "tests/golden/phase11/g4_human_assume.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G5": {
+    "contract": "Opt-out cancels; no later follow-up or commercial automation",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g5_opt_out"],
+    "golden": "tests/golden/phase11/g5_opt_out.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G6": {
+    "contract": "Two workers: one claim, one composer, one send, one idempotency key",
+    "pytest": [
+      "tests/golden/test_phase11_matrix.py::test_g6_two_workers",
+      "tests/golden/test_phase11_matrix.py::test_g6_two_workers_unit_cas"
+    ],
+    "golden": "tests/golden/phase11/g6_two_workers.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G7": {
+    "contract": "Due after hours: no send, reschedule to next open window, no duplicate",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g7_after_hours"],
+    "golden": "tests/golden/phase11/g7_after_hours.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G8": {
+    "contract": "Vehicle sold before send: no availability claim, no old copy, no alternative, cancel",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g8_vehicle_sold"],
+    "golden": "tests/golden/phase11/g8_vehicle_sold.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G9": {
+    "contract": "No reply after follow-up → DORMANT; no second automatic message",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g9_dormant_after_followup"],
+    "golden": "tests/golden/phase11/g9_dormant_after_followup.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  },
+  "G10": {
+    "contract": "Post-handoff before human: follow-up eligible; one handoff; assume before send cancels",
+    "pytest": ["tests/golden/test_phase11_matrix.py::test_g10_post_handoff_before_human"],
+    "golden": "tests/golden/phase11/g10_post_handoff_before_human.json",
+    "gate": null,
+    "llm": false,
+    "note": "deterministic-only"
+  }
+}

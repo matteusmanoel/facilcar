@@ -43,6 +43,25 @@ def test_understanding_summary_includes_known_facts() -> None:
     assert "50000" in summary
 
 
+def test_understanding_summary_includes_trade_facts() -> None:
+    """New trade keys must reach Understanding — not a stale allow-list."""
+    builder = ConversationContextBuilder()
+    state = _state(
+        intent=BusinessIntent.TRADE,
+        facts={
+            "trade_model": "Peugeot 2008",
+            "trade_has_financing": True,
+            "trade_installment_value": 850,
+            "cpf": "123.456.789-00",
+        },
+    )
+    summary = builder.build_understanding_summary(state)
+    assert "Peugeot 2008" in summary
+    assert "trade_has_financing" in summary
+    assert "850" in summary
+    assert "123.456.789-00" not in summary
+
+
 def test_understanding_summary_excludes_operational_keys() -> None:
     builder = ConversationContextBuilder()
     state = _state(

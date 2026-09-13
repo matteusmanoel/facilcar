@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { createSellVehicleLead } from "../server/actions";
 import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
 import { formatPhoneBR } from "@/lib/input-masks";
+import { scrollPublicFieldIntoView } from "@/lib/public-form";
 
 const inputClass = publicFormInputClass;
 const labelClass = publicFormLabelClass;
@@ -75,6 +76,7 @@ export function SellVehicleForm() {
           className={inputClass}
           placeholder="Seu nome completo"
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -91,6 +93,7 @@ export function SellVehicleForm() {
           value={phoneValue}
           onChange={(e) => setPhoneValue(formatPhoneBR(e.target.value))}
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 
@@ -132,6 +135,7 @@ export function SellVehicleForm() {
             className={inputClass}
             placeholder="Ex: Toyota"
             disabled={status === "submitting"}
+            onFocus={scrollPublicFieldIntoView}
           />
         </label>
         <label className={labelClass}>
@@ -141,6 +145,7 @@ export function SellVehicleForm() {
             className={inputClass}
             placeholder="Ex: Corolla"
             disabled={status === "submitting"}
+            onFocus={scrollPublicFieldIntoView}
           />
         </label>
       </div>
@@ -157,6 +162,7 @@ export function SellVehicleForm() {
             className={inputClass}
             placeholder="2020"
             disabled={status === "submitting"}
+            onFocus={scrollPublicFieldIntoView}
           />
         </label>
         <label className={labelClass}>
@@ -169,6 +175,7 @@ export function SellVehicleForm() {
             className={inputClass}
             placeholder="45000"
             disabled={status === "submitting"}
+            onFocus={scrollPublicFieldIntoView}
           />
         </label>
       </div>
@@ -208,6 +215,7 @@ export function SellVehicleForm() {
           className={inputClass}
           placeholder="Opcionais, estado de conservação, documentação…"
           disabled={status === "submitting"}
+          onFocus={scrollPublicFieldIntoView}
         />
       </label>
 

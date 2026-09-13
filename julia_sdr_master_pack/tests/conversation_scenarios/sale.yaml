@@ -1,6 +1,6 @@
 name: Venda da BMW já acionável
 messages:
-  - "Quero vender minha BMW 320i 2022, 30 mil km, está impecável, quero 220 mil e preciso vender essa semana."
+  - "Quero vender minha BMW 320i 2022, 30 mil km, cor prata, está quitada, sem débitos, quero 220 mil. Me chamo Fernando Costa."
 expect:
   business_type: SALE
   actionability: ACTIONABLE

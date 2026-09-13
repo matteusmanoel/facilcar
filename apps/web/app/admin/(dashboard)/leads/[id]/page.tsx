@@ -14,8 +14,12 @@ import { LeadFinancingEditor } from "./LeadFinancingEditor";
 import { LeadSellEditor } from "./LeadSellEditor";
 import { LeadDetailField as Field } from "./LeadDetailField";
 import { toDateInputValue } from "@/features/lead/lib/edit-values";
-import { leadVehicleLabel } from "@/features/lead/lib/vehicle-label";
+import { leadVehicleLabel, selectExplicitPrimary } from "@/features/lead/lib/vehicle-label";
 import { vendorSummaryFromLead } from "@/features/lead/lib/julia-summary";
+import { originalCustomerMessage } from "@/features/lead/lib/original-message";
+import { ageFromBirthDate } from "@/features/lead/lib/age-from-birth";
+import { documentCrmView } from "@/features/lead/lib/document-crm";
+import { botStatusLabel } from "@/features/lead/lib/bot-status-label";
 
 const SOURCE_LABELS: Record<string, string> = {
   HOME: "Página inicial",
@@ -101,7 +105,16 @@ export default async function AdminLeadDetailPage({
         },
         financingRequest: true,
         sellRequest: true,
+        visitInterests: { orderBy: { createdAt: "desc" }, take: 1 },
+        sdrDocuments: { orderBy: { createdAt: "asc" } },
         assignedToUser: { select: { id: true, name: true } },
+        conversation: {
+          select: {
+            botStatus: true,
+            assumedAt: true,
+            resumedAt: true,
+          },
+        },
       },
     }),
     prisma.user.findMany({
@@ -119,6 +132,24 @@ export default async function AdminLeadDetailPage({
 
   if (!lead) notFound();
 
+  const firstInboundRow = lead.conversationId
+    ? await prisma.message.findFirst({
+        where: {
+          conversationId: lead.conversationId,
+          direction: "INBOUND",
+          fromMe: false,
+          isBotSent: false,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { text: true, transcription: true },
+      })
+    : null;
+  const originalMessage = originalCustomerMessage({
+    message: lead.message,
+    juliaSummary: lead.juliaSummary,
+    firstInbound: firstInboundRow?.text || firstInboundRow?.transcription,
+  });
+
   const phone = lead.phone.replace(/\D/g, "");
   const fr = lead.financingRequest;
 
@@ -132,7 +163,7 @@ export default async function AdminLeadDetailPage({
         ? [{ ...lead.vehicle, isPrimary: true }]
         : [];
 
-  const primaryVehicle = interestVehicles.find((v) => v.isPrimary) ?? interestVehicles[0] ?? null;
+  const primaryVehicle = selectExplicitPrimary(interestVehicles);
 
   const vehicleLabel =
     primaryVehicle?.title ??
@@ -197,6 +228,11 @@ export default async function AdminLeadDetailPage({
               {TEMPERATURE_LABELS[lead.temperature] ?? lead.temperature}
             </span>
           ) : null}
+          {botStatusLabel(lead.conversation?.botStatus) ? (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+              {botStatusLabel(lead.conversation?.botStatus)}
+            </span>
+          ) : null}
         </div>
         <p className="text-sm text-facil-muted">
           Criado em {new Date(lead.createdAt).toLocaleString("pt-BR")}
@@ -234,6 +270,7 @@ export default async function AdminLeadDetailPage({
                 ? {
                     cpf: fr.cpf,
                     birthDate: toDateInputValue(fr.birthDate),
+                    age: ageFromBirthDate(fr.birthDate),
                   }
                 : null
             }
@@ -321,6 +358,9 @@ export default async function AdminLeadDetailPage({
               monthlyIncome={fr.monthlyIncome != null ? String(fr.monthlyIncome) : ""}
               downPayment={fr.downPayment != null ? String(fr.downPayment) : ""}
               desiredInstallments={fr.desiredInstallments != null ? String(fr.desiredInstallments) : ""}
+              desiredMonthlyPayment={
+                fr.desiredMonthlyPayment != null ? String(fr.desiredMonthlyPayment) : ""
+              }
               hasDriverLicense={fr.hasDriverLicense}
               occupation={fr.occupation}
               notes={fr.notes}
@@ -346,9 +386,55 @@ export default async function AdminLeadDetailPage({
             />
           ) : null}
 
-          {lead.message ? (
+          {lead.visitInterests[0] ? (
+            <Card title="Visita">
+              {(() => {
+                const visit = lead.visitInterests[0];
+                const when = [visit.preferredDate ? new Date(visit.preferredDate).toLocaleDateString("pt-BR") : visit.dateHint, visit.preferredTime || visit.period]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                    <Field label="Interesse">{visit.interest ? "Sim" : visit.declined ? "Recusou" : "—"}</Field>
+                    <Field label="Preferência">{when || visit.notes || "—"}</Field>
+                    <Field label="Agendamento formal">
+                      {visit.accepted ? "Aceitou horário oferecido" : "Preferência do cliente — não confirmado pelo vendedor"}
+                    </Field>
+                    <Field label="Localização enviada">{visit.locationSent ? "Sim" : "Não"}</Field>
+                    {visit.originalText ? (
+                      <Field label="Texto original">{visit.originalText}</Field>
+                    ) : null}
+                  </dl>
+                );
+              })()}
+            </Card>
+          ) : null}
+
+          {lead.sdrDocuments.length > 0 ? (
+            <Card title="Documentos">
+              <ul className="space-y-2">
+                {lead.sdrDocuments.map((doc) => {
+                  const view = documentCrmView({
+                    storageStatus: doc.storageStatus,
+                    storageKey: doc.storageKey,
+                    commerciallyReceived: true,
+                  });
+                  return (
+                    <li key={doc.id} className="text-sm text-foreground">
+                      <span className="font-medium">{doc.documentType}</span>
+                      {" · "}
+                      {view.label}
+                      {view.downloadable ? "" : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : null}
+
+          {originalMessage ? (
             <Card title="Mensagem original">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{lead.message}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{originalMessage}</p>
             </Card>
           ) : null}
 
@@ -394,9 +480,20 @@ export default async function AdminLeadDetailPage({
                   currentAssignedToUserId={lead.assignedToUserId}
                   currentUserId={currentUser.id}
                   sellers={sellers}
+                  botStatus={lead.conversation?.botStatus ?? null}
                 />
                 {lead.assignedToUser ? (
                   <p className="mt-1 text-xs text-facil-muted">Atual: {lead.assignedToUser.name}</p>
+                ) : null}
+                {lead.conversation?.assumedAt ? (
+                  <p className="mt-1 text-xs text-facil-muted">
+                    Assumido em {new Date(lead.conversation.assumedAt).toLocaleString("pt-BR")}
+                  </p>
+                ) : null}
+                {lead.conversation?.resumedAt && lead.conversation.botStatus === "AI_RESUMED" ? (
+                  <p className="mt-1 text-xs text-facil-muted">
+                    Reativado em {new Date(lead.conversation.resumedAt).toLocaleString("pt-BR")}
+                  </p>
                 ) : null}
               </div>
               <div>

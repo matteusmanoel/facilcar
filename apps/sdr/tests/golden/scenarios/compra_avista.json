@@ -1,0 +1,76 @@
+{
+  "name": "compra_avista",
+  "description": "Compra à vista explícita até handoff, com slot concreto.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "purchase",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero comprar um Onix Plus à vista",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "desired_model": "Onix Plus",
+          "payment_method": "cash"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_facts_after": {
+        "desired_model": "onix plus",
+        "payment_method": "cash"
+      },
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado"
+      ]
+    },
+    {
+      "inbound": "Me chamo Lucas Rocha",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {
+          "name": "Lucas Rocha"
+        }
+      },
+      "expected_facts_after": {
+        "name": "Lucas Rocha"
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "PURCHASE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "seria compra ou troca",
+        "100% financiado",
+        "já reuni suas informações"
+      ]
+    }
+  ]
+}

@@ -1,14 +1,12 @@
 """Replay: visit handoff sequence — end-to-end process_turn coverage.
 
-Tests that the guard on pending_question='visit' is correctly wired through
-the full process_turn pipeline, not just decide():
+After REGISTER_VISIT_INTEREST, pending_question='visit' is set. The next
+inbound must not loop the same slot offer:
 
-  Turn N  : REGISTER_VISIT_INTEREST → pending_question='visit' set in state
-  Turn N+1a: 'Obrigado' (no visit_intent) → COMMERCIAL_UNKNOWN (no HANDOFF)
-  Turn N+1b: 'Vou amanhã' (visit_intent=True) → HANDOFF_VENDOR
+  'Obrigado' (courtesy) → HANDOFF when qualification is already ready
+  'Vou amanhã' (date, no hour) → HANDOFF
 
-These are pipeline integration tests (process_turn), complementing the
-decide()-level unit tests already in test_composer_llm_first.py.
+Visit is not a required field for handoff.
 """
 
 from __future__ import annotations
@@ -96,7 +94,12 @@ def _triaged_state_with_visit_pending() -> ConversationCanonicalState:
 
 @pytest.mark.asyncio
 async def test_obrigado_after_visit_invite_asks_schedule() -> None:
-    """'Obrigado' after visit invite must ask for a visit slot, not restart the roteiro."""
+    """'Obrigado' after visit invite is courtesy, not a schedule ask.
+
+    Product: courtesy is not accept or refuse. Minimum qualification is
+    already ready, so the thread hands off. Must not invent a visit, must
+    not repeat the two slot offers, must not leak process language.
+    """
     state = _triaged_state_with_visit_pending()
 
     async def _understand_obrigado(text: str, s: ConversationCanonicalState) -> TurnFacts:
@@ -114,22 +117,21 @@ async def test_obrigado_after_visit_invite_asks_schedule() -> None:
         pool=None,
     )
 
-    assert result.action_plan.action == Action.ASK_INFO, (
-        f"Expected ASK_INFO (visit schedule) for 'Obrigado' after visit invite, "
-        f"got {result.action_plan.action!r}. "
-        "Must not HANDOFF and must not restart the vehicle roteiro."
+    assert result.action_plan.action == Action.HANDOFF_VENDOR, (
+        f"Expected HANDOFF_VENDOR for courtesy after a ready visit invite, "
+        f"got {result.action_plan.action!r}."
     )
-    assert result.action_plan.ask_field == "visit"
-    assert result.action_plan.handoff is False, (
-        "handoff must be False while asking for a visit slot."
-    )
+    assert result.action_plan.handoff is True
+    assert result.state.visit_accepted_offered is False
+    assert result.state.visit_date is None
     assert len(result.outbound_texts) > 0, (
         "Must produce at least one outbound bubble."
     )
     joined = " ".join(result.outbound_texts).lower()
-    assert "vendedor" not in joined and "equipe" not in joined, (
-        f"Schedule ask must not refer to sales team. Got: {result.outbound_texts}"
-    )
+    assert "que tal" not in joined
+    assert "confirmação do vendedor" not in joined
+    assert "handoff" not in joined
+    assert "triagem" not in joined
     assert "modelo" not in joined and "ano específico" not in joined, (
         f"Must not re-ask model/year after the vehicle was already shown. Got: {result.outbound_texts}"
     )
@@ -201,8 +203,9 @@ async def test_register_visit_interest_sets_pending_question() -> None:
     This tests the other side of the guard: the state must carry pending_question='visit'
     into the next turn so that decide() can apply the guard.
 
-    We trigger REGISTER_VISIT_INTEREST by sending a DOCUMENT inbound when the roteiro
-    is complete (all fields answered, documents not yet asked for a visit).
+    We trigger REGISTER_VISIT_INTEREST by sending a DOCUMENT inbound when the
+    financing pack is complete (CNH + income + residence received) and remaining
+    fields are already answered. A single CNH no longer invites a visit.
     """
     from sdr.domain.decision import inventory_search_key
     from sdr.domain.inbound import ContentType, InboundTurn, MediaStatus
@@ -216,6 +219,11 @@ async def test_register_visit_interest_sets_pending_question() -> None:
         "desired_installment": 2000,
         "name": "João Silva",
         "document_type": "CNH",
+        "document_status": {
+            "cnh": "received",
+            "proof_of_income": "received",
+            "proof_of_residence": "received",
+        },
     }
 
     state = ConversationCanonicalState(

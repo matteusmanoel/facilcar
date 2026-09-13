@@ -88,7 +88,7 @@ def test_inventory_not_repeated_when_search_key_matches() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"
+    assert plan.ask_field == "payment_method"
 
 
 def test_inventory_re_searched_when_preference_changes() -> None:
@@ -126,7 +126,7 @@ def test_inventory_search_key_ignores_qualification_status_without_budget() -> N
 
 
 def test_ask_info_after_inventory_already_searched() -> None:
-    """After inventory, progress to qualification (deal type), never budget."""
+    """After inventory, progress to qualification (deal_type then name), never budget."""
     facts = {"desired_model": "Civic"}
     state = _state(
         intent=BusinessIntent.PURCHASE,
@@ -135,7 +135,7 @@ def test_ask_info_after_inventory_already_searched() -> None:
     )
     plan = decide(state)
     assert plan.action == Action.ASK_INFO
-    assert plan.ask_field == "deal_type"
+    assert plan.ask_field == "payment_method"
 
 
 def test_photo_request_sends_photos_of_last_shown_vehicle() -> None:
@@ -194,12 +194,15 @@ def test_document_received_acks_instead_of_visit() -> None:
     assert plan.ask_field == "desired_installment"
 
 
-def test_document_received_invites_visit_when_roteiro_complete() -> None:
+def test_document_received_asks_remaining_docs_not_visit() -> None:
+    """Partial CNH is one documentary action — visit is a concurrent action (Phase 9)."""
     facts = {
         "desired_model": "Civic",
         "deal_type": "purchase",
         "down_payment": 20000,
         "desired_installment": 2000,
+        "name": "Mateus",
+        "document_status": {"cnh": "received"},
     }
     state = _state(
         intent=BusinessIntent.PURCHASE_FINANCING,
@@ -210,8 +213,36 @@ def test_document_received_invites_visit_when_roteiro_complete() -> None:
         document_received=True,
     )
     plan = decide(state)
+    assert plan.action == Action.ASK_INFO
+    assert plan.ask_field == "documents"
+    assert plan.reason_code == "remaining_documents"
+    assert plan.handoff is False
+
+
+def test_document_pack_complete_may_invite_visit() -> None:
+    facts = {
+        "desired_model": "Civic",
+        "deal_type": "purchase",
+        "down_payment": 20000,
+        "desired_installment": 2000,
+        "name": "Mateus",
+        "document_status": {
+            "cnh": "received",
+            "proof_of_income": "received",
+            "proof_of_residence": "received",
+        },
+    }
+    state = _state(
+        intent=BusinessIntent.PURCHASE_FINANCING,
+        facts=facts,
+        last_inventory_search_key=inventory_search_key(facts),
+        documents_asked=True,
+        remaining_documents_asked=True,
+        installment_asked=True,
+        document_received=True,
+    )
+    plan = decide(state)
     assert plan.action == Action.REGISTER_VISIT_INTEREST
-    assert plan.reason_code == "document_received_visit"
 
 
 def test_installment_tight_offers_alternatives_once() -> None:
@@ -295,11 +326,12 @@ def test_explicit_vendor_handoff() -> None:
 
 
 def test_actionable_purchase_handoff() -> None:
-    """Vehicle + deal_type triggers visit invitation, then handoff."""
+    """Vehicle + name triggers visit invitation, then handoff."""
     facts = {
         "desired_model": "Hilux",
         "deal_type": "purchase",
         "payment_method": "cash",
+        "name": "Mateus",
     }
     from sdr.domain.decision import inventory_search_key
 
@@ -369,13 +401,14 @@ def test_human_active_no_reply() -> None:
     assert plan.action == Action.NO_REPLY
 
 
-def test_handoff_sent_no_reply() -> None:
+def test_handoff_sent_is_not_no_reply() -> None:
     state = _state(
         lifecycle=LifecycleState(status=LifecycleStatus.HANDOFF_SENT),
         intent=BusinessIntent.PURCHASE,
     )
     plan = decide(state)
-    assert plan.action == Action.NO_REPLY
+    assert plan.action != Action.NO_REPLY
+    assert plan.action != Action.HANDOFF_VENDOR
 
 
 def test_merge_then_decide_high_purchase() -> None:

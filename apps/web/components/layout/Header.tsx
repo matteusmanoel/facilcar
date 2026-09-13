@@ -44,17 +44,12 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
   return (
     <>
       <header
-        className={`sticky top-0 z-50 border-b border-white/10 bg-zinc-950 text-white backdrop-blur-md transition-shadow duration-300 ${
+        className={`fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-zinc-950 text-white backdrop-blur-md transition-shadow duration-300 ${
           scrolled ? "shadow-lg shadow-black/40" : "shadow-none"
         }`}
       >
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-          {/* Logo */}
-          <Link
-            href="/"
-            className="flex shrink-0 items-center gap-2"
-            onClick={() => setMenuOpen(false)}
-          >
+        <div className="mx-auto hidden h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 xl:flex">
+          <Link href="/" className="flex shrink-0 items-center gap-2" onClick={() => setMenuOpen(false)}>
             <Image
               src="/facilcar-logo.jpg"
               alt={siteName}
@@ -63,13 +58,10 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
               className="rounded-md border border-facil-orange/40 object-cover"
               priority
             />
-            <span className="hidden font-bold text-base tracking-tight text-white sm:block">
-              {siteName}
-            </span>
+            <span className="font-bold text-base tracking-tight text-white">{siteName}</span>
           </Link>
 
-          {/* Desktop nav — visible at xl (1280px) */}
-          <nav className="hidden items-center gap-0 text-xs font-medium text-white xl:flex">
+          <nav className="flex items-center gap-0 text-xs font-medium text-white">
             {nav.map((item) => (
               <Link
                 key={item.href}
@@ -81,8 +73,7 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
             ))}
           </nav>
 
-          {/* Desktop CTAs — visible at xl */}
-          <div className="hidden items-center gap-2 xl:flex">
+          <div className="flex items-center gap-2">
             <Link
               href="/financiamento"
               className="rounded-lg bg-facil-orange px-3.5 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-facil-orange-hover"
@@ -101,40 +92,39 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
               </a>
             )}
           </div>
+        </div>
 
-          {/* Compact CTAs — visible between md and xl */}
-          <div className="hidden items-center gap-2 md:flex xl:hidden">
+        <div className="mx-auto grid h-14 max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 sm:px-6 xl:hidden">
+          <Link
+            href="/"
+            className="justify-self-start"
+            onClick={() => setMenuOpen(false)}
+          >
+            <Image
+              src="/facilcar-logo.jpg"
+              alt={siteName}
+              width={34}
+              height={34}
+              className="rounded-md border border-facil-orange/40 object-cover"
+              priority
+            />
+          </Link>
+
+          <Link
+            href="/estoque"
+            onClick={() => setMenuOpen(false)}
+            className="justify-self-center rounded-full bg-facil-orange px-4 py-1.5 text-xs font-bold tracking-wide text-white shadow-sm transition hover:bg-facil-orange-hover"
+          >
+            Estoque
+          </Link>
+
+          <div className="flex items-center justify-end gap-2 justify-self-end">
             <Link
               href="/financiamento"
-              className="rounded-lg bg-facil-orange px-3 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-facil-orange-hover"
+              className="hidden rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20 md:inline-flex"
             >
               Simular
             </Link>
-            {wa && (
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-600 text-white transition hover:bg-green-700"
-                aria-label="WhatsApp"
-              >
-                {WA_ICON}
-              </a>
-            )}
-            <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-white transition hover:border-facil-orange hover:text-white"
-              aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                <path d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Mobile CTAs — visible below md */}
-          <div className="flex items-center gap-2 md:hidden">
             {wa && (
               <a
                 href={whatsappUrl}
@@ -166,6 +156,7 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
           </div>
         </div>
       </header>
+      <div className="h-14 shrink-0" aria-hidden />
 
       {/* Mobile/tablet menu overlay */}
       <div
@@ -179,7 +170,7 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
           onClick={() => setMenuOpen(false)}
         />
         <nav
-          className={`absolute right-0 top-0 h-full w-72 bg-facil-card text-foreground shadow-2xl transition-transform duration-300 ease-out dark:bg-zinc-950 ${
+          className={`absolute right-0 top-14 h-[calc(100%-3.5rem)] w-72 bg-facil-card text-foreground shadow-2xl transition-transform duration-300 ease-out dark:bg-zinc-950 ${
             menuOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >

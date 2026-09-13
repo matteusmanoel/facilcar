@@ -119,12 +119,16 @@ class InventorySearchRequest:
 
 
 def _primary_query_text(facts: dict[str, Any]) -> str | None:
+    desired = facts.get("desired_vehicle")
+    if isinstance(desired, dict):
+        for key in ("model", "text", "brand"):
+            value = desired.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     for key in (
         "desired_model",
         "desired_vehicle_text",
-        "desired_vehicle",
         "vehicle_interest",
-        "model",
         "category",
     ):
         value = facts.get(key)
@@ -141,7 +145,13 @@ def build_inventory_search_request(
     limit: int = 3,
 ) -> InventorySearchRequest:
     """Build search request from canonical facts + authorized scope."""
+    from sdr.domain.vehicle_catalog import lookup_brand_for_model
+
     model = facts.get("desired_model")
+    if not isinstance(model, str) or not model.strip():
+        desired = facts.get("desired_vehicle")
+        if isinstance(desired, dict) and isinstance(desired.get("model"), str):
+            model = desired.get("model")
     if not isinstance(model, str) or not model.strip():
         model = None
     else:
@@ -149,9 +159,15 @@ def build_inventory_search_request(
 
     brand = facts.get("brand") or facts.get("desired_brand")
     if not isinstance(brand, str) or not brand.strip():
+        desired = facts.get("desired_vehicle")
+        if isinstance(desired, dict) and isinstance(desired.get("brand"), str):
+            brand = desired.get("brand")
+    if not isinstance(brand, str) or not str(brand).strip():
+        brand = lookup_brand_for_model(model) if model else None
+    if not isinstance(brand, str) or not str(brand).strip():
         brand = None
     else:
-        brand = brand.strip()
+        brand = str(brand).strip()
 
     vehicle_text = facts.get("desired_vehicle_text")
     if not isinstance(vehicle_text, str) or not vehicle_text.strip():
@@ -246,9 +262,12 @@ def inventory_search_key_from_request(
     vehicle_text_for_hash = (
         None if (has_model and has_shown) else req.original_vehicle_text
     )
+    # Catalog brand is derived from the model — it must not look like a new
+    # preference (or a new search after vehicles were already presented).
+    brand_for_hash = None if has_model else req.original_brand
     payload = {
         "original_model": req.original_model,
-        "original_brand": req.original_brand,
+        "original_brand": brand_for_hash,
         "original_vehicle_text": vehicle_text_for_hash,
         "category": req.category,
         "vehicle_type": req.vehicle_type,
@@ -272,6 +291,7 @@ def inventory_search_key(
     *,
     alternative_scope: AlternativeScope = AlternativeScope.NONE,
     budget_status: BudgetStatus = BudgetStatus.UNKNOWN,
+    last_shown_vehicle_ids: list[str] | None = None,
 ) -> str:
     """Hash search criteria — prefer this over hashing raw facts alone."""
     req = build_inventory_search_request(
@@ -279,4 +299,6 @@ def inventory_search_key(
         alternative_scope=alternative_scope,
         budget_status=budget_status,
     )
-    return inventory_search_key_from_request(req)
+    return inventory_search_key_from_request(
+        req, last_shown_vehicle_ids=last_shown_vehicle_ids
+    )

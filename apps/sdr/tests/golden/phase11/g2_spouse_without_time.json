@@ -1,0 +1,42 @@
+{
+  "name": "g2_spouse_without_time",
+  "description": "G2 — spouse without time. Permission ask now; fallback 10:00 next business day is operational, not agreed.",
+  "execution_mode": "production_policy",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "FOLLOWUP_SENT",
+  "expected_followup_sends": 1,
+  "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+  "expected_scheduled_at": "2026-09-08T10:00:00-03:00",
+  "expected_artifact_clean": true,
+  "customer": {"name": "Bruno Silva", "phone": "5511999000012"},
+  "turns": [
+    {
+      "inbound": "Vou ver com meu marido e te retorno.",
+      "principal_event": true,
+      "understand_return": {
+        "intent": "PURCHASE_FINANCING",
+        "facts": {"desired_model": "Strada"}
+      },
+      "forbidden_action": "HANDOFF_VENDOR",
+      "expected_outbound_min": 1,
+      "expected_wait_state": "PAUSED_WITH_FOLLOWUP",
+      "forbidden_in_outbound": ["vi que você sumiu", "urgente", "última chance", "lead", "CRM", "handoff", "combinamos"]
+    },
+    {
+      "clock_jump": "2026-09-08T10:00:00-03:00",
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_outbound_min": 1,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP",
+      "forbidden_in_outbound": ["vi que você sumiu", "urgente", "lead", "CRM"]
+    },
+    {
+      "clock_jump": {"hours": 2},
+      "scheduler_tick": {"kind": "due", "workers": ["w1"]},
+      "principal_event": true,
+      "expected_followup_sends": 1,
+      "expected_wait_state": "AWAITING_AFTER_FOLLOWUP"
+    }
+  ]
+}

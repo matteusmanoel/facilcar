@@ -1,0 +1,107 @@
+{
+  "name": "consignacao",
+  "description": "Consignação Civic packed attrs; aceite na abertura; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "consignment",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero deixar meu carro em consignação na FacilCar",
+      "response_mode": "intent_change",
+      "understand_return": {
+        "intent": "CONSIGNMENT",
+        "facts": {
+          "leave_at_store": true
+        }
+      },
+      "expected_action": "ASK_INFO",
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca"
+      ]
+    },
+    {
+      "inbound": "É um Civic 2021 preto 30000 km, quitado",
+      "responds_to_field": "trade_model",
+      "understand_return": {
+        "intent": "CONSIGNMENT",
+        "facts": {
+          "trade_model": "Honda Civic",
+          "trade_year": "2021",
+          "trade_color": "preto",
+          "mileage": 30000,
+          "trade_has_financing": false
+        }
+      },
+      "expected_facts_after": {
+        "trade_year": "2021",
+        "trade_color": "preto",
+        "mileage": 30000
+      },
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca",
+        "qual a cor",
+        "qual o ano",
+        "quantos km"
+      ]
+    },
+    {
+      "inbound": "Sem débitos, espero 75 mil",
+      "responds_to_field": "trade_has_debts",
+      "understand_return": {
+        "intent": "CONSIGNMENT",
+        "facts": {
+          "trade_has_debts": false,
+          "trade_price_expectation": 75000
+        }
+      },
+      "expected_facts_after": {
+        "trade_price_expectation": 75000
+      },
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca"
+      ]
+    },
+    {
+      "inbound": "Me chamo Débora Martins",
+      "responds_to_field": "name",
+      "understand_return": {
+        "intent": "CONSIGNMENT",
+        "facts": {
+          "name": "Débora Martins"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca",
+        "esperamos você",
+        "vou reservar"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "responds_to_field": "visit",
+      "understand_return": {
+        "intent": "CONSIGNMENT",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "qual veículo você busca",
+        "carro que você quer trocar",
+        "seria compra ou troca"
+      ]
+    }
+  ]
+}

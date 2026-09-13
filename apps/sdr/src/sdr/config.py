@@ -32,14 +32,22 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     sdr_understanding_model: str = "gpt-4.1-mini"
     sdr_response_model: str = "gpt-4.1-mini"
+    # CRM vendor summary is the deterministic formatter by default.
+    # LLM drafting is optional style variation and must still pass the validator.
+    sdr_summary_llm: bool = False
     sdr_vision_model: str = "gpt-4o"
     # sandbox: may include failure_code in customer-facing recovery.
     # production: tool/media failures stay silent so a human can take over.
     sdr_environment: Literal["sandbox", "production"] = "sandbox"
 
-    sdr_debounce_ms: int = Field(default=1500)
+    sdr_debounce_ms: int = Field(default=8000)
+    sdr_debounce_max_ms: int = Field(default=20000)
+    sdr_worker_id: str = ""
     sdr_lock_ttl_seconds: int = Field(default=60)
     sdr_max_turns_in_context: int = Field(default=10)
+    # Private customer-document bucket. Never fall back to STORAGE_BUCKET_NAME.
+    sdr_documents_bucket: str = ""
+    sdr_document_storage_max_attempts: int = Field(default=3)
 
 
 @lru_cache

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 from typing import Any, Protocol
 
 import asyncpg
@@ -15,10 +16,20 @@ from sdr.application.coalesce import (
     build_batch_from_claimed_rows,
     compose_turn_from_batch,
     is_retry_seed,
+    quoted_from_row,
     segment_from_row,
     utc_now_naive,
 )
+from sdr.application.document_storage import DocumentStorageService, StoreDocumentRequest
 from sdr.application.inbound_document import document_inbound_text, media_ref_from_row
+from sdr.application.followup_cancel import cancel_pending_followups
+from sdr.application.outbound_guard import (
+    cancel_pending_automation,
+    column_authorizes_outbound,
+    human_assumed_live,
+    ownership_revision_from_row,
+    suppression_batch_result,
+)
 from sdr.application.process_turn import ProcessTurnResult, process_turn
 from sdr.config import Settings, get_settings
 from sdr.debounce import wait_until_quiet
@@ -26,11 +37,19 @@ from sdr.domain.commands import (
     RESET_MEMORY_CONFIRMATION_PT,
     is_reset_memory_command,
 )
+from sdr.domain.followup_cancel import (
+    FollowUpCancelReason,
+    FollowUpCanceller,
+    inbound_cancel_reason,
+    is_opt_out_signal,
+)
+from sdr.domain.document_storage import STORAGE_STORED
 from sdr.domain.inbound import (
     ContentType,
     InboundTurn,
     MediaFailureCode,
     MediaStatus,
+    QuotedContext,
     make_audio_inbound,
     make_media_failed_inbound,
     make_text_inbound,
@@ -38,32 +57,77 @@ from sdr.domain.inbound import (
 from sdr.domain.inbound_batch import (
     BatchResult,
     BatchStatus,
+    dedupe_snapshot_rows,
+    first_batch_partition,
     new_batch_id,
 )
 from sdr.domain.phone import normalize_phone
 from sdr.domain.vendor_summary import is_placeholder_display_name
+from sdr.domain.vehicle_reference import PresentedVehicleBinding, upsert_presented_binding
+from sdr.domain.outbound_reservation import async_attr, new_reserved_bot_provider_id
 from sdr.domain.types import (
     Action,
     ActionPlan,
     BusinessIntent,
     ConversationCanonicalState,
     CustomerState,
-    LifecycleStatus,
     TurnFacts,
 )
 from sdr.infrastructure.conversation_repository import (
     ConversationRepository,
-    canonical_state_from_json,
+    state_from_conversation_row,
 )
 from sdr.infrastructure.customer_repository import CustomerRepository
 from sdr.infrastructure.document_repository import DocumentRepository
 from sdr.infrastructure.evolution_client import EvolutionError
 from sdr.infrastructure.lead_repository import LeadRepository
-from sdr.infrastructure.storage_client import upload_document
+from sdr.infrastructure.storage_client import BotoObjectStore
 from sdr.locks import phone_lock
 from sdr.trace import make_tracer
 
 logger = logging.getLogger(__name__)
+
+
+def _presented_vehicle_payload(
+    *,
+    conversation_id: str,
+    state: ConversationCanonicalState,
+    media: Any,
+    provider_message_id: str,
+) -> dict[str, Any] | None:
+    vehicle_id = getattr(media, "vehicle_id", None)
+    if not vehicle_id:
+        return None
+    shown = list(getattr(state, "last_shown_vehicle_ids", None) or [])
+    try:
+        position = shown.index(str(vehicle_id))
+    except ValueError:
+        position = 0
+    caption = getattr(media, "caption", "") or ""
+    binding = PresentedVehicleBinding(
+        conversation_id=conversation_id,
+        provider_message_id=provider_message_id,
+        vehicle_id=str(vehicle_id),
+        presentation_type="CAPTION" if caption else "IMAGE",
+        position=position,
+        offer_set_id=getattr(state, "current_offer_set_id", None),
+        media_url=getattr(media, "url", None),
+        created_at=utc_now_naive().timestamp(),
+    )
+    upsert_presented_binding(state, binding)
+    return binding.as_dict()
+
+
+def _first_inbound_image_bytes(orchestrator: "Orchestrator", batch: Any) -> bytes | None:
+    store = getattr(orchestrator, "_inbound_image_bytes", None) or {}
+    for seg in getattr(batch, "segments", None) or []:
+        mid = getattr(seg, "message_id", None)
+        if not mid:
+            continue
+        data = store.pop(str(mid), None)
+        if data:
+            return data
+    return None
 
 
 class EvolutionSender(Protocol):
@@ -178,16 +242,245 @@ class Orchestrator:
         settings: Settings | None = None,
         understand=default_understand,
         evolution: EvolutionSender | None = None,
+        followup_canceller: FollowUpCanceller | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.pool = pool
         self.redis = redis_client
         self.understand = understand
         self.evolution: EvolutionSender = evolution or StubEvolutionSender()
+        self.followup_canceller = followup_canceller
         self.conversations = ConversationRepository(pool)
         self.customers = CustomerRepository(pool)
         self.leads = LeadRepository(pool)
         self.documents = DocumentRepository(pool)
+        self.document_storage = DocumentStorageService(
+            object_store=BotoObjectStore(),
+            documents=self.documents,
+            messages=self.conversations,
+            settings=self.settings,
+        )
+        self._inbound_image_bytes: dict[str, bytes] = {}
+
+    async def _human_assumed(self, conversation_id: str) -> tuple[bool, int]:
+        """Re-read Conversation.botStatus from the persisted column.
+
+        Never use canonicalStateJson.lifecycle to authorize or suppress send.
+        Overlay already reconciles loaded state; live re-read is the gate.
+        """
+        return await human_assumed_live(self.conversations, conversation_id)
+
+    async def _cancel_pending_followups(
+        self,
+        conversation_id: str,
+        reason: str | FollowUpCancelReason,
+    ) -> int:
+        return await cancel_pending_followups(
+            self.followup_canceller, conversation_id, reason
+        )
+
+    async def _save_canonical_state(
+        self,
+        conversation_id: str,
+        state: ConversationCanonicalState,
+    ) -> bool:
+        """Write the worker snapshot only if live ownership still matches.
+
+        ``save_canonical_state`` returns False on CAS miss (HUMAN_ACTIVE or
+        stale ``ownershipRevision``). Mocks that return None still count as
+        applied so older tests keep their no-op save.
+        """
+        save = getattr(self.conversations, "save_canonical_state", None)
+        if save is None:
+            return True
+        applied = await save(conversation_id, state)
+        return applied is not False
+
+    async def _deliver_reserved_outbound(
+        self,
+        *,
+        conversation_id: str,
+        instance: str,
+        text: str,
+        transport,
+        content_type: str = "TEXT",
+        presented_vehicle: dict[str, Any] | None = None,
+        presented_builder=None,
+        batch_id: str | None = None,
+    ) -> tuple[str | None, bool]:
+        """Persist bot intent, then send, then correlate the Evolution id.
+
+        A reserved ``bot-pending-*`` row with ``isBotSent=true`` exists before
+        transport. Timeout/fail keeps that row so a later echo can reconcile.
+        Retry reuses the open reservation instead of inserting a second outbound.
+        """
+        msg_id: str | None = None
+        reserved_pid: str | None = None
+        finder = async_attr(self.conversations, "find_open_bot_reservation")
+        if finder is not None:
+            found = await finder(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                text=text,
+            )
+            if isinstance(found, dict) and found.get("id"):
+                msg_id = str(found["id"])
+                reserved_pid = str(found.get("providerMessageId") or "")
+        if not msg_id:
+            reserved_pid = new_reserved_bot_provider_id()
+            presented = presented_vehicle
+            if presented is None and presented_builder is not None:
+                presented = presented_builder(reserved_pid)
+            msg_id = await self.conversations.insert_bot_outbound(
+                conversation_id=conversation_id,
+                instance_name=instance,
+                provider_message_id=reserved_pid,
+                text=text,
+                content_type=content_type,
+                presented_vehicle=presented,
+            )
+        provider_id: str | None = None
+        try:
+            maybe = await transport()
+            if isinstance(maybe, str) and maybe.strip():
+                provider_id = maybe.strip()
+        except Exception:
+            logger.exception(
+                "outbound transport failed conversation=%s batch=%s",
+                conversation_id,
+                batch_id,
+            )
+            return None, False
+        updater = async_attr(self.conversations, "update_bot_provider_id")
+        if updater is not None and provider_id and msg_id:
+            try:
+                await updater(
+                    message_id=msg_id,
+                    instance_name=instance,
+                    provider_message_id=provider_id,
+                )
+            except Exception:
+                logger.exception(
+                    "update_bot_provider_id failed conversation=%s batch=%s",
+                    conversation_id,
+                    batch_id,
+                )
+        if provider_id and presented_builder is not None:
+            presented_builder(provider_id)
+        return provider_id, True
+
+
+    async def _record_human_active_skip(
+        self,
+        batch,
+        *,
+        ownership_revision: int,
+        outbound_texts: list[str] | None = None,
+        outbound_provider_ids: list[str | None] | None = None,
+        outbound_sent: bool = False,
+    ) -> dict[str, Any]:
+        await cancel_pending_automation(
+            batch.conversation_id,
+            reason=FollowUpCancelReason.HUMAN_ASSUMED.value,
+            canceller=self.followup_canceller,
+        )
+        payload = suppression_batch_result(
+            ownership_revision=ownership_revision,
+            outbound_texts=outbound_texts,
+            outbound_sent=outbound_sent,
+            outbound_provider_ids=outbound_provider_ids,
+            processed_at=utc_now_naive().isoformat() + "Z",
+        )
+        status = "DONE" if outbound_sent else "SKIPPED:HUMAN_ACTIVE"
+        await self.conversations.finalize_batch_messages(
+            batch.message_ids,
+            status=status[:64],
+            batch_patch={
+                "batch_id": batch.batch_id,
+                "turn_id": batch.batch_id,
+                "conversation_id": batch.conversation_id,
+                "anchor_message_id": batch.anchor_message_id,
+                "cutoff": batch.cutoff.isoformat() + "Z",
+                "message_ids": batch.message_ids,
+                "canonical_order": batch.message_ids,
+                "status": "DONE" if outbound_sent else "SKIPPED",
+                "result": payload,
+            },
+        )
+        return payload
+
+    async def _silenced_turn(
+        self,
+        batch,
+        *,
+        state: ConversationCanonicalState,
+        ownership_revision: int,
+        outbound_texts: list[str] | None = None,
+        outbound_provider_ids: list[str | None] | None = None,
+        outbound_sent: bool = False,
+    ) -> ProcessTurnResult:
+        await self._record_human_active_skip(
+            batch,
+            ownership_revision=ownership_revision,
+            outbound_texts=outbound_texts,
+            outbound_provider_ids=outbound_provider_ids,
+            outbound_sent=outbound_sent,
+        )
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="human_active",
+            ),
+            state=state,
+            outbound_texts=list(outbound_texts or []),
+            turn_facts=TurnFacts(),
+            tool_results=[],
+        )
+
+    async def _opt_out_turn(
+        self,
+        batch,
+        *,
+        state: ConversationCanonicalState,
+        inbound_text: str = "",
+    ) -> ProcessTurnResult:
+        """Honor opt-out: cancel follow-up, persist inbound, no commercial outbound."""
+        await self._cancel_pending_followups(
+            batch.conversation_id, FollowUpCancelReason.OPT_OUT
+        )
+        payload = BatchResult(
+            outbound_texts=[],
+            outbound_sent=False,
+            action="no_reply",
+            reason_code="opt_out",
+            processed_at=utc_now_naive().isoformat() + "Z",
+        ).to_dict()
+        payload["inbound_text"] = inbound_text
+        await self.conversations.finalize_batch_messages(
+            batch.message_ids,
+            status="DONE",
+            batch_patch={
+                "batch_id": batch.batch_id,
+                "turn_id": batch.batch_id,
+                "conversation_id": batch.conversation_id,
+                "anchor_message_id": batch.anchor_message_id,
+                "cutoff": batch.cutoff.isoformat() + "Z",
+                "message_ids": batch.message_ids,
+                "canonical_order": batch.message_ids,
+                "status": "DONE",
+                "result": payload,
+            },
+        )
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="opt_out",
+            ),
+            state=state,
+            outbound_texts=[],
+            turn_facts=TurnFacts(),
+            tool_results=[],
+        )
 
     # ------------------------------------------------------------------
     # Audio enrichment
@@ -318,45 +611,45 @@ class Orchestrator:
             processed = None
 
         extracted = processed.extracted if processed is not None else None
-        inbound_text = document_inbound_text(extracted, caption)
+        inbound_text = document_inbound_text(extracted, caption) or (caption or "").strip() or "documento"
         doc_type = "OTHER"
         if extracted is not None:
             doc_type = extracted.document_type or "OTHER"
 
         lead_id: str | None = None
-        customer_id: str | None = None
         conv = None
         if conversation_id:
             conv = await self.conversations.get_by_id(conversation_id)
             ids = list((conv["activeLeadIds"] if conv else None) or [])
             lead_id = str(ids[0]) if ids else None
-            phone = str((conv["phone"] if conv else "") or "")
-            if phone:
-                customer = await self.customers.upsert_by_phone(phone)
-                customer_id = str(customer["id"])
 
+        storage_outcome = None
         try:
-            uploaded = upload_document(
-                data,
-                customer_id=customer_id or conversation_id or "unknown",
-                document_type=doc_type,
-                mime_type=mime,
+            storage_outcome = await self.document_storage.store_inbound_document(
+                StoreDocumentRequest(
+                    data=data,
+                    mime_type=mime,
+                    document_type=doc_type,
+                    conversation_id=conversation_id or str(row.get("conversationId") or ""),
+                    message_id=message_id,
+                    provider_message_id=str(row.get("providerMessageId") or message_id),
+                    lead_id=lead_id,
+                    extracted_json=extracted.as_dict() if extracted is not None else None,
+                    extraction_ok=extracted is not None,
+                )
             )
-            extraction_status = "DONE" if extracted is not None else "FAILED"
-            await self.documents.insert(
-                storage_key=uploaded.storage_key,
-                document_type=doc_type,
-                lead_id=lead_id,
-                conversation_id=conversation_id or None,
-                mime_type=mime,
-                byte_size=uploaded.byte_size,
-                extracted_json=extracted.as_dict() if extracted is not None else None,
-                extraction_status=extraction_status,
-            )
-            if not uploaded.uploaded and lead_id:
-                await self.leads.notify_document_upload_failed(lead_id)
         except Exception:
-            logger.exception("document message %s: persist failed", message_id)
+            logger.exception("document message %s: internal storage failed", message_id)
+
+        if (
+            storage_outcome is not None
+            and storage_outcome.storage_status != STORAGE_STORED
+            and lead_id
+        ):
+            try:
+                await self.leads.notify_document_upload_failed(lead_id)
+            except Exception:
+                logger.exception("document message %s: upload-failed notify failed", message_id)
 
         # Flow safe fields from extracted document into the conversation state so
         # they appear in vendor summary and can be used by future turns.
@@ -382,13 +675,6 @@ class Orchestrator:
                         "document %s: failed to patch canonical facts", message_id
                     )
 
-        if not inbound_text:
-            return make_media_failed_inbound(
-                thread_id=message_id,
-                failure_code=MediaFailureCode.EXTRACTION_FAILED,
-                content_type=ContentType.DOCUMENT,
-                provider_message_id=str(row.get("providerMessageId") or ""),
-            )
         inbound = InboundTurn(
             thread_id=message_id,
             content_type=ContentType.DOCUMENT,
@@ -399,6 +685,8 @@ class Orchestrator:
         )
         if extracted is not None:
             inbound.raw_message_ref["document_extracted"] = extracted.as_dict()
+        if storage_outcome is not None:
+            inbound.raw_message_ref["storage_status"] = storage_outcome.storage_status
         return inbound
 
     # ------------------------------------------------------------------
@@ -423,7 +711,7 @@ class Orchestrator:
             # while debounce keeps extending.
             prior = await self.conversations.load_canonical_state(conversation_id)
             turn_count = prior.assistant_turn_count if prior is not None else 0
-            await wait_until_quiet(
+            quiet = await wait_until_quiet(
                 self.redis,
                 phone,
                 settings=self.settings,
@@ -436,12 +724,14 @@ class Orchestrator:
                         conversation_id=conversation_id,
                         phone=phone,
                         instance=instance,
+                        quiet=quiet,
                     )
             return await self._claim_and_run_batch(
                 seed=seed,
                 conversation_id=conversation_id,
                 phone=phone,
                 instance=instance,
+                quiet=quiet,
             )
 
         return await _run()
@@ -464,6 +754,7 @@ class Orchestrator:
         conversation_id: str,
         phone: str,
         instance: str,
+        quiet=None,
     ) -> ProcessTurnResult | None:
         retry = is_retry_seed(seed)
         batch_meta = batch_meta_from_seed(seed) if retry else None
@@ -501,12 +792,19 @@ class Orchestrator:
         else:
             cutoff = utc_now_naive()
             batch_id = new_batch_id()
+            pending = await self.conversations.list_pending_inbound_up_to(
+                conversation_id, cutoff=cutoff
+            )
+            pending = first_batch_partition(dedupe_snapshot_rows(pending))
+            if not pending:
+                return None
             claimed = await self.conversations.claim_inbound_batch(
                 conversation_id=conversation_id,
                 cutoff=cutoff,
                 batch_id=batch_id,
                 phone=phone,
                 instance_name=instance,
+                message_ids=[str(r["id"]) for r in pending],
             )
 
         if not claimed:
@@ -560,30 +858,12 @@ class Orchestrator:
                 },
             )
             return None
-        if bot_status in (
-            LifecycleStatus.HUMAN_ACTIVE.value,
-            LifecycleStatus.HANDOFF_SENT.value,
+        if not column_authorizes_outbound(
+            str(bot_status) if bot_status is not None else None
         ):
-            skip_reason = (
-                "human_active"
-                if bot_status == LifecycleStatus.HUMAN_ACTIVE.value
-                else "handoff_sent"
-            )
-            await self.conversations.finalize_batch_messages(
-                batch.message_ids,
-                status=f"SKIPPED:{skip_reason.upper()}"[:64],
-                batch_patch={
-                    "batch_id": batch.batch_id,
-                    "turn_id": batch.batch_id,
-                    "anchor_message_id": batch.anchor_message_id,
-                    "cutoff": batch.cutoff.isoformat() + "Z",
-                    "message_ids": batch.message_ids,
-                    "canonical_order": batch.message_ids,
-                    "status": "SKIPPED",
-                    "result": BatchResult(
-                        outbound_sent=False, action="no_reply", reason_code=skip_reason
-                    ).to_dict(),
-                },
+            await self._record_human_active_skip(
+                batch,
+                ownership_revision=ownership_revision_from_row(conv_row),
             )
             return None
 
@@ -593,6 +873,7 @@ class Orchestrator:
                 inbound=inbound,
                 phone=phone,
                 instance=instance,
+                quiet=quiet,
             )
             return result
         except Exception as exc:
@@ -629,6 +910,9 @@ class Orchestrator:
         instance: str,
     ) -> ProcessTurnResult:
         """Clear conversation memory for this phone/thread and confirm to customer."""
+        await self._cancel_pending_followups(
+            batch.conversation_id, FollowUpCancelReason.CONVERSATION_RESET
+        )
         fresh = await self.conversations.reset_conversation_memory(
             batch.conversation_id, phone=phone
         )
@@ -649,12 +933,15 @@ class Orchestrator:
         send = getattr(self.evolution, "send_text", None)
         if send is not None:
             try:
-                maybe = await self.evolution.send_text(
-                    phone, confirmation, instance=instance
+                provider_id, send_ok = await self._deliver_reserved_outbound(
+                    conversation_id=batch.conversation_id,
+                    instance=instance,
+                    text=confirmation,
+                    transport=lambda: self.evolution.send_text(
+                        phone, confirmation, instance=instance
+                    ),
+                    batch_id=batch.batch_id,
                 )
-                if isinstance(maybe, str):
-                    provider_id = maybe
-                send_ok = True
             except Exception:
                 logger.exception(
                     "reset_memory confirmation send failed conversation=%s batch=%s "
@@ -662,19 +949,6 @@ class Orchestrator:
                     batch.conversation_id,
                     batch.batch_id,
                 )
-        try:
-            await self.conversations.insert_bot_outbound(
-                conversation_id=batch.conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id or f"bot-reset-{batch.batch_id}",
-                text=confirmation,
-            )
-        except Exception:
-            logger.exception(
-                "reset_memory outbound persist failed conversation=%s batch=%s",
-                batch.conversation_id,
-                batch.batch_id,
-            )
 
         batch_result = BatchResult(
             outbound_texts=[confirmation] if send_ok else [],
@@ -726,19 +1000,58 @@ class Orchestrator:
             text=text,
             content_type=content_type,
         )
+        quoted = await self._quoted_context_for_row(row, message_id=str(row["id"]))
+        if quoted:
+            inbound.quoted = [quoted]
         if inbound.media_status == MediaStatus.FAILED:
-            return segment_from_row(
+            seg = segment_from_row(
                 row,
                 order=order,
                 text_override=None,
                 media_status=MediaStatus.FAILED,
                 failure_code=inbound.failure_code,
             )
-        return segment_from_row(
-            row,
-            order=order,
-            text_override=inbound.text,
-            media_status=inbound.media_status,
+        else:
+            seg = segment_from_row(
+                row,
+                order=order,
+                text_override=inbound.text,
+                media_status=inbound.media_status,
+            )
+        if quoted:
+            seg.quoted = quoted
+        hint = inbound.raw_message_ref.get("vehicle_hint") if inbound.raw_message_ref else None
+        if isinstance(hint, dict):
+            seg.vehicle_hint = hint
+        extracted = (
+            inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
+        )
+        if isinstance(extracted, dict):
+            seg.document_extracted = extracted
+        return seg
+
+    async def _quoted_context_for_row(
+        self, row: asyncpg.Record, *, message_id: str
+    ) -> QuotedContext | None:
+        base = quoted_from_row(row)
+        stanza_id = base.stanza_id if base else None
+        quoted_text = base.quoted_text if base else None
+        quoted_type = base.quoted_type if base else None
+        if stanza_id:
+            try:
+                looked_up = await self.conversations.find_bot_message_text_by_provider_id(
+                    stanza_id
+                )
+                if looked_up:
+                    quoted_text = looked_up
+            except Exception:
+                logger.exception("message %s: lookup quoted stanza failed", message_id)
+        if not stanza_id and not quoted_text:
+            return None
+        return QuotedContext(
+            stanza_id=stanza_id,
+            quoted_text=quoted_text,
+            quoted_type=quoted_type,
         )
 
     async def _build_inbound_turn(
@@ -806,73 +1119,42 @@ class Orchestrator:
 
         if content_type == "IMAGE":
             caption = (text or "").strip()
-            # Attempt to identify vehicle brand/model/color from the image bytes.
-            # The result is used to pre-fill search facts without requiring the
-            # customer to re-type the vehicle name.
             media_ref = None
             turn_facts_raw = row.get("turnFactsJson")
+            parsed_facts: dict = {}
             if isinstance(turn_facts_raw, dict):
+                parsed_facts = turn_facts_raw
                 media_ref = turn_facts_raw.get("_sdr_media")
             elif isinstance(turn_facts_raw, str):
                 try:
-                    parsed = json.loads(turn_facts_raw)
-                    media_ref = parsed.get("_sdr_media")
+                    parsed_facts = json.loads(turn_facts_raw)
+                    media_ref = parsed_facts.get("_sdr_media")
                 except Exception:
-                    pass
+                    parsed_facts = {}
 
-            vehicle_hint: dict | None = None
-            if media_ref is not None:
-                img_data, img_mime = await self._download_media_bytes(
+            precomputed = parsed_facts.get("_sdr_visual")
+            img_data = None
+            img_mime = row.get("mediaMimeType")
+            already = isinstance(precomputed, dict) and precomputed.get("resolution_source")
+            if media_ref is not None and not already:
+                img_data, downloaded_mime = await self._download_media_bytes(
                     message_id, media_ref=media_ref
                 )
-                if img_data:
-                    from sdr.media.image_describer import extract_vehicle_intent_from_image
+                img_mime = downloaded_mime or img_mime
 
-                    try:
-                        hint = await extract_vehicle_intent_from_image(
-                            img_data, mime_type=img_mime or row.get("mediaMimeType")
-                        )
-                        if (
-                            hint
-                            and hint.get("is_vehicle")
-                            and float(hint.get("confidence") or 0) >= 0.5
-                        ):
-                            vehicle_hint = hint
-                            logger.info(
-                                "image %s: vehicle_hint brand=%s model=%s conf=%.2f",
-                                message_id,
-                                hint.get("brand"),
-                                hint.get("model"),
-                                hint.get("confidence"),
-                            )
-                    except Exception:
-                        logger.exception("image %s: vehicle intent extraction failed", message_id)
-
-            # Build enriched text: prefer caption; fall back to vehicle description.
-            if not caption and vehicle_hint:
-                parts = [
-                    p for p in [
-                        vehicle_hint.get("brand"),
-                        vehicle_hint.get("model"),
-                        vehicle_hint.get("color"),
-                    ]
-                    if p and isinstance(p, str) and p.strip()
-                ]
-                enriched_text = " ".join(parts) if parts else None
-            else:
-                enriched_text = caption or None
-
-            turn_status = MediaStatus.OK if enriched_text else MediaStatus.NONE
             inbound = InboundTurn(
                 thread_id=message_id,
                 content_type=ContentType.IMAGE,
-                text=enriched_text,
-                media_status=turn_status,
+                text=caption or None,
+                media_status=MediaStatus.OK if caption else MediaStatus.NONE,
                 provider_message_id=str(row.get("providerMessageId") or ""),
-                mime_type=row.get("mediaMimeType"),
+                mime_type=img_mime,
             )
-            if vehicle_hint:
-                inbound.raw_message_ref["vehicle_hint"] = vehicle_hint
+            if already:
+                inbound.raw_message_ref["visual_resolution"] = precomputed
+            if img_data:
+                inbound.raw_message_ref["_image_byte_size"] = len(img_data)
+                self._inbound_image_bytes[message_id] = img_data
             return inbound
 
         if content_type == "DOCUMENT":
@@ -882,35 +1164,11 @@ class Orchestrator:
                 caption=text,
             )
 
-        # If the customer used WhatsApp reply on a bot vehicle card, inject
-        # the quoted vehicle as context so Understanding does not lose the reference.
-        quoted_vehicle_text: str | None = None
-        turn_facts_raw_text = row.get("turnFactsJson")
-        quoted_id: str | None = None
-        if isinstance(turn_facts_raw_text, dict):
-            quoted_id = turn_facts_raw_text.get("_sdr_quoted_id")
-        elif isinstance(turn_facts_raw_text, str):
-            try:
-                quoted_id = json.loads(turn_facts_raw_text).get("_sdr_quoted_id")
-            except Exception:
-                pass
-        if quoted_id:
-            try:
-                quoted_vehicle_text = (
-                    await self.conversations.find_bot_message_text_by_provider_id(quoted_id)
-                )
-            except Exception:
-                logger.exception(
-                    "text message %s: lookup quoted vehicle failed", message_id
-                )
-
         inbound = make_text_inbound(
             thread_id=message_id,
             text=text,
             provider_message_id=str(row.get("providerMessageId") or ""),
         )
-        if quoted_vehicle_text:
-            inbound.raw_message_ref["quoted_vehicle_text"] = quoted_vehicle_text
         return inbound
 
     async def _run_batch_turn(
@@ -920,6 +1178,7 @@ class Orchestrator:
         inbound: InboundTurn,
         phone: str,
         instance: str,
+        quiet=None,
     ) -> ProcessTurnResult:
         conversation_id = batch.conversation_id
         conv = await self.conversations.get_by_id(conversation_id)
@@ -935,13 +1194,7 @@ class Orchestrator:
             )
             raise RuntimeError(f"conversation {conversation_id} missing")
 
-        state = canonical_state_from_json(
-            conv["canonicalStateJson"],
-            thread_id=conv["id"],
-            phone=phone,
-            bot_status=conv["botStatus"],
-            active_lead_ids=list(conv["activeLeadIds"] or []),
-        )
+        state = state_from_conversation_row(conv)
         if not state.customer.phone:
             state.customer = CustomerState(phone=phone, name=state.customer.name)
 
@@ -953,39 +1206,35 @@ class Orchestrator:
             ):
                 state.customer.name = existing_name
 
-        if state.lifecycle.status in (
-            LifecycleStatus.HUMAN_ACTIVE,
-            LifecycleStatus.HANDOFF_SENT,
-        ):
-            skip_reason = (
-                "human_active"
-                if state.lifecycle.status == LifecycleStatus.HUMAN_ACTIVE
-                else "handoff_sent"
-            )
-            await self.conversations.finalize_batch_messages(
-                batch.message_ids,
-                status=f"SKIPPED:{skip_reason.upper()}"[:64],
-                batch_patch={
-                    "batch_id": batch.batch_id,
-                    "turn_id": batch.batch_id,
-                    "anchor_message_id": batch.anchor_message_id,
-                    "cutoff": batch.cutoff.isoformat() + "Z",
-                    "message_ids": batch.message_ids,
-                    "canonical_order": batch.message_ids,
-                    "status": "SKIPPED",
-                    "result": BatchResult(outbound_sent=False, action="no_reply").to_dict(),
-                },
-            )
-            return ProcessTurnResult(
-                action_plan=ActionPlan(
-                    action=Action.NO_REPLY,
-                    reason_code=skip_reason,
-                ),
+        # Live column only. Overlay already applied column over JSON on load;
+        # stale JSON HUMAN_ACTIVE must not silence when the column is AI.
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch,
                 state=state,
-                outbound_texts=[],
-                turn_facts=TurnFacts(),
-                tool_results=[],
+                ownership_revision=revision or int(state.ownership_revision or 0),
             )
+
+        inbound_text = inbound.effective_text or ""
+        if is_opt_out_signal(inbound_text):
+            return await self._opt_out_turn(
+                batch, state=state, inbound_text=inbound_text
+            )
+
+        context_changed = False
+        probe = getattr(self.followup_canceller, "context_changed_for_inbound", None)
+        if probe is not None:
+            maybe = probe(conversation_id, inbound_text)
+            if hasattr(maybe, "__await__"):
+                maybe = await maybe
+            context_changed = bool(maybe)
+
+        # Later inbound cancels pending follow-up BEFORE understand.
+        await self._cancel_pending_followups(
+            conversation_id,
+            inbound_cancel_reason(inbound_text, context_changed=context_changed),
+        )
 
         tracer = make_tracer(thread_id=conversation_id, message_id=batch.anchor_message_id)
         with tracer:
@@ -1005,6 +1254,14 @@ class Orchestrator:
                         }
                         for s in batch.segments
                     ],
+                    close_reason=getattr(quiet, "close_reason", None),
+                    has_media=bool((inbound.raw_message_ref or {}).get("has_media")),
+                    has_document=bool((inbound.raw_message_ref or {}).get("has_document")),
+                    has_reply=bool(inbound.quoted)
+                    or bool((inbound.raw_message_ref or {}).get("has_reply")),
+                    runtime_call_count=1,
+                    worker_id=(self.settings.sdr_worker_id or "").strip() or str(os.getpid()),
+                    message_count=len(batch.message_ids),
                 )
             tracer.inbound(
                 content_type=inbound.content_type.value,
@@ -1054,14 +1311,56 @@ class Orchestrator:
             else:
                 _understand_fn = self.understand
 
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch, state=state, ownership_revision=revision
+                )
+
             result = await process_turn(
                 state=state,
                 inbound=inbound,
                 understand=_understand_fn,
                 pool=self.pool,
                 linked_vehicle_titles=linked_titles or None,
+                image_bytes=_first_inbound_image_bytes(self, batch),
             )
 
+            if is_opt_out_signal(inbound.effective_text, result.turn_facts):
+                return await self._opt_out_turn(
+                    batch,
+                    state=result.state,
+                    inbound_text=inbound.effective_text or "",
+                )
+
+            vis = (inbound.raw_message_ref or {}).get("visual_resolution") or result.state.last_visual_resolution or {}
+            if vis:
+                image_ids = [
+                    str(getattr(seg, "message_id", "") or "")
+                    for seg in (getattr(batch, "segments", None) or [])
+                    if str(getattr(getattr(seg, "content_type", None), "value", getattr(seg, "content_type", ""))).upper()
+                    == "IMAGE"
+                    and getattr(seg, "message_id", None)
+                ]
+                persist_ids = [mid for mid in image_ids if mid] or list(batch.message_ids)
+                try:
+                    await self.conversations.merge_message_turn_facts(
+                        persist_ids,
+                        {"_sdr_visual": vis},
+                    )
+                except Exception:
+                    logger.exception("persist _sdr_visual failed conversation=%s", conversation_id)
+            if vis and hasattr(tracer, "visual"):
+                tracer.visual(
+                    resolution_source=str(vis.get("resolution_source") or "") or None,
+                    confidence=vis.get("confidence"),
+                    candidate_vehicle_ids=list(vis.get("candidate_vehicle_ids") or []),
+                    matched_vehicle_id=vis.get("matched_vehicle_id"),
+                    vision_attempted=bool(vis.get("vision_attempted")),
+                    vision_calls=int(vis.get("vision_calls") or 0),
+                    fallback_reason=vis.get("fallback_reason"),
+                    ambiguity_reason=vis.get("ambiguity_reason"),
+                )
             tracer.understanding(
                 intent=result.turn_facts.intent.value,
                 language=result.turn_facts.language,
@@ -1087,10 +1386,65 @@ class Orchestrator:
                 tool_calls=result.action_plan.tool_calls,
                 ask_field=result.action_plan.ask_field,
                 inventory_search_key=result.state.last_inventory_search_key,
+                primary_action=getattr(result.action_plan, "primary_action", None),
+                supporting_acts=list(getattr(result.action_plan, "supporting_acts", None) or []),
+                forbidden_concurrent_actions=list(
+                    getattr(result.action_plan, "forbidden_concurrent_actions", None) or []
+                ),
+                handoff_ready=bool(result.state.handoff_ready),
+                profile_complete=bool(result.state.profile_complete),
+                primary_vehicle_id=result.state.primary_vehicle_id,
+                remaining_documents_asked=bool(
+                    getattr(result.state, "remaining_documents_asked", False)
+                ),
+                enrichment_ask_count=int(getattr(result.state, "enrichment_ask_count", 0) or 0),
+                primary_vehicle_label=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "primary_vehicle_label"
+                    )
+                ),
+                vehicle_label_source=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "vehicle_label_source"
+                    )
+                ),
+                documents_received=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_received"
+                    )
+                    or []
+                ),
+                documents_missing=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_missing"
+                    )
+                    or []
+                ),
+                documents_deferred=list(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "documents_deferred"
+                    )
+                    or []
+                ),
+                direct_question_detected=bool(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "direct_question_detected"
+                    )
+                ),
+                next_question=(
+                    (getattr(result.action_plan, "qualification_trace", None) or {}).get(
+                        "next_question"
+                    )
+                    or result.action_plan.ask_field
+                ),
             )
             tracer.tools_executed(result.tool_results)
             if result.response_directive is not None:
                 d = result.response_directive
+                from sdr.understanding.response_composer import last_compose_meta
+
+                compose_meta = last_compose_meta()
+                dialogue_meta = compose_meta.get("dialogue") or {}
                 tracer.composer_input(
                     action=d.action.value,
                     should_introduce=d.should_introduce,
@@ -1099,10 +1453,23 @@ class Orchestrator:
                     conversational_affordance=d.conversational_affordance.value,
                     budget_status=d.budget_status.value,
                     alternative_scope=d.alternative_scope.value,
+                    dialogue_acts=(d.dialogue_plan or {}).get("acts"),
+                    canonical_question=(d.dialogue_plan or {}).get("canonical_question"),
+                    facts_to_acknowledge=(d.dialogue_plan or {}).get("facts_to_acknowledge"),
+                    realized_acts=compose_meta.get("realized_acts") or dialogue_meta.get("realized_acts"),
+                    dialogue_violations=dialogue_meta.get("violations"),
+                    used_template_fallback=compose_meta.get("used_template_fallback"),
+                    retries=compose_meta.get("retries"),
                 )
             tracer.outbound(result.outbound_texts)
             if result.outbound_media and hasattr(tracer, "media_actions"):
                 tracer.media_actions([m.to_dict() for m in result.outbound_media])
+
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch, state=result.state, ownership_revision=revision
+            )
 
         customer = await self.customers.upsert_by_phone(
             phone, name=result.state.customer.name
@@ -1111,37 +1478,71 @@ class Orchestrator:
             await self.leads.sync_names_for_customer(
                 customer["id"], result.state.customer.name
             )
-        if result.action_plan.handoff or result.state.intent not in (
+        first_inbound = None
+        try:
+            first_inbound = await self.conversations.fetch_first_customer_text(conversation_id)
+        except Exception:
+            logger.exception("first inbound lookup failed conversation=%s", conversation_id)
+        if not first_inbound:
+            first_inbound = (inbound.effective_text or "").strip() or None
+
+        lead_id = result.state.active_lead_ids[0] if result.state.active_lead_ids else None
+        commercial = result.action_plan.handoff or result.state.intent not in (
             BusinessIntent.UNKNOWN,
             BusinessIntent.SMALLTALK,
-        ):
-            lead_id = result.state.active_lead_ids[0] if result.state.active_lead_ids else None
-            if lead_id is None:
-                display_name = result.state.customer.name
-                if is_placeholder_display_name(display_name):
-                    display_name = customer["name"]
-                lead = await self.leads.create_from_state(
-                    result.state,
-                    customer_id=customer["id"],
-                    conversation_id=conversation_id,
-                    name=display_name,
-                )
-                if lead is not None:
-                    lead_id = lead["id"]
-                    result.state.active_lead_ids = [lead_id]
-            if lead_id:
-                await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
-            if lead_id and result.action_plan.handoff:
-                try:
-                    await self.leads.mark_qualified_for_handoff(lead_id, result.state)
-                except Exception:
-                    logger.exception(
-                        "handoff persist failed lead=%s — still sending confirmation",
+        )
+        if lead_id is None and commercial:
+            display_name = result.state.customer.name
+            if is_placeholder_display_name(display_name):
+                display_name = customer["name"]
+            lead = await self.leads.create_from_state(
+                result.state,
+                customer_id=customer["id"],
+                conversation_id=conversation_id,
+                name=display_name,
+                first_inbound=first_inbound,
+            )
+            if lead is not None:
+                lead_id = lead["id"]
+                result.state.active_lead_ids = [lead_id]
+        if lead_id:
+            await self.documents.attach_orphans_to_lead(conversation_id, lead_id)
+            result.state.crm_revision = int(getattr(result.state, "crm_revision", 0) or 0) + 1
+            try:
+                if result.action_plan.handoff:
+                    await self.leads.mark_qualified_for_handoff(
                         lead_id,
+                        result.state,
+                        first_inbound=first_inbound,
+                        conversation_id=conversation_id,
                     )
+                    from sdr.domain.ownership import confirm_vendor_dispatch
+
+                    confirm_vendor_dispatch(result.state)
+                else:
+                    await self.leads.sync_from_state(
+                        lead_id,
+                        result.state,
+                        qualify=False,
+                        first_inbound=first_inbound,
+                        conversation_id=conversation_id,
+                    )
+            except Exception:
+                logger.exception(
+                    "CRM persist failed lead=%s handoff=%s",
+                    lead_id,
+                    bool(result.action_plan.handoff),
+                )
 
         # Persist pending_question before Evolution I/O so an overlapping inbound
         # (photos take seconds) does not re-ask the same field.
+        # Do not write canonical state over a live HUMAN_ACTIVE assume.
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch, state=result.state, ownership_revision=revision
+            )
+
         planned_outbound = bool(
             result.outbound_texts
             or result.outbound_media
@@ -1149,125 +1550,161 @@ class Orchestrator:
         )
         if planned_outbound:
             result.state.assistant_turn_count = state.assistant_turn_count + 1
-        await self.conversations.save_canonical_state(conversation_id, result.state)
+        if not await self._save_canonical_state(conversation_id, result.state):
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch, state=result.state, ownership_revision=revision
+                )
 
         # Pin, then media, then text. A later send failure must not retry the
         # pin — that duplicated location cards when sendText returned 400.
+        # HUMAN_ACTIVE is re-checked immediately before every Evolution send.
         provider_ids: list[str | None] = []
+        sent_texts: list[str] = []
         turns_sent = 0
         send_failures = 0
+        suppressed_revision: int | None = None
         pin = getattr(result, "outbound_location", None)
         send_pin = getattr(self.evolution, "send_location", None)
-        if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
-            provider_id = None
-            try:
-                maybe = await send_pin(
-                    phone,
-                    latitude=float(pin["latitude"]),
-                    longitude=float(pin["longitude"]),
-                    name=str(pin.get("name") or "FacilCar"),
-                    address=str(pin.get("address") or ""),
-                    instance=instance,
-                )
-                if isinstance(maybe, str):
-                    provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_location pin failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
-                )
-            else:
-                await self.conversations.insert_bot_outbound(
-                    conversation_id=conversation_id,
-                    instance_name=instance,
-                    provider_message_id=provider_id
-                    or f"bot-batch-{batch.batch_id}-location-{turns_sent}",
-                    text=str(pin.get("address") or pin.get("name") or "location"),
-                )
-                provider_ids.append(provider_id)
-                turns_sent += 1
-
         send_media = getattr(self.evolution, "send_media", None)
         directive = result.response_directive
         intro_then_media = bool(
-            directive
-            and directive.should_introduce
+            result.outbound_texts
             and result.outbound_media
-            and result.outbound_texts
+            and (
+                (directive and directive.should_introduce)
+                or result.action_plan.action == Action.SHOW_OFFERS
+            )
         )
         leading_texts = result.outbound_texts[:1] if intro_then_media else []
         trailing_texts = (
             result.outbound_texts[1:] if intro_then_media else list(result.outbound_texts)
         )
 
+        async def _abort_if_human_assumed() -> bool:
+            nonlocal suppressed_revision
+            taken, rev = await self._human_assumed(conversation_id)
+            if taken:
+                suppressed_revision = rev
+                return True
+            return False
+
         async def _send_one_text(outbound: str) -> None:
             nonlocal turns_sent, send_failures
-            provider_id = None
-            send = getattr(self.evolution, "send_text", None)
-            try:
-                if send is not None:
-                    maybe = await self.evolution.send_text(
-                        phone, outbound, instance=instance
-                    )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_text failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
-                )
+            if await _abort_if_human_assumed():
                 return
-            await self.conversations.insert_bot_outbound(
+            send = getattr(self.evolution, "send_text", None)
+
+            async def _transport():
+                if send is None:
+                    return None
+                return await self.evolution.send_text(
+                    phone, outbound, instance=instance
+                )
+
+            # Reserve before send so B6 can complete this bubble; remaining
+            # texts still abort via the live HUMAN_ACTIVE check above.
+            provider_id, ok = await self._deliver_reserved_outbound(
                 conversation_id=conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id or f"bot-batch-{batch.batch_id}-{turns_sent}",
+                instance=instance,
                 text=outbound,
+                transport=_transport,
+                batch_id=batch.batch_id,
             )
+            if not ok:
+                send_failures += 1
+                return
             provider_ids.append(provider_id)
+            sent_texts.append(outbound)
             turns_sent += 1
 
+        if isinstance(pin, dict) and pin.get("latitude") is not None and send_pin is not None:
+            if not await _abort_if_human_assumed():
+                pin_text = str(pin.get("address") or pin.get("name") or "location")
+
+                async def _pin_transport():
+                    return await send_pin(
+                        phone,
+                        latitude=float(pin["latitude"]),
+                        longitude=float(pin["longitude"]),
+                        name=str(pin.get("name") or "FacilCar"),
+                        address=str(pin.get("address") or ""),
+                        instance=instance,
+                    )
+
+                provider_id, ok = await self._deliver_reserved_outbound(
+                    conversation_id=conversation_id,
+                    instance=instance,
+                    text=pin_text,
+                    transport=_pin_transport,
+                    batch_id=batch.batch_id,
+                )
+                if not ok:
+                    send_failures += 1
+                else:
+                    provider_ids.append(provider_id)
+                    turns_sent += 1
+
         for outbound in leading_texts:
+            if suppressed_revision is not None:
+                break
             await _send_one_text(outbound)
 
         for media in result.outbound_media:
-            provider_id = None
-            try:
-                if send_media is not None:
-                    maybe = await self.evolution.send_media(
-                        phone,
-                        media.mediatype,
-                        media.url,
-                        media.mimetype,
-                        media.caption,
-                        instance=instance,
-                    )
-                    if isinstance(maybe, str):
-                        provider_id = maybe
-            except Exception:
-                send_failures += 1
-                logger.exception(
-                    "send_media failed conversation=%s batch=%s",
-                    conversation_id,
-                    batch.batch_id,
+            if await _abort_if_human_assumed():
+                break
+
+            def _media_presented(provider_message_id: str, current=media):
+                return _presented_vehicle_payload(
+                    conversation_id=conversation_id,
+                    state=result.state,
+                    media=current,
+                    provider_message_id=provider_message_id,
                 )
-                continue
-            await self.conversations.insert_bot_outbound(
+
+            async def _media_transport(current=media):
+                if send_media is None:
+                    return None
+                return await self.evolution.send_media(
+                    phone,
+                    current.mediatype,
+                    current.url,
+                    current.mimetype,
+                    current.caption,
+                    instance=instance,
+                )
+
+            provider_id, ok = await self._deliver_reserved_outbound(
                 conversation_id=conversation_id,
-                instance_name=instance,
-                provider_message_id=provider_id
-                or f"bot-batch-{batch.batch_id}-media-{turns_sent}",
+                instance=instance,
                 text=media.caption or media.url,
+                transport=_media_transport,
                 content_type="IMAGE",
+                presented_builder=_media_presented,
+                batch_id=batch.batch_id,
             )
+            if not ok:
+                send_failures += 1
+                continue
             provider_ids.append(provider_id)
             turns_sent += 1
 
         for outbound in trailing_texts:
+            if suppressed_revision is not None:
+                break
             await _send_one_text(outbound)
+
+        if suppressed_revision is not None:
+            # Confirmed outbound stays; do not clobber HUMAN_ACTIVE with result.state.
+            return await self._silenced_turn(
+                batch,
+                state=result.state,
+                ownership_revision=suppressed_revision,
+                outbound_texts=sent_texts,
+                outbound_provider_ids=provider_ids,
+                outbound_sent=bool(sent_texts or provider_ids),
+            )
 
         planned_outbound = (
             bool(isinstance(pin, dict) and pin.get("latitude") is not None)
@@ -1277,7 +1714,28 @@ class Orchestrator:
         if planned_outbound and turns_sent == 0 and send_failures:
             raise EvolutionError("all outbound sends failed")
 
-        await self.conversations.save_canonical_state(conversation_id, result.state)
+        assumed, revision = await self._human_assumed(conversation_id)
+        if assumed:
+            return await self._silenced_turn(
+                batch,
+                state=result.state,
+                ownership_revision=revision,
+                outbound_texts=sent_texts,
+                outbound_provider_ids=provider_ids,
+                outbound_sent=bool(sent_texts or provider_ids),
+            )
+
+        if not await self._save_canonical_state(conversation_id, result.state):
+            assumed, revision = await self._human_assumed(conversation_id)
+            if assumed:
+                return await self._silenced_turn(
+                    batch,
+                    state=result.state,
+                    ownership_revision=revision,
+                    outbound_texts=sent_texts,
+                    outbound_provider_ids=provider_ids,
+                    outbound_sent=bool(sent_texts or provider_ids),
+                )
 
         batch_result = BatchResult(
             outbound_texts=list(result.outbound_texts),

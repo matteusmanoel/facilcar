@@ -1,0 +1,45 @@
+{
+  "name": "p9_15_item_sem_informacao_segura",
+  "description": "Question about an unknown vehicle option must not invent equipment.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "customer": {
+    "name": "Bruno Azevedo",
+    "phone": "5511988002200"
+  },
+  "initial_state": {
+    "intent": "purchase_financing",
+    "assistant_turn_count": 4,
+    "documents_asked": true,
+    "installment_asked": true,
+    "last_shown_vehicle_ids": [
+      "VH-STRADA-2021",
+      "VH-STRADA-2017",
+      "VH-STRADA-2018"
+    ],
+    "primary_vehicle_id": "VH-STRADA-2018",
+    "facts": {
+      "desired_model": "Strada",
+      "desired_vehicle_text": "Strada",
+      "deal_type": "purchase",
+      "payment_method": "financing",
+      "down_payment": 0,
+      "desired_installment": 1500,
+      "name": "Bruno Azevedo"
+    }
+  },
+  "turns": [
+    {
+      "inbound": "Esse carro tem teto solar panorâmico de série?",
+      "forbidden_in_outbound": [
+        "reservado",
+        "garanto",
+        "aprovado",
+        "100% financiado",
+        "storage",
+        "bucket",
+        "handoff",
+        "triagem"
+      ]
+    }
+  ]
+}

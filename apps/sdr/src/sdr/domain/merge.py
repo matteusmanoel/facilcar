@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import re
 
 from sdr.domain.budget_status import BUDGET_RESOLVED, BudgetStatus
+from sdr.domain.document_status import (
+    DOCUMENT_COMPONENTS,
+    STATUS_RECEIVED,
+    merge_document_status,
+    parse_document_deferral,
+)
 from sdr.domain.engine_displacement import as_engine_list, engine_list_for_json
+from sdr.domain.followup import (
+    FollowUpWaitState,
+    copy_followup_record,
+    overlay_followup_suggestions,
+)
 from sdr.domain.pending_interaction import (
     AlternativeScope,
     PendingInteraction,
@@ -21,6 +33,13 @@ from sdr.domain.types import (
     HandoffSignals,
     LifecycleStatus,
     TurnFacts,
+)
+from sdr.domain.vehicle_roles import (
+    CUSTOMER_VEHICLE_KEY,
+    DESIRED_VEHICLE_KEY,
+    apply_desired_vehicle_substitution,
+    canonicalize_vehicle_roles,
+    merge_vehicle_dicts,
 )
 from sdr.domain.vendor_summary import is_placeholder_display_name
 
@@ -95,6 +114,7 @@ def _merge_facts(
     incoming: dict[str, Any],
     explicit_corrections: list[str],
     pending: list[str],
+    inbound_text: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     merged = deepcopy(prev_facts)
     pending_out = list(pending)
@@ -105,6 +125,17 @@ def _merge_facts(
             continue
         if _is_unknown(raw_value):
             # Omission / unknown must not delete or falsify known data.
+            continue
+
+        if key in (DESIRED_VEHICLE_KEY, CUSTOMER_VEHICLE_KEY) and isinstance(raw_value, dict):
+            prev_vehicle = merged.get(key) if isinstance(merged.get(key), dict) else {}
+            if key == DESIRED_VEHICLE_KEY:
+                from sdr.domain.vehicle_roles import desired_identity_changed, substitute_desired_vehicle
+
+                if desired_identity_changed(prev_vehicle, raw_value.get("model")):
+                    merged[key] = substitute_desired_vehicle(prev_vehicle, raw_value, inbound_text)
+                    continue
+            merged[key] = merge_vehicle_dicts(prev_vehicle, raw_value)
             continue
 
         prev_value = merged.get(key)
@@ -208,6 +239,44 @@ def _apply_pending_and_scope(
         return
 
 
+def _apply_document_deferral(state: ConversationCanonicalState, inbound_text: str) -> None:
+    from sdr.domain.document_commitment import inbound_states_documents_unavailable
+
+    deferred = list(state.deferred_fields or [])
+    status = merge_document_status(state.facts.get("document_status"), None)
+    parsed = parse_document_deferral(inbound_text)
+
+    def _add(*names: str) -> None:
+        nonlocal deferred
+        for name in names:
+            if status.get(name) == STATUS_RECEIVED:
+                continue
+            if name not in deferred:
+                deferred.append(name)
+            status[name] = "deferred"
+
+    if parsed:
+        for name, value in parsed.items():
+            if value == "deferred":
+                _add(name)
+        state.facts["documents_deferred"] = True
+        state.facts["document_status"] = status
+        state.documents_asked = True
+    elif state.facts.get("documents_deferred") is True:
+        # LLM flagged deferral without a parseable utterance — unspecified pack.
+        if not any(status.get(k) == "deferred" for k in DOCUMENT_COMPONENTS):
+            _add(*DOCUMENT_COMPONENTS)
+        state.facts["document_status"] = status
+        state.documents_asked = True
+    state.deferred_fields = deferred
+    collected = [c for c in (state.collected_fields or []) if c not in deferred]
+    if "documents" in deferred or any(c in deferred for c in DOCUMENT_COMPONENTS):
+        collected = [c for c in collected if c != "documents"]
+    state.collected_fields = collected
+    if inbound_states_documents_unavailable(inbound_text):
+        state.documents_unavailable_this_turn = True
+
+
 def _bump_lifecycle(state: ConversationCanonicalState) -> None:
     """Advance bot lifecycle without touching irreversible human states."""
     status = state.lifecycle.status
@@ -216,6 +285,7 @@ def _bump_lifecycle(state: ConversationCanonicalState) -> None:
         LifecycleStatus.HUMAN_ACTIVE,
         LifecycleStatus.HUMAN_CLOSED,
         LifecycleStatus.READY_FOR_HANDOFF,
+        LifecycleStatus.AI_RESUMED,
     ):
         return
 
@@ -243,6 +313,7 @@ def _bump_lifecycle(state: ConversationCanonicalState) -> None:
 def deterministic_merge(
     prev: ConversationCanonicalState,
     facts: TurnFacts,
+    inbound_text: str = "",
 ) -> ConversationCanonicalState:
     """Merge turn facts into prior state.
 
@@ -273,18 +344,64 @@ def deterministic_merge(
         alternative_scope=prev.alternative_scope,
         budget_status=prev.budget_status,
         last_shown_vehicle_ids=list(prev.last_shown_vehicle_ids),
+        primary_vehicle_id=prev.primary_vehicle_id,
+        primary_vehicle_chosen_at=prev.primary_vehicle_chosen_at,
+        presented_vehicle_bindings=list(prev.presented_vehicle_bindings or []),
+        current_offer_set_id=prev.current_offer_set_id,
         photo_request=False,
         location_request=False,
         document_received=False,
+        documents_unavailable_this_turn=False,
         pending_question=prev.pending_question,
         engagement_low_streak=prev.engagement_low_streak,
         visit_invited=prev.visit_invited,
         visit_preferred_time=prev.visit_preferred_time,
+        visit_interest=prev.visit_interest,
+        visit_declined=prev.visit_declined,
+        visit_date=prev.visit_date,
+        visit_period=prev.visit_period,
+        visit_time=prev.visit_time,
+        visit_raw=prev.visit_raw,
+        visit_within_hours=prev.visit_within_hours,
+        visit_accepted_offered=prev.visit_accepted_offered,
+        location_sent=prev.location_sent,
+        visit_courtesy=False,
+        visit_declined_this_turn=False,
+        needs_visit_slot_offer=False,
+        courtesy_only=False,
+        unanswered_questions=[],
+        visual_applied_this_turn=False,
         documents_asked=prev.documents_asked,
+        remaining_documents_asked=bool(getattr(prev, "remaining_documents_asked", False)),
+        enrichment_ask_count=int(getattr(prev, "enrichment_ask_count", 0) or 0),
+        presented_vehicle_catalog=dict(getattr(prev, "presented_vehicle_catalog", None) or {}),
         installment_asked=prev.installment_asked,
         installment_mismatch_offered=prev.installment_mismatch_offered,
         installment_capacity=prev.installment_capacity,
         last_shown_price_cash=prev.last_shown_price_cash,
+        deferred_fields=list(prev.deferred_fields),
+        offered_visit_slots=list(prev.offered_visit_slots),
+        listing_reference=prev.listing_reference,
+        last_inventory_match=deepcopy(prev.last_inventory_match) if prev.last_inventory_match else None,
+        last_visual_resolution=deepcopy(prev.last_visual_resolution)
+        if getattr(prev, "last_visual_resolution", None)
+        else None,
+        crm_revision=int(getattr(prev, "crm_revision", 0) or 0),
+        ownership_revision=int(getattr(prev, "ownership_revision", 0) or 0),
+        context_revision=int(getattr(prev, "context_revision", 0) or 0),
+        assumed_by_user_id=getattr(prev, "assumed_by_user_id", None),
+        assumed_at=getattr(prev, "assumed_at", None),
+        resumed_by_user_id=getattr(prev, "resumed_by_user_id", None),
+        resumed_at=getattr(prev, "resumed_at", None),
+        resume_reason=getattr(prev, "resume_reason", None),
+        handoff_at=getattr(prev, "handoff_at", None),
+        vendor_notified_at=getattr(prev, "vendor_notified_at", None),
+        wait_state=getattr(prev, "wait_state", None) or FollowUpWaitState.ACTIVE_QUALIFICATION.value,
+        followup=copy_followup_record(prev),
+        handoff_ready=prev.handoff_ready,
+        profile_complete=prev.profile_complete,
+        missing_fields=list(prev.missing_fields),
+        collected_fields=list(prev.collected_fields),
     )
 
     state.language = _merge_language(state.language, facts.language)
@@ -321,10 +438,33 @@ def deterministic_merge(
         facts.facts,
         facts.explicit_corrections,
         state.pending_confirmation,
+        inbound_text=inbound_text,
     )
+    state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    state.facts = apply_desired_vehicle_substitution(
+        state.facts,
+        prev.facts,
+        facts.facts,
+        inbound_text,
+    )
+    state.facts = canonicalize_vehicle_roles(state.facts, state.intent)
+    _apply_document_deferral(state, inbound_text)
+    if inbound_text:
+        from sdr.domain.visit import explicit_in_person_visit
+
+        if explicit_in_person_visit(inbound_text):
+            state.visit_interest = True
+    if state.facts.get("documents_deferred") is True:
+        state.documents_asked = True
     if state.facts.get("payment_method") == "financing" and state.intent == BusinessIntent.PURCHASE:
         state.intent = BusinessIntent.PURCHASE_FINANCING
         state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE_FINANCING]
+    if (
+        state.facts.get("payment_method") in {"cash", "a_vista"}
+        and state.intent == BusinessIntent.PURCHASE_FINANCING
+    ):
+        state.intent = BusinessIntent.PURCHASE
+        state.business.type = INTENT_TO_BUSINESS_TYPE[BusinessIntent.PURCHASE]
     if facts.facts.get("desired_engine_any") is True:
         state.facts.pop("desired_engine_displacement_liters", None)
         state.facts["desired_engine_any"] = True
@@ -362,6 +502,18 @@ def deterministic_merge(
         state.photo_request = True
     if facts.location_request is True:
         state.location_request = True
+
+    # Follow-up suggestions overlay known pause facts; omission never clears wait-state.
+    overlay_followup_suggestions(state.followup, facts)
+    if int(state.assistant_turn_count or 0) >= 1 and (
+        state.intent not in (BusinessIntent.UNKNOWN, BusinessIntent.SMALLTALK)
+        or state.facts.get("desired_model")
+        or state.facts.get("desired_vehicle")
+        or state.facts.get("desired_vehicle_text")
+    ):
+        state.followup.significant_commercial_exchange = True
+    if state.pending_question:
+        state.followup.last_bot_had_actionable_question = True
 
     _apply_pending_and_scope(state, facts)
     _bump_lifecycle(state)

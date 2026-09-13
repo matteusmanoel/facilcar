@@ -1,8 +1,15 @@
 import type { MessageContentType, Prisma } from "@prisma/client";
 import { extractInboundMessages } from "@/features/catalog-import/server/evolution-parse";
 import { upgradeCustomerDisplayNameByPhone } from "@/features/customer/server/upsert";
+import {
+  classifyFromMeProvenance,
+  pendingBotReservationWhere,
+  shouldAssumeHumanFromMe,
+} from "./fromme-provenance";
+import { humanFromMeOwnershipCas } from "./human-from-me-cas";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
+import { extractSdrQuotedContext } from "./quoted-context";
 
 export type IngestSdrResult = {
   ok: true;
@@ -78,6 +85,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
   const messages = extractInboundMessages(payload);
 
   let handled = 0;
+  let inboundHandled = 0;
   let ignored = 0;
   let deduped = 0;
   let reason: string | undefined;
@@ -105,8 +113,11 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
           providerMessageId: msg.messageId,
         },
       },
-      select: { id: true, conversationId: true },
+      select: { id: true, conversationId: true, isBotSent: true },
     });
+    // Dedupe is instance-scoped (instanceName + providerMessageId). A bot
+    // echo or a second Evolution delivery of the same id must not assume
+    // this thread again, and must not touch another conversation.
     if (existing) {
       deduped++;
       conversationId = conversationId ?? existing.conversationId;
@@ -127,31 +138,82 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         instanceName: msg.instance,
         phone,
         lastMessageAt: lastAt,
+        ...(!msg.fromMe ? { contextRevision: 1 } : {}),
       },
       update: {
         lastMessageAt: lastAt,
+        ...(!msg.fromMe ? { contextRevision: { increment: 1 } } : {}),
       },
     });
     conversationId = conversation.id;
 
-    // Bot outbound must be pre-inserted with isBotSent=true + providerMessageId
-    // before Evolution send; the echo then hits the dedupe branch above.
-    // Any NEW fromMe without that pre-insert is treated as a human seller.
-    let isHumanSent = false;
+    // Provenance: Assumir is HUMAN_CONFIRMED. fromMe / real id / missing bot
+    // row / divergent text are AMBIGUOUS and never flip ownership.
+    const pendingWhere = pendingBotReservationWhere({
+      conversationId: conversation.id,
+      instanceName: msg.instance,
+      text: msg.text,
+    });
+    let pendingReservation = false;
+    let textMatchesReservation: boolean | null = null;
+    if (msg.fromMe && pendingWhere) {
+      const pending = await prisma.message.findFirst({
+        where: pendingWhere,
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      if (pending) {
+        try {
+          await prisma.message.update({
+            where: { id: pending.id },
+            data: { providerMessageId: msg.messageId },
+          });
+        } catch {
+          // Unique on instanceName+providerMessageId: already correlated.
+        }
+        deduped++;
+        messageIds.push(pending.id);
+        continue;
+      }
+    }
     if (msg.fromMe) {
-      isHumanSent = true;
-      // Never auto-humanize if thread already past handoff confirmation only —
-      // still mark HUMAN_ACTIVE so Julia stays silent on seller typing.
-      if (
-        conversation.botStatus !== "HUMAN_ACTIVE" &&
-        conversation.botStatus !== "HUMAN_CLOSED"
-      ) {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            botStatus: "HUMAN_ACTIVE",
-            handoffAt: conversation.handoffAt ?? lastAt,
-          },
+      const openReservation = await prisma.message.findFirst({
+        where: {
+          conversationId: conversation.id,
+          instanceName: msg.instance,
+          isBotSent: true,
+          providerMessageId: { startsWith: "bot-pending-" },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, text: true },
+      });
+      if (openReservation) {
+        pendingReservation = true;
+        textMatchesReservation =
+          (openReservation.text ?? "").trim() === (msg.text ?? "").trim();
+      }
+    }
+    const classification = classifyFromMeProvenance({
+      fromMe: msg.fromMe,
+      providerMessageId: msg.messageId,
+      existingIsBotSent: false,
+      knownBotProviderId: false,
+      pendingBotReservation: pendingReservation,
+      textMatchesReservation,
+    });
+    const assumeHuman = shouldAssumeHumanFromMe(classification);
+    if (assumeHuman) {
+      const cas = humanFromMeOwnershipCas({
+        conversationId: conversation.id,
+        ownershipRevision: conversation.ownershipRevision,
+        botStatus: conversation.botStatus,
+        handoffAt: conversation.handoffAt,
+        lastAt,
+      });
+      if (cas) {
+        await prisma.conversation.updateMany({
+          where: cas.where,
+          data: cas.data,
         });
       }
     }
@@ -173,10 +235,30 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
       };
     }
 
-    // When the customer used WhatsApp reply feature, store the quoted stanza ID
-    // so the Python orchestrator can look up which vehicle card was referenced.
-    if (msg.quotedStanzaId) {
-      turnFactsBase["_sdr_quoted_id"] = msg.quotedStanzaId;
+    // When the customer used WhatsApp reply feature, store quoted stanza +
+    // structured metadata. Prefer SDR-owned extraction (image/document/video
+    // contextInfo) over catalog-import's extendedText-only stanza id.
+    if (!msg.fromMe) {
+      const quoted = extractSdrQuotedContext(msg.rawMessage);
+      const stanzaId = quoted?.stanzaId ?? msg.quotedStanzaId;
+      if (stanzaId) {
+        turnFactsBase["_sdr_quoted_id"] = stanzaId;
+        if (quoted) {
+          turnFactsBase["_sdr_quoted"] = {
+            stanzaId: quoted.stanzaId,
+            quotedType: quoted.quotedType,
+            quotedText: quoted.quotedText,
+          };
+        }
+      }
+    }
+
+    if (msg.fromMe) {
+      turnFactsBase["_sdr_fromme"] = {
+        authorship: classification.authorship,
+        kind: classification.kind,
+        reason: classification.reason,
+      };
     }
 
     if (Object.keys(turnFactsBase).length > 0) {
@@ -203,9 +285,9 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
         text: msg.text,
         mediaMimeType,
         fromMe: msg.fromMe,
-        isHumanSent,
-        isBotSent: false,
-        processingStatus: "PENDING",
+        isHumanSent: assumeHuman,
+        isBotSent: classification.kind === "bot_echo",
+        processingStatus: msg.fromMe ? "DONE" : "PENDING",
         createdAt: lastAt,
         ...(mediaInitJson !== undefined ? { turnFactsJson: mediaInitJson } : {}),
       } satisfies Prisma.MessageUncheckedCreateInput,
@@ -214,6 +296,7 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     messageIds.push(created.id);
     handled++;
     if (!msg.fromMe) {
+      inboundHandled++;
       if (msg.pushName) {
         await upgradeCustomerDisplayNameByPhone(msg.pushName, phone);
       }
@@ -225,7 +308,10 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     reason = "ignored";
   }
 
-  if (handled > 0) {
+  // fromMe (bot echo or human seller) must not wake process_turn. Worker
+  // already claims only fromMe=false PENDING rows; skip the notify too so a
+  // human bubble cannot start a concurrent auto-reply.
+  if (inboundHandled > 0) {
     notifySdrApi(payload);
   }
 

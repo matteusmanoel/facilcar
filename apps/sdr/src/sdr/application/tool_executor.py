@@ -22,6 +22,36 @@ from sdr.domain.types import ActionPlan, ConversationCanonicalState, InventoryOu
 logger = logging.getLogger(__name__)
 
 
+async def _check_sold_vehicle(pool: asyncpg.Pool, model_hint: str) -> dict[str, Any] | None:
+    """Secondary query: find a non-published vehicle matching the hint (max 1).
+
+    Returns a minimal dict if found, or None.  Used exclusively to distinguish
+    SUCCESS_SOLD from SUCCESS_EMPTY so the Composer can say "esse veículo já foi
+    vendido" instead of "não encontramos".
+    """
+    try:
+        words = [w.strip() for w in model_hint.split() if len(w.strip()) > 1][:4]
+        if not words:
+            return None
+        # Simple ILIKE match on title / model — good enough for recognition only.
+        conditions = " AND ".join(f"(title ILIKE $${i+1} OR model ILIKE $${i+1})" for i in range(len(words)))
+        # Replace $$ placeholders with $N
+        for i in range(len(words)):
+            conditions = conditions.replace(f"$${i+1}", f"${i+1}", 1)
+        sql = (
+            f"SELECT id, title, model, brand, year, color, status "
+            f"FROM \"Vehicle\" "
+            f"WHERE status IN ('SOLD', 'RESERVED', 'INACTIVE') AND ({conditions}) "
+            f"LIMIT 1"
+        )
+        row = await pool.fetchrow(sql, *[f"%{w}%" for w in words])
+        if row:
+            return dict(row)
+    except Exception:
+        logger.debug("_check_sold_vehicle secondary query failed (non-critical)")
+    return None
+
+
 async def _run_inventory_search(
     state: ConversationCanonicalState,
     pool: asyncpg.Pool,
@@ -37,6 +67,54 @@ async def _run_inventory_search(
         limit=3,
     )
     search_params = req.as_trace_dict()
+
+    secure_id = str(state.facts.get("visual_match_vehicle_id") or "").strip()
+    if state.facts.get("visual_match_secure") and (secure_id or state.primary_vehicle_id):
+        from sdr.tools.inventory import get_vehicle_by_id, get_vehicle_catalog_row
+
+        vid = secure_id or str(state.primary_vehicle_id)
+        try:
+            published = await get_vehicle_by_id(pool, vid)
+        except Exception:
+            published = None
+        if published is not None:
+            card = published.to_dict()
+            return inventory_result(
+                outcome=InventoryOutcome.SUCCESS_FOUND,
+                count=1,
+                vehicles=[card],
+                alternatives=[card],
+                search_params={**search_params, "lookup": "visual_match_id"},
+            )
+        try:
+            catalog = await get_vehicle_catalog_row(pool, vid)
+        except Exception:
+            catalog = None
+        if catalog:
+            status = str(catalog.get("status") or "").upper()
+            if status == "SOLD":
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[catalog],
+                    alternatives=[],
+                    search_params={**search_params, "lookup": "visual_match_id", "matched_status": status},
+                )
+            if status in {"RESERVED", "DRAFT", "ARCHIVED"}:
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[catalog],
+                    alternatives=[],
+                    search_params={**search_params, "lookup": "visual_match_id", "matched_status": status},
+                )
+        return inventory_result(
+            outcome=InventoryOutcome.SUCCESS_EMPTY,
+            count=0,
+            vehicles=[],
+            alternatives=[],
+            search_params={**search_params, "lookup": "visual_match_id"},
+        )
 
     try:
         vehicles = await search_with_request(pool, req)
@@ -72,6 +150,23 @@ async def _run_inventory_search(
 
     vehicle_dicts = [v.to_dict() for v in vehicles]
     if not vehicle_dicts:
+        # Secondary query: check if there's a sold/unpublished vehicle matching
+        # a vehicle_hint (e.g. from a customer photo) to give an honest response.
+        vehicle_hint = (
+            state.facts.get("vehicle_hint_model")
+            or state.facts.get("desired_model")
+            or state.facts.get("desired_vehicle_text")
+        )
+        if vehicle_hint:
+            sold_vehicle = await _check_sold_vehicle(pool, str(vehicle_hint))
+            if sold_vehicle:
+                return inventory_result(
+                    outcome=InventoryOutcome.SUCCESS_SOLD,
+                    count=0,
+                    vehicles=[sold_vehicle],
+                    alternatives=[],
+                    search_params=search_params,
+                )
         return inventory_result(
             outcome=InventoryOutcome.SUCCESS_EMPTY,
             count=0,
@@ -154,7 +249,7 @@ async def _run_send_photos(
     from sdr.tools.inventory import get_vehicle_by_id
     from sdr.tools.send_photos import fetch_vehicle_image_urls
 
-    vid = (vehicle_id or "").strip() or (
+    vid = (vehicle_id or "").strip() or (state.primary_vehicle_id or "").strip() or (
         state.last_shown_vehicle_ids[0] if state.last_shown_vehicle_ids else ""
     )
     if not vid:

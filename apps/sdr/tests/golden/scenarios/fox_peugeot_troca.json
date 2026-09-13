@@ -1,0 +1,131 @@
+{
+  "name": "fox_peugeot_troca",
+  "description": "Troca Peugeot→Fox indisponível; não negociar Fox; Argo; handoff.",
+  "clock": "2026-09-07T10:00:00-03:00",
+  "expected_terminal": "HANDOFF_VENDOR",
+  "expected_final_intent": "trade",
+  "initial_state": {},
+  "turns": [
+    {
+      "inbound": "Quero trocar meu Peugeot 2008 por um Fox",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "Fox",
+          "trade_model": "Peugeot 2008"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_EMPTY"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "o fox está disponível"
+      ]
+    },
+    {
+      "inbound": "Pode ser um Argo então",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "desired_model": "Argo"
+        }
+      },
+      "expected_action": "SHOW_OFFERS",
+      "expected_outcome_in": [
+        "SUCCESS_FOUND"
+      ],
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca",
+        "fox disponível"
+      ]
+    },
+    {
+      "inbound": "O Peugeot é 2019, branco, 85000 km",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_year": "2019",
+          "trade_color": "branco",
+          "mileage": 85000
+        }
+      },
+      "expected_facts_after": {
+        "customer_vehicle.model": "2008",
+        "customer_vehicle.brand": "Peugeot",
+        "trade_year": "2019"
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Está quitado e tudo em dia",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_has_financing": false,
+          "trade_has_debts": false
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Vale uns 38 mil; a diferença eu pago à vista",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "trade_price_expectation": 38000,
+          "payment_method": "cash"
+        }
+      },
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Sou Renata Alves",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {
+          "name": "Renata Alves"
+        }
+      },
+      "invariant_two_concrete_slots": true,
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    },
+    {
+      "inbound": "Pode ser às 14h",
+      "understand_return": {
+        "intent": "TRADE",
+        "facts": {},
+        "signals": {
+          "visit_intent": true
+        }
+      },
+      "expected_action": "HANDOFF_VENDOR",
+      "forbidden_in_outbound": [
+        "seria compra ou troca",
+        "compra ou troca",
+        "qual veículo você busca"
+      ]
+    }
+  ]
+}

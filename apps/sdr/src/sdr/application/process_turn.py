@@ -16,6 +16,7 @@ Conversational affordances:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -23,8 +24,10 @@ import asyncpg
 
 logger = logging.getLogger(__name__)
 
+from sdr.application.inbound_document import document_kind_from_inbound
 from sdr.application.tool_executor import execute_tool_calls, tool_results_to_context
 from sdr.domain.decision import decide, inventory_search_key
+from sdr.domain.document_storage import apply_commercial_document_receipt
 from sdr.domain.handoff import (
     compute_temperature,
     is_ai_silenced,
@@ -81,6 +84,9 @@ class ProcessTurnResult:
     response_directive: ResponseDirective | None = None
     outbound_media: list[OutboundMedia] = field(default_factory=list)
     outbound_location: dict[str, Any] | None = None
+    question_adherence: dict[str, Any] | None = None
+    composer_retries: int = 0
+    questions_rejected: int = 0
 
 
 def _track_engagement(
@@ -97,15 +103,6 @@ def _track_engagement(
         merged.engagement_low_streak = 0
 
 
-def _extract_visit_preference(turn_facts: TurnFacts) -> str | None:
-    """Extract visit time preference from facts if present."""
-    for key in ("visit_time", "visit_preferred_time", "preferred_time", "timeline"):
-        val = turn_facts.facts.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return None
-
-
 def _is_sandbox() -> bool:
     from sdr.config import get_settings
 
@@ -117,9 +114,33 @@ def _ack_kind_from_facts(
     pending_question: str | None,
 ) -> str | None:
     """Which field was just answered — Composer owns the wording."""
-    if not pending_question:
-        return None
     collected = facts.facts or {}
+    applies = collected.get("payment_applies_to")
+    method = collected.get("payment_method")
+    if applies == "difference" and method == "financing":
+        return "difference_financing"
+    if applies == "difference" and method in {"cash", "a_vista"}:
+        return "difference_cash"
+
+    def _from_collected() -> str | None:
+        if "desired_installment" in collected:
+            return "desired_installment"
+        if "down_payment" in collected:
+            return "down_payment"
+        payment = collected.get("payment_method")
+        if payment == "financing":
+            return "payment_financing"
+        if payment in {"cash", "a_vista"}:
+            return "payment_cash"
+        deal = collected.get("deal_type")
+        if deal == "purchase":
+            return "deal_purchase"
+        if deal == "trade":
+            return "deal_trade"
+        return None
+
+    if not pending_question:
+        return _from_collected()
     if pending_question == "down_payment" and "down_payment" in collected:
         return "down_payment"
     if pending_question == "desired_installment" and "desired_installment" in collected:
@@ -138,7 +159,7 @@ def _ack_kind_from_facts(
         if deal == "trade":
             return "deal_trade"
         return None
-    return None
+    return _from_collected()
 
 
 def _visit_cta_style(merged: ConversationCanonicalState) -> str:
@@ -183,6 +204,37 @@ def _should_silence_tool_failure(
     return False
 
 
+def _availability_status_for_directive(
+    merged: ConversationCanonicalState,
+    inventory_outcome: InventoryOutcome,
+    inv_count: int,
+    tool_results: list[dict[str, Any]] | None = None,
+) -> str:
+    from sdr.domain.visual_resolution import VisualVehicleResolution, availability_status_for
+
+    vis = None
+    if merged.last_visual_resolution:
+        vis = VisualVehicleResolution.from_mapping(merged.last_visual_resolution)
+    match = merged.last_inventory_match if isinstance(merged.last_inventory_match, dict) else {}
+    catalog = (merged.facts or {}).get("matched_catalog_status") or match.get("matched_status")
+    for result in tool_results or []:
+        if result.get("tool") != "inventory_search":
+            continue
+        params = result.get("search_params") or {}
+        catalog = catalog or params.get("matched_status")
+        vehicles = result.get("vehicles") or []
+        first = vehicles[0] if vehicles and isinstance(vehicles[0], dict) else {}
+        catalog = catalog or first.get("status")
+    return availability_status_for(
+        resolution=vis,
+        inventory_outcome=(
+            inventory_outcome.value if hasattr(inventory_outcome, "value") else str(inventory_outcome)
+        ),
+        inventory_count=inv_count,
+        catalog_status=str(catalog) if catalog else None,
+    )
+
+
 def _build_response_directive(
     merged: ConversationCanonicalState,
     plan: ActionPlan,
@@ -191,6 +243,8 @@ def _build_response_directive(
     inbound_content_type: str = "TEXT",
     turn_facts: TurnFacts | None = None,
     prev_pending_question: str | None = None,
+    inbound: InboundTurn | None = None,
+    prev_primary_vehicle_id: str | None = None,
 ) -> ResponseDirective:
     """Build ResponseDirective — single source of truth for Composer inputs."""
     should_introduce = merged.assistant_turn_count == 0
@@ -232,17 +286,9 @@ def _build_response_directive(
     inventory_outcome = extract_inventory_outcome(tool_results)
     allowed, forbidden = claims_for_inventory_outcome(inventory_outcome)
 
-    # Only authorize the alternatives CTA when we will record pending_interaction.
+    # SUCCESS_EMPTY asks for other models directly — no yes/no alternatives gate.
     affordance = PendingInteraction.NONE
-    if (
-        plan.action == Action.SHOW_OFFERS
-        and inventory_outcome == InventoryOutcome.SUCCESS_EMPTY
-    ):
-        affordance = PendingInteraction.OFFER_ALTERNATIVES
-        if "ask_if_alternatives_acceptable" not in allowed:
-            allowed = [*allowed, "ask_if_alternatives_acceptable"]
-    else:
-        allowed = [c for c in allowed if c != "ask_if_alternatives_acceptable"]
+    allowed = [c for c in allowed if c != "ask_if_alternatives_acceptable"]
 
     claims_forbidden = [
         "approval_guarantee",
@@ -252,7 +298,7 @@ def _build_response_directive(
         "ask_budget",
         *forbidden,
     ]
-    if merged.lifecycle.status.value in ("HANDOFF_SENT", "HUMAN_ACTIVE"):
+    if merged.lifecycle.status.value == "HUMAN_ACTIVE":
         claims_forbidden.append("any_response")
     if merged.last_shown_vehicle_ids:
         claims_forbidden.append("reask_shown_vehicle")
@@ -286,15 +332,14 @@ def _build_response_directive(
     elif plan.action == Action.REGISTER_VISIT_INTEREST:
         visit_cta = _visit_cta_style(merged)
 
-    from sdr.application.inbound_document import document_kind_from_inbound_text
-
     document_kind = (
-        document_kind_from_inbound_text(inbound_text)
-        if inbound_content_type == "DOCUMENT"
+        document_kind_from_inbound(inbound)
+        if inbound_content_type == "DOCUMENT" and inbound is not None
         else None
     )
 
     from sdr.domain.cadence import cadence_for
+    from sdr.domain.dialogue_plan import build_dialogue_plan, dialogue_objective_suffix
 
     cadence_mode = cadence_for(
         action=plan.action,
@@ -307,6 +352,34 @@ def _build_response_directive(
         affordance = PendingInteraction.OFFER_ALTERNATIVES
         if "ask_if_alternatives_acceptable" not in allowed:
             allowed = [*allowed, "ask_if_alternatives_acceptable"]
+
+    dialogue = build_dialogue_plan(
+        inbound_text=inbound_text,
+        action=plan.action,
+        ask_field=plan.ask_field or plan.next_question,
+        intent=merged.intent,
+        should_introduce=should_introduce,
+        assistant_turn_count=merged.assistant_turn_count,
+        ack_kind=ack_kind,
+        inbound_content_type=inbound_content_type,
+        facts_context=facts_context,
+        turn_facts=turn_facts,
+        state=merged,
+        reason_code=plan.reason_code,
+        visit_cta_style=visit_cta,
+        document_kind=document_kind,
+        lifecycle_status=merged.lifecycle.status.value,
+        vehicle_chosen_this_turn=bool(
+            merged.primary_vehicle_id
+            and merged.primary_vehicle_id != prev_primary_vehicle_id
+        ),
+        availability_status=_availability_status_for_directive(
+            merged, inventory_outcome, inv_count, tool_results
+        ),
+    )
+    suffix = dialogue_objective_suffix(dialogue)
+    if suffix:
+        objective = f"{objective} {suffix}".strip()
 
     return ResponseDirective(
         action=plan.action,
@@ -345,6 +418,7 @@ def _build_response_directive(
         visit_cta_style=visit_cta,
         document_kind=document_kind,
         expose_errors=_is_sandbox(),
+        dialogue_plan=dialogue.to_dict(),
     )
 
 
@@ -363,6 +437,7 @@ def _directive_to_state_and_plan_maps(
         "visit_cta_style": directive.visit_cta_style,
         "document_kind": directive.document_kind,
         "inbound_text": directive.inbound_text,
+        "dialogue_plan": dict(directive.dialogue_plan or {}),
         "response_objective": directive.response_objective,
         "intent": directive.intent.value,
         "customer_name": directive.customer_name,
@@ -377,6 +452,12 @@ def _directive_to_state_and_plan_maps(
         "alternative_scope": directive.alternative_scope.value,
         "budget_status": directive.budget_status.value,
         "original_desired_model": directive.original_desired_model,
+        "offered_visit_slots": list(getattr(directive, "offered_visit_slots", None) or []),
+        "visit_preferred_time": getattr(directive, "visit_preferred_time", None),
+        "handoff_ready": bool(getattr(directive, "handoff_ready", False)),
+        "profile_complete": bool(getattr(directive, "profile_complete", False)),
+        "deferred_fields": list(getattr(directive, "deferred_fields", None) or []),
+        "collected_fields": list(getattr(directive, "collected_fields", None) or []),
     }
     plan_map: dict[str, Any] = {
         "action": plan.action.value,
@@ -401,26 +482,48 @@ def _update_inventory_search_key(
     plan: ActionPlan,
     tool_results: list[dict[str, Any]],
 ) -> None:
-    """Update search key only on semantic success (FOUND or EMPTY)."""
+    """Update search key only on semantic success (FOUND or EMPTY).
+
+    After vehicles are recorded on the state, the key must include
+    ``last_shown_vehicle_ids`` so the next turn's continuity hash matches.
+    """
     outcome = extract_inventory_outcome(tool_results)
     if not is_semantic_inventory_success(outcome):
         return
-    for tc in plan.tool_calls:
-        if tc.get("tool") == "inventory_search":
-            key = tc.get("_search_key") or inventory_search_key(
-                merged.facts,
-                alternative_scope=merged.alternative_scope,
-                budget_status=merged.budget_status,
-            )
-            merged.last_inventory_search_key = key
-            merged.last_inventory_outcome = outcome.value
-            return
     merged.last_inventory_search_key = inventory_search_key(
         merged.facts,
         alternative_scope=merged.alternative_scope,
         budget_status=merged.budget_status,
+        last_shown_vehicle_ids=merged.last_shown_vehicle_ids or [],
     )
     merged.last_inventory_outcome = outcome.value
+
+
+def _record_inventory_match(
+    merged: ConversationCanonicalState,
+    tool_results: list[dict[str, Any]],
+) -> None:
+    """Persist listing identity + outcome for SUCCESS_SOLD auditability."""
+    for result in tool_results:
+        if result.get("tool") != "inventory_search":
+            continue
+        vehicles = result.get("vehicles") or []
+        first = vehicles[0] if vehicles and isinstance(vehicles[0], dict) else {}
+        matched_id = (
+            result.get("matched_inventory_id")
+            or result.get("listing_id")
+            or first.get("id")
+        )
+        merged.last_inventory_match = {
+            "listing_reference_received": result.get("listing_reference_received")
+            or merged.listing_reference,
+            "listing_reference_resolved": result.get("listing_reference_resolved")
+            or matched_id,
+            "matched_inventory_id": matched_id,
+            "matched_status": result.get("matched_status") or first.get("status"),
+            "inventory_outcome": result.get("outcome") or result.get("inventory_outcome"),
+        }
+        return
 
 
 def _apply_pending_after_offers(
@@ -448,7 +551,35 @@ def _record_shown_vehicles(
         ids = shown_vehicle_ids(vehicles)
         if ids:
             merged.last_shown_vehicle_ids = ids
+            merged.current_offer_set_id = str(uuid.uuid4())
+            primary = merged.primary_vehicle_id
+            if primary and primary not in ids:
+                merged.primary_vehicle_id = None
+                merged.primary_vehicle_chosen_at = None
         if vehicles:
+            from sdr.domain.vehicle_catalog import register_catalog_vehicles
+
+            catalog: dict[str, dict[str, Any]] = dict(getattr(merged, "presented_vehicle_catalog", None) or {})
+            snapshots: list[dict[str, Any]] = []
+            for item in vehicles:
+                if not isinstance(item, dict):
+                    continue
+                vid = str(item.get("id") or "").strip()
+                if not vid:
+                    continue
+                snap = {
+                    "id": vid,
+                    "brand": item.get("brand") or item.get("brand_name") or item.get("brandName"),
+                    "model": item.get("model"),
+                    "version": item.get("version"),
+                    "year": item.get("year") or item.get("year_model") or item.get("yearModel"),
+                    "title": item.get("title"),
+                }
+                catalog[vid] = snap
+                snapshots.append(snap)
+            merged.presented_vehicle_catalog = catalog
+            if snapshots:
+                register_catalog_vehicles(snapshots)
             first = vehicles[0] if isinstance(vehicles[0], dict) else {}
             price = first.get("priceCash") if isinstance(first, dict) else None
             if price is None and isinstance(first, dict):
@@ -504,18 +635,32 @@ async def process_turn(
     understand: UnderstandingFn,
     pool: asyncpg.Pool | None = None,
     linked_vehicle_titles: list[str] | None = None,
+    image_bytes: bytes | None = None,
 ) -> ProcessTurnResult:
     if inbound is None:
         inbound = inbound_from_text_compat(inbound_text, thread_id=state.thread_id)
 
-    # HANDOFF_SENT / HUMAN_ACTIVE: ingest already happened upstream; never reply
-    # and never call Understanding (no tokens after qualification).
+    from sdr.infrastructure.isolated_inventory import coerce_isolated_pool
+
+    pool = coerce_isolated_pool(pool)
+
+    listing_meta = inbound.raw_message_ref or {}
+    listing_ref = listing_meta.get("listing_id") or listing_meta.get("listing_url")
+    state.listing_reference = str(listing_ref) if listing_ref else None
+
+    from sdr.understanding.response_composer import reset_compose_meta
+
+    reset_compose_meta()
+
+    # HUMAN_ACTIVE: persist inbound is the orchestrator's job. Do not understand,
+    # compose, or run tools. HANDOFF_SENT falls through — vendor is notified
+    # but AI stays active (qualify / answer / ack, no second HANDOFF_VENDOR).
     if is_ai_silenced(state):
         return ProcessTurnResult(
             action_plan=ActionPlan(
                 action=Action.NO_REPLY,
                 reason_code="ai_silenced",
-                reason="Thread already handed off or with human",
+                reason="Thread already with human",
             ),
             state=state,
             outbound_texts=[],
@@ -539,6 +684,8 @@ async def process_turn(
                 reason=f"Media could not be processed: {failure}",
             )
             outbound = _compose_media_failed_response(inbound)
+        if outbound:
+            state.assistant_turn_count = state.assistant_turn_count + 1
         return ProcessTurnResult(
             action_plan=plan,
             state=state,
@@ -556,9 +703,10 @@ async def process_turn(
             }
 
     facts = await understand(inbound.effective_text, state)
-    from sdr.domain.pending_question import overlay_pending_question
+    from sdr.domain.pending_question import overlay_consignment_acceptance, overlay_pending_question
 
     facts = overlay_pending_question(facts, state, inbound.effective_text)
+    facts = overlay_consignment_acceptance(facts, state, inbound.effective_text)
     from sdr.domain.location_request import has_store_location_request_evidence
 
     if has_store_location_request_evidence(inbound.effective_text):
@@ -568,14 +716,17 @@ async def process_turn(
     # Understanding LLM did not resolve a vehicle preference from text alone,
     # inject the vision-extracted data so inventory search can proceed without
     # forcing the customer to re-type the vehicle name.
+    from sdr.domain.visual_resolution import is_weak_vehicle_text
+
     vehicle_hint = inbound.raw_message_ref.get("vehicle_hint") if inbound.raw_message_ref else None
     if vehicle_hint and isinstance(vehicle_hint, dict) and vehicle_hint.get("is_vehicle"):
         hint_model = vehicle_hint.get("model")
         hint_brand = vehicle_hint.get("brand")
         hint_color = vehicle_hint.get("color")
         hint_type = vehicle_hint.get("vehicle_type")
-        # Only inject when LLM understanding did not extract vehicle preference.
-        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
+        existing_model = facts.facts.get("desired_model")
+        existing_text = facts.facts.get("desired_vehicle_text")
+        if is_weak_vehicle_text(existing_model) and is_weak_vehicle_text(existing_text):
             injected: dict = {}
             if hint_model:
                 injected["desired_model"] = hint_model
@@ -589,50 +740,192 @@ async def process_turn(
                 injected["vehicle_type"] = hint_type
             facts.facts = {**facts.facts, **injected}
 
-    # If the customer replied to a specific bot vehicle card (via WhatsApp reply
-    # feature), the quoted vehicle text is in raw_message_ref. When Understanding
-    # did not extract a vehicle preference, inject the quoted vehicle so the
-    # decision engine can link the interest without asking again.
-    quoted_vehicle_text = (
-        inbound.raw_message_ref.get("quoted_vehicle_text") if inbound.raw_message_ref else None
-    )
-    if quoted_vehicle_text and isinstance(quoted_vehicle_text, str):
-        if not facts.facts.get("desired_model") and not facts.facts.get("desired_vehicle_text"):
-            # Store the raw caption text; Understanding/extractor already ran so
-            # we inject directly into facts to seed the next search key.
-            facts.facts = {**facts.facts, "desired_vehicle_text": quoted_vehicle_text[:200]}
+    # Quoted/reply text is structured context on InboundTurn.quoted — never a
+    # substitute for customer-authored desired_vehicle_text (URLs and card
+    # captions must not be treated as the customer typing a vehicle).
 
     # Document extraction is authoritative for identity fields when present.
     # Inject into TurnFacts so merge + CRM persistence do not depend only on
     # the Understanding LLM re-reading the structured inbound text.
-    doc_extracted = (
-        inbound.raw_message_ref.get("document_extracted") if inbound.raw_message_ref else None
+    from sdr.application.inbound_document import identity_fields_from_inbound
+
+    identity_patch = {
+        key: value
+        for key, value in identity_fields_from_inbound(inbound).items()
+        if key not in facts.facts
+    }
+    if identity_patch:
+        facts.facts = {**facts.facts, **identity_patch}
+
+    from sdr.domain.followup import (
+        FollowUpCancelIntent,
+        apply_followup_transition,
+        enrich_turn_facts_from_inbound,
+        followup_decision,
+        inbound_is_followup_pause,
+        overlay_followup_suggestions,
     )
-    if isinstance(doc_extracted, dict):
-        identity_patch: dict = {}
-        for key in ("cpf", "birth_date", "birth_city", "birth_state", "name"):
-            val = doc_extracted.get(key)
-            if val and key not in facts.facts:
-                identity_patch[key] = val
-        if identity_patch:
-            facts.facts = {**facts.facts, **identity_patch}
+    from sdr.application.followup_runtime import immediate_pause_bubbles
+    from sdr.domain.followup_cancel import is_opt_out_text
+    from sdr.domain.ownership import vendor_already_notified
+    from sdr.domain.scheduling import suggest_visit_slots
+    from sdr.domain.visit import apply_visit_from_inbound, apply_visit_utterance, parse_visit_utterance
 
     prev_pending = state.pending_question
-    merged = deterministic_merge(state, facts)
-    if inbound.content_type.value == "DOCUMENT" and inbound.media_status == MediaStatus.OK:
-        merged.document_received = True
+    prev_primary = state.primary_vehicle_id
+    merged = deterministic_merge(state, facts, inbound_text=inbound.effective_text)
+    apply_commercial_document_receipt(merged, inbound)
 
-    # Extract visit time preference from this turn's facts before deciding.
-    visit_pref = _extract_visit_preference(facts)
-    if visit_pref and not merged.visit_preferred_time:
-        merged.visit_preferred_time = visit_pref
+    inbound_low = (inbound.effective_text or "").lower()
+    saturday_ask = "sábado" in inbound_low or "sabado" in inbound_low
+    true_pause = inbound_is_followup_pause(
+        inbound.effective_text, facts, state=merged
+    )
+    if true_pause:
+        parsed_visit = parse_visit_utterance("", [])
+    elif vendor_already_notified(merged):
+        parsed_visit = parse_visit_utterance(inbound.effective_text, [])
+        apply_visit_utterance(merged, parsed_visit)
+    else:
+        parsed_visit = apply_visit_from_inbound(merged, inbound.effective_text)
+    visit_actionable = (not true_pause) and bool(
+        parsed_visit.time
+        or parsed_visit.date
+        or parsed_visit.accepted_offered
+        or parsed_visit.declined
+        or parsed_visit.interest
+        or parsed_visit.period
+    )
+    saturday_slots_already = all(
+        "sábado" in str(s).lower() or "sabado" in str(s).lower()
+        for s in (merged.offered_visit_slots or [])
+    ) if merged.offered_visit_slots else False
+    if (
+        saturday_ask
+        and parsed_visit.time is None
+        and not parsed_visit.accepted_offered
+        and not parsed_visit.declined
+        and not saturday_slots_already
+    ):
+        merged.visit_date = None
+        merged.visit_period = None
+        if not merged.visit_time:
+            merged.visit_preferred_time = None
+        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=True)
+        merged.needs_visit_slot_offer = True
+    elif (
+        not parsed_visit.declined
+        and not parsed_visit.courtesy
+        and (
+            parsed_visit.accepted_offered
+            or parsed_visit.date is not None
+            or parsed_visit.time is not None
+            or parsed_visit.period is not None
+        )
+    ):
+        merged.signals.visit_intent = True
+
+    opted_out_text = is_opt_out_text(inbound.effective_text or "")
+    if not visit_actionable or opted_out_text:
+        enrich_turn_facts_from_inbound(facts, inbound.effective_text)
+        overlay_followup_suggestions(merged.followup, facts)
+    followup_pause_decision = followup_decision(
+        merged, facts, inbound_text=inbound.effective_text
+    )
+    apply_pause = (
+        not visit_actionable
+        or followup_pause_decision.cancel_intent == FollowUpCancelIntent.OPT_OUT
+    )
+    if apply_pause:
+        apply_followup_transition(merged, followup_pause_decision)
+    pause_bubbles = immediate_pause_bubbles(followup_pause_decision)
+    pause_ack = bool(
+        pause_bubbles
+        and followup_pause_decision.eligible
+        and not visit_actionable
+    )
+
+    if followup_pause_decision.cancel_intent == FollowUpCancelIntent.OPT_OUT:
+        return ProcessTurnResult(
+            action_plan=ActionPlan(
+                action=Action.NO_REPLY,
+                reason_code="opt_out",
+                reason="Customer opt-out",
+            ),
+            state=merged,
+            outbound_texts=[],
+            turn_facts=facts,
+            tool_results=[],
+        )
+
+    from sdr.domain.vehicle_reference import apply_primary_from_inbound
+
+    listing_id = None
+    media_url = None
+    if inbound.raw_message_ref:
+        listing_id = inbound.raw_message_ref.get("listing_id") or inbound.raw_message_ref.get(
+            "listing_url"
+        )
+        media_url = inbound.raw_message_ref.get("media_url") or inbound.raw_message_ref.get("url")
+    apply_primary_from_inbound(
+        merged,
+        conversation_id=merged.thread_id,
+        quoted=inbound.quoted,
+        inbound_text=inbound.effective_text,
+        listing_id=str(listing_id) if listing_id else merged.listing_reference,
+        inbound_media_url=str(media_url) if media_url else None,
+        inbound_timestamp=inbound.timestamp,
+    )
+    from sdr.application.visual_inbound import enrich_state_with_visual, quoted_resolution_from_inbound
+
+    await enrich_state_with_visual(
+        merged,
+        inbound,
+        image_bytes=image_bytes,
+        pool=pool,
+        quoted_resolution=quoted_resolution_from_inbound(merged, inbound),
+    )
+
+    from sdr.domain.dialogue_plan import unanswered_questions_for_turn, is_courtesy_only
+    from sdr.domain.qualification_policy import annotate_action_plan
+
+    merged.courtesy_only = is_courtesy_only(inbound.effective_text, facts)
+    merged.unanswered_questions = unanswered_questions_for_turn(
+        inbound.effective_text or "",
+        facts_context=merged.facts,
+    )
 
     plan = decide(merged)
+    annotate_action_plan(
+        plan,
+        merged,
+        inbound_has_direct_question=bool(merged.unanswered_questions),
+    )
+    from sdr.domain.visit import should_send_store_location
+
+    if not should_send_store_location(merged):
+        plan.tool_calls = [
+            tc for tc in (plan.tool_calls or []) if tc.get("tool") != "send_location"
+        ]
+        if plan.action == Action.SEND_LOCATION:
+            plan = ActionPlan(
+                action=Action.ASK_INFO,
+                handoff=False,
+                reason_code="post_handoff_continue" if vendor_already_notified(merged) else plan.reason_code,
+                reason="Store location already sent; continue without a second pin",
+            )
+            annotate_action_plan(
+                plan,
+                merged,
+                inbound_has_direct_question=bool(merged.unanswered_questions),
+            )
 
     # After deciding, persist the field being asked so the next turn can resolve
     # short confirmations ("sim", "exato") against the right context.
     asked = plan.ask_field or plan.next_question
-    if asked and plan.action in (
+    if plan.reason_code == "answer_direct_question":
+        merged.pending_question = None
+    elif asked and plan.action in (
         Action.ASK_INFO,
         Action.SHOW_OFFERS,
         Action.SEND_PHOTOS,
@@ -651,6 +944,11 @@ async def process_turn(
     # from a normal post-triage turn. Overrides the None set above.
     if plan.action == Action.REGISTER_VISIT_INTEREST:
         merged.pending_question = "visit"
+        from sdr.domain.scheduling import suggest_visit_slots
+
+        inbound_low = (inbound.effective_text or "").lower()
+        prefer_sat = "sábado" in inbound_low or "sabado" in inbound_low
+        merged.offered_visit_slots = suggest_visit_slots(prefer_saturday=prefer_sat)
 
     # Track engagement quality based on this turn.
     _track_engagement(merged, inbound.effective_text, facts)
@@ -663,14 +961,35 @@ async def process_turn(
     directive: ResponseDirective | None = None
 
     inbound_ctype = inbound.content_type.value if inbound.content_type else "TEXT"
+    planned_handoff = plan.action == Action.HANDOFF_VENDOR and bool(plan.handoff)
 
-    if plan.action == Action.HANDOFF_VENDOR and plan.handoff:
+    if pause_ack:
+        silent_vendor = False
+        if (planned_handoff or merged.handoff_ready) and not vendor_already_notified(
+            merged
+        ):
+            # Conversational pause_ack only. Vendor still gets one notify so
+            # an actionable lead is not invisible. Never a second notify on
+            # the follow-up send.
+            mark_handoff_sent(merged, "pause_ack_actionable")
+            silent_vendor = True
+        plan = ActionPlan(
+            action=Action.ASK_INFO,
+            reason_code="followup_pause_ack",
+            reason="Customer paused; follow-up is scheduled",
+            handoff=silent_vendor,
+        )
+        outbound.extend(pause_bubbles[:1])
+    elif plan.action == Action.HANDOFF_VENDOR and plan.handoff:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
-            _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _update_inventory_search_key(merged, plan, tool_results)
+            _record_inventory_match(merged, tool_results)
             # Extract location pin so the orchestrator sends it before the handoff text.
             outbound_location = _location_pin_from_tools(tool_results)
+            if any(r.get("tool") == "send_location" for r in tool_results):
+                merged.location_sent = True
         from sdr.domain.handoff import customer_handoff_bubbles
 
         outbound.extend(customer_handoff_bubbles(merged, reason_code=plan.reason_code))
@@ -680,8 +999,9 @@ async def process_turn(
     else:
         if plan.tool_calls:
             tool_results = await execute_tool_calls(plan, merged, pool)
-            _update_inventory_search_key(merged, plan, tool_results)
             _record_shown_vehicles(merged, tool_results)
+            _update_inventory_search_key(merged, plan, tool_results)
+            _record_inventory_match(merged, tool_results)
 
         if _should_silence_tool_failure(plan, tool_results):
             silent = ActionPlan(
@@ -698,6 +1018,8 @@ async def process_turn(
             )
 
         outbound_location = _location_pin_from_tools(tool_results)
+        if any(r.get("tool") == "send_location" for r in tool_results):
+            merged.location_sent = True
 
         outbound_media = _outbound_media_from_tools(
             plan, tool_results, language=merged.language or "pt-BR"
@@ -713,8 +1035,17 @@ async def process_turn(
             inbound_ctype,
             facts,
             prev_pending,
+            inbound,
+            prev_primary,
         )
         state_map, plan_map, tool_ctx = _directive_to_state_and_plan_maps(directive, plan)
+        state_map["offered_visit_slots"] = list(merged.offered_visit_slots or [])
+        state_map["visit_preferred_time"] = merged.visit_preferred_time
+        state_map["handoff_ready"] = bool(merged.handoff_ready)
+        state_map["profile_complete"] = bool(merged.profile_complete)
+        state_map["deferred_fields"] = list(merged.deferred_fields or [])
+        state_map["collected_fields"] = list(merged.collected_fields or [])
+        state_map["missing_fields"] = list(merged.missing_fields or [])
         tool_ctx = dict(tool_ctx or {})
         tool_ctx["outbound_media_planned"] = bool(outbound_media)
         tool_ctx["outbound_media_count"] = len(outbound_media)
@@ -726,6 +1057,15 @@ async def process_turn(
             plan.action == Action.SHOW_OFFERS
             and inv_outcome != InventoryOutcome.NOT_EXECUTED
         ):
+            # Pre-search preview: tell the customer we're looking it up.
+            # Only on subsequent turns — first contact intro already says
+            # "Deixa eu te enviar umas fotos" so we avoid duplicate phrasing.
+            if outbound_media and merged.assistant_turn_count > 0:
+                _lang = directive.language or "pt-BR"
+                if _lang.startswith("es"):
+                    outbound.append("Déjame buscar en nuestro stock...")
+                else:
+                    outbound.append("Deixa eu dar uma olhadinha no nosso estoque...")
             from sdr.understanding.response_composer import compose_inventory_response
             from sdr.understanding.validator import validate_inventory_policy
 
@@ -741,7 +1081,10 @@ async def process_turn(
             except Exception:
                 logger.exception("compose_inventory_response failed; using fallback bubbles")
                 outbound.extend(inventory_fallback_bubbles(inv_outcome, language=directive.language))
-            _apply_pending_after_offers(merged, directive)
+            # Only preserve OFFER_ALTERNATIVES for installment_tight — SUCCESS_EMPTY
+            # no longer gates with yes/no; the Composer asks directly for next preference.
+            if plan.reason_code == "installment_tight":
+                _apply_pending_after_offers(merged, directive)
         elif plan.action == Action.SEND_PHOTOS:
             from sdr.understanding.response_composer import compose_photos_response
             from sdr.understanding.validator import validate_inventory_policy
@@ -784,6 +1127,12 @@ async def process_turn(
                     "violations": ["composer_exception"],
                 }
 
+    if outbound or outbound_media or outbound_location:
+        merged.assistant_turn_count = state.assistant_turn_count + 1
+
+    from sdr.understanding.response_composer import last_compose_meta
+
+    compose_meta = last_compose_meta()
     return ProcessTurnResult(
         action_plan=plan,
         state=merged,
@@ -794,6 +1143,9 @@ async def process_turn(
         response_directive=directive,
         outbound_media=outbound_media,
         outbound_location=outbound_location,
+        question_adherence=compose_meta,
+        composer_retries=int(compose_meta.get("retries") or 0),
+        questions_rejected=int(compose_meta.get("questions_rejected") or 0),
     )
 
 
@@ -819,20 +1171,54 @@ def _hard_fallback(plan: ActionPlan, directive: ResponseDirective) -> list[str]:
         return inventory_fallback_bubbles(
             directive.inventory_outcome, language=directive.language
         )
+    from sdr.domain.dialogue_plan import DialoguePlan, fallback_bubbles
+    from sdr.understanding.response_composer import _required_question
+
+    parsed = DialoguePlan.from_mapping(directive.dialogue_plan)
+    question = None
+    if plan.ask_field or plan.next_question:
+        question = _required_question(
+            {
+                "language": directive.language,
+                "facts": directive.facts_context,
+                "intent": directive.intent.value,
+            },
+            {"ask_field": plan.ask_field, "next_question": plan.next_question, "action": plan.action.value},
+            directive.language or "pt-BR",
+        )
+    bubbles = fallback_bubbles(
+        parsed,
+        language=directive.language,
+        customer_name=directive.customer_name,
+        next_question=question,
+        document_kind=directive.document_kind,
+        should_introduce=directive.should_introduce,
+    )
+    if bubbles:
+        return bubbles
     action = plan.action
     if action == Action.ASK_INFO and plan.next_question:
         return [plan.next_question]
     if action == Action.SMALLTALK:
         if directive.should_introduce:
-            return introduction_smalltalk_bubbles(directive.language)
-        return continuation_smalltalk_bubbles(directive.language)
+            return introduction_smalltalk_bubbles(
+                directive.language,
+                customer_name=directive.customer_name,
+                inbound_text=directive.inbound_text,
+                skip_intent_menu=parsed.skip_generic_intent_menu,
+            )
+        return continuation_smalltalk_bubbles(
+            directive.language,
+            inbound_text=directive.inbound_text,
+            courtesy=parsed.courtesy_only,
+        )
     if action == Action.COMMERCIAL_UNKNOWN:
         return ["Me conta o que você está procurando que eu te ajudo!"]
     if action == Action.REGISTER_VISIT_INTEREST:
-        return [
-            "Qual dia e horário fica melhor pra você passar na loja? "
-            "Assim a gente avança essa proposta juntos."
-        ]
+        from sdr.domain.scheduling import format_slot_suggestion, suggest_visit_slots
+
+        slots = suggest_visit_slots()
+        return [format_slot_suggestion(slots, lang=directive.language or "pt")]
     if action == Action.MEDIA_FAILED:
         return ["Tive um problema com a mídia. Pode me contar em texto?"]
     return ["Como posso ajudar?"]
