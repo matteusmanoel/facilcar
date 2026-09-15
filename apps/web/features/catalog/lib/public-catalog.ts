@@ -109,6 +109,7 @@ export function toPublicVehicleCard(v: {
   model: string;
   version: string | null;
   priceCash: unknown;
+  priceRetailAsIs?: unknown;
   yearManufacture: number | null;
   yearModel: number | null;
   mileage: number | null;
@@ -126,6 +127,7 @@ export function toPublicVehicleCard(v: {
     model: v.model,
     version: v.version,
     priceCash: v.priceCash != null ? Number(v.priceCash) : null,
+    priceRetailAsIs: v.priceRetailAsIs != null ? Number(v.priceRetailAsIs) : null,
     yearManufacture: v.yearManufacture,
     yearModel: v.yearModel,
     mileage: v.mileage,

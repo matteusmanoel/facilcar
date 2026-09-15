@@ -5,6 +5,7 @@ import { getSiteSettings } from "@/features/settings/server/queries";
 import { getFeaturedVehicles } from "@/features/vehicle/server/queries";
 import { listPublishedBlogPosts } from "@/features/content/server/queries";
 import { FeaturedVehiclesCarousel } from "@/features/catalog/ui/FeaturedVehiclesCarousel";
+import { toPublicVehicleCard } from "@/features/catalog/lib/public-catalog";
 import { HomeHero } from "@/features/catalog/ui/HomeHero";
 import { HomePageSkeleton } from "@/features/catalog/ui/HomePageSkeleton";
 import { catalogFullBleedClass } from "@/features/catalog/lib/shell";
@@ -84,7 +85,7 @@ async function HomePageContent() {
             </ScrollReveal>
 
             <div className="mt-10">
-              <FeaturedVehiclesCarousel vehicles={featured} />
+              <FeaturedVehiclesCarousel vehicles={featured.map(toPublicVehicleCard)} />
             </div>
 
             <div className="mt-10 flex justify-center">
