@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import {
@@ -11,6 +10,9 @@ import { FinancingSimulationForm } from "@/features/lead/ui/FinancingSimulationF
 import { VehicleGallery } from "@/features/vehicle/ui/VehicleGallery";
 import { VehicleDetailAccordion } from "@/features/vehicle/ui/VehicleDetailAccordion";
 import { VehicleCard } from "@/features/catalog/ui/VehicleCard";
+import { PublicVehiclePrice } from "@/features/catalog/ui/PublicVehiclePrice";
+import { publicVehiclePrice } from "@/features/catalog/lib/public-price";
+import { toPublicVehicleCard } from "@/features/catalog/lib/public-catalog";
 import { BRAND } from "@/lib/brand";
 import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 import { DEFAULT_OG_IMAGE, buildCarJsonLd } from "@/lib/seo";
@@ -87,9 +89,13 @@ export default async function VehicleDetailPage({ params }: Props) {
     quickStats.push([vehicle.city, vehicle.state].filter(Boolean).join(" / "));
   }
 
+  const offer = publicVehiclePrice({
+    priceCash: vehicle.priceCash,
+    priceRetailAsIs: vehicle.priceRetailAsIs,
+  });
   const estimatedMonthly =
-    vehicle.priceCash != null
-      ? Math.round(Number(vehicle.priceCash) / 60).toLocaleString("pt-BR")
+    offer.current != null
+      ? Math.round(offer.current / 60).toLocaleString("pt-BR")
       : null;
 
   const carJsonLd = buildCarJsonLd({
@@ -97,7 +103,7 @@ export default async function VehicleDetailPage({ params }: Props) {
     slug: vehicle.slug,
     description: vehicle.description,
     shortDescription: vehicle.shortDescription,
-    priceCash: vehicle.priceCash,
+    priceCash: offer.current,
     yearModel: vehicle.yearModel,
     mileage: vehicle.mileage,
     color: vehicle.color,
@@ -134,11 +140,14 @@ export default async function VehicleDetailPage({ params }: Props) {
                 {subtitle}
               </p>
             )}
-            <p className="mt-4 text-3xl font-black tracking-tight text-facil-orange md:text-4xl">
-              {vehicle.priceCash != null
-                ? `R$ ${Number(vehicle.priceCash).toLocaleString("pt-BR")}`
-                : "Consultar valor"}
-            </p>
+            <PublicVehiclePrice
+              priceCash={vehicle.priceCash != null ? Number(vehicle.priceCash) : null}
+              priceRetailAsIs={
+                vehicle.priceRetailAsIs != null ? Number(vehicle.priceRetailAsIs) : null
+              }
+              size="detail"
+              className="mt-4"
+            />
             {estimatedMonthly && (
               <p className="mt-1 text-sm text-facil-muted">
                 ou financie a partir de{" "}
@@ -240,7 +249,7 @@ export default async function VehicleDetailPage({ params }: Props) {
               {related.map((v: VehicleWithBrandAndPreviewImages) => (
                 <VehicleCard
                   key={v.id}
-                  vehicle={v}
+                  vehicle={toPublicVehicleCard(v)}
                   compact
                   headingLevel="h3"
                   footerLabel="Simule o financiamento →"

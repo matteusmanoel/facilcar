@@ -3,6 +3,8 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { WhatsAppFloat } from "@/components/shared/WhatsAppFloat";
 import { CookieBanner } from "@/components/shared/CookieBanner";
+import { PublicToaster } from "@/components/shared/PublicToaster";
+import { FormThankYouHomeToast } from "@/features/lead/ui/FormThankYouHomeToast";
 import { buildAutoDealerJsonLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +46,8 @@ export default async function PublicLayout({
       />
       <WhatsAppFloat whatsappNumber={settings?.defaultWhatsappNumber} />
       <CookieBanner />
+      <PublicToaster />
+      <FormThankYouHomeToast />
     </div>
   );
 }

@@ -1,10 +1,13 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { ScrollReveal } from "@/components/motion/ScrollReveal";
 import { getSiteSettings } from "@/features/settings/server/queries";
 import { getFeaturedVehicles } from "@/features/vehicle/server/queries";
 import { listPublishedBlogPosts } from "@/features/content/server/queries";
 import { FeaturedVehiclesCarousel } from "@/features/catalog/ui/FeaturedVehiclesCarousel";
+import { toPublicVehicleCard } from "@/features/catalog/lib/public-catalog";
 import { HomeHero } from "@/features/catalog/ui/HomeHero";
+import { HomePageSkeleton } from "@/features/catalog/ui/HomePageSkeleton";
 import { catalogFullBleedClass } from "@/features/catalog/lib/shell";
 import { BlogCard } from "@/features/content/ui/BlogCard";
 import { InstagramFeed } from "@/features/content/ui/InstagramFeed";
@@ -31,7 +34,15 @@ const testimonials = [
   },
 ];
 
-export default async function HomePage() {
+export default function HomePage() {
+  return (
+    <Suspense fallback={<HomePageSkeleton />}>
+      <HomePageContent />
+    </Suspense>
+  );
+}
+
+async function HomePageContent() {
   const [settings, featured, posts] = await Promise.all([
     getSiteSettings(),
     getFeaturedVehicles(9),
@@ -74,7 +85,7 @@ export default async function HomePage() {
             </ScrollReveal>
 
             <div className="mt-10">
-              <FeaturedVehiclesCarousel vehicles={featured} />
+              <FeaturedVehiclesCarousel vehicles={featured.map(toPublicVehicleCard)} />
             </div>
 
             <div className="mt-10 flex justify-center">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { VehicleImage } from "@/components/shared/VehicleImage";
 import { InspectionSeal } from "@/features/catalog/ui/InspectionSeal";
+import { PublicVehiclePrice } from "@/features/catalog/ui/PublicVehiclePrice";
 import { bodyStyleLabels } from "@/features/vehicle/lib/labels";
 import { cn } from "@/lib/cn";
 
@@ -11,6 +12,7 @@ export type VehicleCardVehicle = {
   model?: string | null;
   version?: string | null;
   priceCash?: unknown;
+  priceRetailAsIs?: unknown;
   yearManufacture?: number | null;
   yearModel?: number | null;
   mileage?: number | null;
@@ -31,13 +33,6 @@ type Props = {
   priority?: boolean;
   className?: string;
 };
-
-function formatPrice(priceCash: unknown): string {
-  if (priceCash == null) return "Consultar";
-  const n = Number(priceCash);
-  if (!Number.isFinite(n)) return "Consultar";
-  return `R$ ${n.toLocaleString("pt-BR")}`;
-}
 
 function brandName(brand: VehicleCardVehicle["brand"]): string | null {
   if (!brand) return null;
@@ -111,9 +106,11 @@ export function VehicleCard({
           {vehicle.mileage != null ? <span>{vehicle.mileage.toLocaleString("pt-BR")} km</span> : null}
         </div>
         <div className="mt-auto flex items-end justify-between gap-3 pt-4">
-          <p className={cn("font-black text-zinc-950 dark:text-zinc-50", compact ? "text-xl" : "text-2xl")}>
-            {formatPrice(vehicle.priceCash)}
-          </p>
+          <PublicVehiclePrice
+            priceCash={vehicle.priceCash}
+            priceRetailAsIs={vehicle.priceRetailAsIs}
+            compact={compact}
+          />
           <span className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition group-hover:border-facil-orange group-hover:text-facil-orange dark:border-zinc-700 dark:text-zinc-200">
             {footerLabel ?? "Ver mais"}
           </span>

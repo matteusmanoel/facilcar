@@ -23,7 +23,7 @@ type VehicleForSeo = {
   slug: string;
   description?: string | null;
   shortDescription?: string | null;
-  priceCash?: { toString(): string } | null;
+  priceCash?: { toString(): string } | number | null;
   yearModel?: number | null;
   mileage?: number | null;
   color?: string | null;
@@ -95,7 +95,7 @@ export function buildCarJsonLd(vehicle: VehicleForSeo) {
   const url = `${siteUrl}/estoque/${vehicle.slug}`;
   const image = vehicle.images?.[0]?.url;
 
-  const offers = vehicle.priceCash
+  const offers = vehicle.priceCash != null
     ? {
         "@type": "Offer",
         price: Number(vehicle.priceCash.toString()),

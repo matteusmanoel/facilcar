@@ -102,7 +102,7 @@ export default async function FinanciamentoPage() {
             <div className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-lg shadow-zinc-900/5">
               <h2 className="text-xl font-bold text-foreground">Simule Agora</h2>
               <p className="mt-1.5 text-sm text-facil-muted">
-                Preencha abaixo. Após o envio, abrimos o WhatsApp automaticamente.
+                Preencha abaixo. Depois do envio, confirmamos o pedido e um especialista continua no WhatsApp.
               </p>
               <div className="mt-5">
                 <FinancingSimulationForm

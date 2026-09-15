@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createFinancingSimulationLead } from "../server/actions";
 import {
   publicFormInputClass,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/theme";
 import { formatCPF, formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
+import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 
@@ -31,12 +33,13 @@ export function FinancingSimulationForm({
   vehicleModel,
   whatsappNumber,
 }: Props) {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [cpfValue, setCpfValue] = useState("");
   const [phoneValue, setPhoneValue] = useState("");
   const [installments, setInstallments] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
 
   const today = new Date();
   const maxBirth = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate())
@@ -55,55 +58,17 @@ export function FinancingSimulationForm({
     const result = await createFinancingSimulationLead(formData, whatsappNumber);
 
     if (result.success) {
-      setStatus("success");
-      formRef.current?.reset();
-      setCpfValue("");
-      setPhoneValue("");
-      setInstallments("");
-      if (result.whatsappUrl && result.whatsappUrl !== "#") {
-        setTimeout(() => {
-          window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
-        }, 600);
-      }
-    } else {
-      setStatus("error");
-      setErrorMessage(result.error);
+      router.push(
+        buildFormThankYouPath({
+          kind: "financiamento",
+          name: formData.get("name"),
+        }),
+      );
+      return;
     }
-  }
 
-  if (status === "success") {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl bg-green-50 px-6 py-8 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            className="text-green-600"
-            aria-hidden
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        </div>
-        <p className="text-base font-semibold text-green-900">
-          Dados enviados com sucesso!
-        </p>
-        <p className="text-sm text-green-700">
-          Abrindo WhatsApp para continuarmos o atendimento...
-        </p>
-        <button
-          type="button"
-          onClick={() => setStatus("idle")}
-          className="mt-2 text-sm text-facil-muted underline hover:text-foreground"
-        >
-          Preencher novamente
-        </button>
-      </div>
-    );
+    setStatus("error");
+    setErrorMessage(result.error);
   }
 
   return (
