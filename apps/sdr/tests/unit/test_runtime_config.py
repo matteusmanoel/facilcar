@@ -110,7 +110,14 @@ def test_validation_error_does_not_include_secrets() -> None:
         raise AssertionError("expected RuntimeConfigError")
 
 
-def test_health_is_not_config_readiness() -> None:
+def test_health_is_not_config_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SDR_ENVIRONMENT", "sandbox")
+    monkeypatch.setenv("SDR_OUTBOUND_POLICY", "deny_all")
+    monkeypatch.setenv("SDR_OUTBOUND_ALLOWLIST", "")
+    monkeypatch.setenv("SDR_DOCUMENTS_BUCKET", "")
+    monkeypatch.setenv("STORAGE_ENDPOINT", "")
+    monkeypatch.setenv("STORAGE_ACCESS_KEY", "")
+    monkeypatch.setenv("STORAGE_SECRET_KEY", "")
     get_settings.cache_clear()
     app = create_app()
     with TestClient(app) as client:
@@ -123,8 +130,62 @@ def test_health_is_not_config_readiness() -> None:
         assert "redis" not in body
         assert "storage" not in body
         ready = client.get("/ready/config")
-        assert ready.status_code in {200, 503}
+        assert ready.status_code == 200
         payload = ready.json()
+        assert payload.get("ok") is True
+        assert payload.get("ready") is True
         assert payload.get("dependencies_checked") is False
         assert "evolution_healthy" not in payload
         assert "postgres_healthy" not in payload
+
+
+def test_ready_config_invalid_staging_is_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SDR_ENVIRONMENT", "staging")
+    monkeypatch.setenv("SDR_OUTBOUND_POLICY", "allowlist")
+    monkeypatch.setenv("SDR_OUTBOUND_ALLOWLIST", "")
+    monkeypatch.setenv("SDR_DOCUMENTS_BUCKET", "")
+    monkeypatch.setenv("SDR_WEBHOOK_SECRET", "not-a-placeholder")
+    get_settings.cache_clear()
+    app = create_app()
+    with TestClient(app) as client:
+        ready = client.get("/ready/config")
+    assert ready.status_code == 503
+    payload = ready.json()
+    assert payload.get("ok") is False
+    assert payload.get("ready") is False
+    assert payload.get("dependencies_checked") is False
+
+
+def test_code_default_policy_is_deny_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SDR_OUTBOUND_POLICY", raising=False)
+    monkeypatch.delenv("SDR_OUTBOUND_ALLOWLIST", raising=False)
+    monkeypatch.setenv("SDR_ENVIRONMENT", "sandbox")
+    get_settings.cache_clear()
+    settings = get_settings()
+    assert settings.sdr_outbound_policy == "deny_all"
+    assert settings.sdr_outbound_allowlist == ""
+
+
+def test_secret_placeholder_is_rejected_for_staging() -> None:
+    with pytest.raises(RuntimeConfigError, match="placeholder"):
+        validate_runtime_settings(
+            _settings(
+                sdr_environment="staging",
+                sdr_outbound_policy="allowlist",
+                sdr_outbound_allowlist="5511999000101",
+                sdr_webhook_secret="change-me-local-secret",
+                sdr_documents_bucket="sdr-documents-test",
+            )
+        )
+
+
+def test_missing_bucket_rejected_when_storage_configured() -> None:
+    with pytest.raises(RuntimeConfigError, match="documents"):
+        validate_runtime_settings(
+            _settings(
+                storage_endpoint="http://127.0.0.1:9000",
+                storage_access_key="ak",
+                storage_secret_key="sk",
+                sdr_documents_bucket="",
+            )
+        )

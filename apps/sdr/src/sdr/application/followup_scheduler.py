@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable, Protocol
 from sdr.config import Settings, get_settings
 from sdr.domain.conversation_revision import context_revision_is_usable
 from sdr.domain.clock import now_brt as live_now_brt
-from sdr.domain.phone_access import evaluate_phone_access, parse_allowlist
+from sdr.domain.phone_access import classify_followup_phone_block, parse_allowlist
 from sdr.domain.phone import normalize_phone
 from sdr.domain.scheduling import is_within_store_hours, next_open_datetime
 from sdr.domain.types import LifecycleStatus
@@ -55,6 +55,7 @@ CANCEL_CAS_MISS = "CAS_MISS"
 CANCEL_ATTEMPTS_EXHAUSTED = "ATTEMPTS_EXHAUSTED"
 CANCEL_REVISION_UNAVAILABLE = CANCEL_REASON_REVISION_UNAVAILABLE
 CANCEL_PHONE_NOT_ALLOWED = "PHONE_NOT_ALLOWED"
+CANCEL_PHONE_ACCESS_UNAVAILABLE = "PHONE_ACCESS_UNAVAILABLE"
 
 NowFn = Callable[[], datetime]
 ComposerFn = Callable[[FollowUpTask, "FollowUpSnapshot"], Awaitable[str]]
@@ -336,15 +337,15 @@ class FollowUpScheduler:
 
     def _phone_blocker(self, snapshot: FollowUpSnapshot) -> str | None:
         settings = self._settings or get_settings()
-        decision = evaluate_phone_access(
-            snapshot.phone,
-            environment=str(settings.sdr_environment),
-            policy=str(settings.sdr_outbound_policy),
-            allowlist=parse_allowlist(settings.sdr_outbound_allowlist),
-        )
-        if decision.allowed:
-            return None
-        return CANCEL_PHONE_NOT_ALLOWED
+        try:
+            return classify_followup_phone_block(
+                snapshot.phone,
+                environment=str(getattr(settings, "sdr_environment", "") or ""),
+                policy=str(getattr(settings, "sdr_outbound_policy", "") or ""),
+                allowlist=parse_allowlist(getattr(settings, "sdr_outbound_allowlist", "") or ""),
+            )
+        except Exception:
+            return CANCEL_PHONE_ACCESS_UNAVAILABLE
 
     async def _apply_blocker(
         self, task: FollowUpTask, reason: str, now: datetime
@@ -366,6 +367,11 @@ class FollowUpScheduler:
             # Missing column or unloadable revision: do not send; return to
             # PENDING so a later deploy with the column can resume. Never 0.
             await self.repository.reschedule(task.id, task.scheduled_at, now=now)
+            return FollowUpTickResult(task.id, "aborted", reason=reason)
+        if reason == CANCEL_PHONE_ACCESS_UNAVAILABLE:
+            await self.repository.mark_failed(task.id, reason, now=now)
+            nxt = now + self.claim_ttl
+            await self.repository.reschedule(task.id, nxt, now=now)
             return FollowUpTickResult(task.id, "aborted", reason=reason)
         await self.repository.cancel(task.id, reason, now=now)
         return FollowUpTickResult(task.id, "cancelled", reason=reason)

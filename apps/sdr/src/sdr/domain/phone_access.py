@@ -78,6 +78,42 @@ def evaluate_phone_access(
     return PhoneAccessDecision(allowed=False, reason="not_in_allowlist")
 
 
+FOLLOWUP_PHONE_CANCEL = "PHONE_NOT_ALLOWED"
+FOLLOWUP_PHONE_RETRY = "PHONE_ACCESS_UNAVAILABLE"
+
+
+def classify_followup_phone_block(
+    phone: str,
+    *,
+    environment: str,
+    policy: str,
+    allowlist: Iterable[str],
+) -> str | None:
+    """Permanent cancel only for a proven allowlist miss. Everything else is retryable."""
+    try:
+        listed = tuple(item for item in (normalize_phone(item) for item in allowlist) if item)
+        decision = evaluate_phone_access(
+            phone,
+            environment=environment,
+            policy=policy,
+            allowlist=listed,
+        )
+    except Exception:
+        return FOLLOWUP_PHONE_RETRY
+    if decision.allowed:
+        return None
+    env = (environment or "").strip().lower()
+    pol = (policy or "").strip().lower()
+    if (
+        env in VALID_ENVIRONMENTS
+        and pol == "allowlist"
+        and listed
+        and decision.reason == "not_in_allowlist"
+    ):
+        return FOLLOWUP_PHONE_CANCEL
+    return FOLLOWUP_PHONE_RETRY
+
+
 def ensure_outbound_allowed(phone: str, settings: Any) -> None:
     decision = evaluate_phone_access(
         phone,

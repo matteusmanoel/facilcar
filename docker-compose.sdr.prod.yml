@@ -50,7 +50,8 @@ services:
       - "127.0.0.1:8000:8000"
     networks: [facilcar-sdr]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      # Config-readiness only (/ready/config). No dependency probes.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready/config')"]
       interval: 15s
       timeout: 5s
       retries: 5

@@ -16,7 +16,8 @@ const VALID_POLICIES = new Set(["deny_all", "allowlist", "unrestricted"]);
 export function normalizePhoneDigits(raw: string | null | undefined): string {
   if (!raw) return "";
   const local = String(raw).trim().split("@")[0] ?? "";
-  return local.replace(/\D+/g, "");
+  const beforeDevice = local.split(":")[0] ?? "";
+  return beforeDevice.replace(/\D+/g, "");
 }
 
 export function parseAllowlist(raw: string | null | undefined): string[] {

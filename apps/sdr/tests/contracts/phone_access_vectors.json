@@ -1,0 +1,176 @@
+{
+  "comment": "Synthetic phone-access contract vectors shared by Python and TypeScript. No real numbers.",
+  "vectors": [
+    {
+      "id": "plus55_formatted",
+      "phone": "+55 (11) 99900-0101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "spaces_hyphen_parens",
+      "phone": "55 (11) 99900-0101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "+55 11 99900-0101",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "allowlist_newline_comma_dupes",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101,\n5511999000101, 5511999000101",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "empty_allowlist",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "  , \n  ",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    },
+    {
+      "id": "missing_phone",
+      "phone": "",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "missing_phone"
+    },
+    {
+      "id": "invalid_phone",
+      "phone": "not-a-phone",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "missing_phone"
+    },
+    {
+      "id": "invalid_environment",
+      "phone": "5511999000101",
+      "environment": "prod",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "invalid_environment"
+    },
+    {
+      "id": "invalid_policy",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "open",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "invalid_policy"
+    },
+    {
+      "id": "deny_all",
+      "phone": "5511999000101",
+      "environment": "sandbox",
+      "policy": "deny_all",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "deny_all"
+    },
+    {
+      "id": "allowlist_exact_hit",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101,5511999000102",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "allowlist_exact_miss",
+      "phone": "5511999000199",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    },
+    {
+      "id": "unrestricted_production",
+      "phone": "5511999000101",
+      "environment": "production",
+      "policy": "unrestricted",
+      "allowlist_raw": "",
+      "allowed": true,
+      "reason": "unrestricted"
+    },
+    {
+      "id": "unrestricted_outside_production",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "unrestricted",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "unrestricted_requires_production"
+    },
+    {
+      "id": "common_jid",
+      "phone": "5511999000101@s.whatsapp.net",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "jid_device_suffix",
+      "phone": "5511999000101:12@s.whatsapp.net",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": true,
+      "reason": "allowlisted"
+    },
+    {
+      "id": "last_digits_only_not_enough",
+      "phone": "5511999000199",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    },
+    {
+      "id": "prefix_of_allowlisted",
+      "phone": "551199900010",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    },
+    {
+      "id": "allowlisted_is_prefix_of_phone",
+      "phone": "55119990001019",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "5511999000101",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    },
+    {
+      "id": "substring_inside_phone",
+      "phone": "5511999000101",
+      "environment": "staging",
+      "policy": "allowlist",
+      "allowlist_raw": "11999000101",
+      "allowed": false,
+      "reason": "not_in_allowlist"
+    }
+  ]
+}

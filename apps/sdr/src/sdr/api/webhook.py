@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sdr.config import Settings, get_settings
 from sdr.debounce import mark_activity
 from sdr.domain.phone import normalize_phone
+from sdr.domain.phone_access import evaluate_phone_access, parse_allowlist
 from sdr.redis_client import get_redis
 
 router = APIRouter(tags=["webhook"])
@@ -79,6 +80,21 @@ def _phones_from_payload(body: Any) -> list[str]:
     return phones
 
 
+def _allowed_phones(body: Any, settings: Settings) -> list[str]:
+    allowed: list[str] = []
+    allowlist = parse_allowlist(settings.sdr_outbound_allowlist)
+    for phone in _phones_from_payload(body):
+        decision = evaluate_phone_access(
+            phone,
+            environment=str(settings.sdr_environment),
+            policy=str(settings.sdr_outbound_policy),
+            allowlist=allowlist,
+        )
+        if decision.allowed and phone not in allowed:
+            allowed.append(phone)
+    return allowed
+
+
 @router.post("/webhook/evolution", response_model=WebhookAck)
 async def evolution_webhook(
     request: Request,
@@ -94,34 +110,33 @@ async def evolution_webhook(
     except Exception:
         body = None
 
+    allowed_phones = _allowed_phones(body, settings)
     debounce_marked = False
-    client = get_redis()
-    if client is not None:
-        for phone in _phones_from_payload(body):
-            try:
-                await mark_activity(client, phone, settings=settings)
-                debounce_marked = True
-            except Exception:
-                pass
+    if allowed_phones:
+        client = get_redis()
+        if client is not None:
+            for phone in allowed_phones:
+                try:
+                    await mark_activity(client, phone, settings=settings)
+                    debounce_marked = True
+                except Exception:
+                    pass
 
     julia_on = bool(settings.julia_enabled)
-    if not julia_on:
-        return WebhookAck(
-            ok=True,
-            accepted=True,
-            julia_enabled=False,
-            processed=False,
-            debounce_marked=debounce_marked,
-            message="accepted (julia disabled)",
-        )
+    if not allowed_phones:
+        message = "accepted (ignored)"
+    elif not julia_on:
+        message = "accepted (julia disabled)"
+    else:
+        message = "accepted (debounce marked; AI via worker poll)"
 
     return WebhookAck(
         ok=True,
         accepted=True,
-        julia_enabled=True,
+        julia_enabled=julia_on,
         processed=False,
         debounce_marked=debounce_marked,
-        message="accepted (debounce marked; AI via worker poll)",
+        message=message,
     )
 
 
