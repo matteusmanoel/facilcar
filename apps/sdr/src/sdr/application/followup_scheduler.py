@@ -26,8 +26,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Protocol
 
+from sdr.config import Settings, get_settings
 from sdr.domain.conversation_revision import context_revision_is_usable
 from sdr.domain.clock import now_brt as live_now_brt
+from sdr.domain.phone_access import evaluate_phone_access, parse_allowlist
+from sdr.domain.phone import normalize_phone
 from sdr.domain.scheduling import is_within_store_hours, next_open_datetime
 from sdr.domain.types import LifecycleStatus
 from sdr.infrastructure.followup_repository import (
@@ -51,6 +54,7 @@ CANCEL_COMMERCIAL = "COMMERCIAL_INVALID"
 CANCEL_CAS_MISS = "CAS_MISS"
 CANCEL_ATTEMPTS_EXHAUSTED = "ATTEMPTS_EXHAUSTED"
 CANCEL_REVISION_UNAVAILABLE = CANCEL_REASON_REVISION_UNAVAILABLE
+CANCEL_PHONE_NOT_ALLOWED = "PHONE_NOT_ALLOWED"
 
 NowFn = Callable[[], datetime]
 ComposerFn = Callable[[FollowUpTask, "FollowUpSnapshot"], Awaitable[str]]
@@ -75,6 +79,7 @@ class FollowUpSnapshot:
     closed: bool = False
     commercial_ok: bool = True
     revision_loaded: bool = False
+    phone: str = ""
 
 
 @dataclass(slots=True)
@@ -158,6 +163,7 @@ async def load_followup_snapshot_from_conversation(
     opted = row["sdrOptedOutAt"] if "sdrOptedOutAt" in keys else None
     bot = str(row["botStatus"] if "botStatus" in keys else LifecycleStatus.BOT_ACTIVE.value)
     own = int(row["ownershipRevision"] or 0) if "ownershipRevision" in keys else 0
+    phone = normalize_phone(row["phone"]) if "phone" in keys else ""
     return FollowUpSnapshot(
         conversation_id=conversation_id,
         bot_status=bot,
@@ -167,6 +173,7 @@ async def load_followup_snapshot_from_conversation(
         closed=bot == LifecycleStatus.HUMAN_CLOSED.value,
         commercial_ok=opted is None,
         revision_loaded=True,
+        phone=phone,
     )
 
 
@@ -197,6 +204,7 @@ class FollowUpScheduler:
         load_snapshot: SnapshotFn | None = None,
         claim_ttl: timedelta = DEFAULT_CLAIM_TTL,
         claim_limit: int = 1,
+        settings: Settings | None = None,
     ) -> None:
         self.repository = repository
         self.worker_id = worker_id
@@ -206,6 +214,7 @@ class FollowUpScheduler:
         self._load_snapshot = load_snapshot
         self.claim_ttl = claim_ttl
         self.claim_limit = claim_limit
+        self._settings = settings
         # In-process delivery log so a crash after send reconciles without dup.
         self._delivered_keys: set[str] = set()
         self.context_checked_before_compose = False
@@ -318,9 +327,24 @@ class FollowUpScheduler:
                 return CANCEL_NEW_INBOUND
         if task.attempt_number >= task.maximum_attempts:
             return CANCEL_ATTEMPTS_EXHAUSTED
+        phone_reason = self._phone_blocker(snapshot)
+        if phone_reason is not None:
+            return phone_reason
         if not is_within_store_hours(now):
             return "outside_hours"
         return None
+
+    def _phone_blocker(self, snapshot: FollowUpSnapshot) -> str | None:
+        settings = self._settings or get_settings()
+        decision = evaluate_phone_access(
+            snapshot.phone,
+            environment=str(settings.sdr_environment),
+            policy=str(settings.sdr_outbound_policy),
+            allowlist=parse_allowlist(settings.sdr_outbound_allowlist),
+        )
+        if decision.allowed:
+            return None
+        return CANCEL_PHONE_NOT_ALLOWED
 
     async def _apply_blocker(
         self, task: FollowUpTask, reason: str, now: datetime
@@ -457,6 +481,7 @@ __all__ = [
     "CANCEL_COMMERCIAL",
     "CANCEL_NEW_INBOUND",
     "CANCEL_OPT_OUT",
+    "CANCEL_PHONE_NOT_ALLOWED",
     "DEFAULT_FOLLOWUP_PLACEHOLDER",
     "FollowUpScheduler",
     "FollowUpSendConfirmedError",

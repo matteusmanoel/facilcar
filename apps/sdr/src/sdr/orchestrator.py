@@ -32,6 +32,7 @@ from sdr.application.outbound_guard import (
 )
 from sdr.application.process_turn import ProcessTurnResult, process_turn
 from sdr.config import Settings, get_settings
+from sdr.domain.phone_access import ensure_outbound_allowed
 from sdr.debounce import wait_until_quiet
 from sdr.domain.commands import (
     RESET_MEMORY_CONFIRMATION_PT,
@@ -157,14 +158,19 @@ class EvolutionSender(Protocol):
 
 
 class StubEvolutionSender:
-    """Wave 1 stub — no network calls."""
+    """Wave 1 stub — no network calls. Still enforces outbound phone policy."""
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings
         self.sent: list[tuple[str, str, str]] = []
         self.sent_media: list[dict[str, str]] = []
         self.sent_locations: list[dict[str, Any]] = []
 
+    def _guard(self, phone: str) -> None:
+        ensure_outbound_allowed(phone, self._settings or get_settings())
+
     async def send_text(self, phone: str, text: str, *, instance: str) -> None:
+        self._guard(phone)
         self.sent.append((phone, text, instance))
 
     async def send_media(
@@ -177,6 +183,7 @@ class StubEvolutionSender:
         *,
         instance: str,
     ) -> str | None:
+        self._guard(phone)
         self.sent_media.append(
             {
                 "phone": phone,
@@ -199,6 +206,7 @@ class StubEvolutionSender:
         address: str = "",
         instance: str,
     ) -> str | None:
+        self._guard(phone)
         self.sent_locations.append(
             {
                 "phone": phone,

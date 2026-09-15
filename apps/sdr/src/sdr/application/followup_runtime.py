@@ -12,6 +12,7 @@ from typing import Any
 import asyncio
 
 from sdr.application.followup_scheduler import FollowUpScheduler, FollowUpSnapshot
+from sdr.config import get_settings
 from sdr.domain.conversation_revision import context_revision_is_usable
 from sdr.domain.clock import TZ_BRT, now_brt
 from sdr.domain.followup import (
@@ -124,6 +125,7 @@ class FollowUpRuntime:
     context_revision: int = 0
     bot_status: str = LifecycleStatus.BOT_ACTIVE.value
     last_inbound_at: datetime | None = None
+    phone: str = ""
     sends: list[str] = field(default_factory=list)
     composer_calls: int = 0
     llm_calls: int = 0
@@ -243,6 +245,7 @@ class FollowUpRuntime:
         apply_followup_transition(state, decision)
         self.last_decision = decision
         self.last_state = state
+        self.phone = str(getattr(state.customer, "phone", "") or "")
         self.ownership_revision = int(getattr(state, "ownership_revision", 0) or 0)
         self.context_revision = int(getattr(state, "context_revision", 0) or 0)
         self.bot_status = state.lifecycle.status.value
@@ -317,6 +320,9 @@ class FollowUpRuntime:
 
     def snapshot(self) -> FollowUpSnapshot:
         loaded = context_revision_is_usable(self.context_revision)
+        phone = self.phone
+        if not phone and self.last_state is not None:
+            phone = str(getattr(self.last_state.customer, "phone", "") or "")
         return FollowUpSnapshot(
             conversation_id=self.conversation_id,
             bot_status=self.bot_status,
@@ -327,6 +333,7 @@ class FollowUpRuntime:
             closed=self.bot_status == LifecycleStatus.HUMAN_CLOSED.value,
             commercial_ok=not self.is_opted_out(),
             revision_loaded=loaded,
+            phone=phone,
         )
 
     def replay_snapshot(self, state: ConversationCanonicalState | None = None) -> dict[str, Any]:
@@ -462,6 +469,7 @@ class FollowUpRuntime:
                 composer=self.compose_task,
                 sender=self.send_task,
                 load_snapshot=self._load_snapshot,
+                settings=get_settings(),
             )
             for worker in workers
         ]

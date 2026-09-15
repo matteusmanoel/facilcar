@@ -37,8 +37,16 @@ class Settings(BaseSettings):
     sdr_summary_llm: bool = False
     sdr_vision_model: str = "gpt-4o"
     # sandbox: may include failure_code in customer-facing recovery.
+    # staging: same recovery as sandbox; outbound is deny-by-default / allowlist.
     # production: tool/media failures stay silent so a human can take over.
-    sdr_environment: Literal["sandbox", "production"] = "sandbox"
+    sdr_environment: Literal["sandbox", "staging", "production"] = "sandbox"
+    # deny_all is the safe default. unrestricted is valid only in production.
+    sdr_outbound_policy: Literal["deny_all", "allowlist", "unrestricted"] = "deny_all"
+    sdr_outbound_allowlist: str = ""
+
+    storage_endpoint: str = ""
+    storage_access_key: str = ""
+    storage_secret_key: str = ""
 
     sdr_debounce_ms: int = Field(default=8000)
     sdr_debounce_max_ms: int = Field(default=20000)

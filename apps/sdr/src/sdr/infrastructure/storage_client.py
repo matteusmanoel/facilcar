@@ -32,8 +32,13 @@ def _env(name: str, default: str = "") -> str:
 
 def get_documents_bucket() -> str:
     """Private documents bucket. Never falls back to ``vehicle-images``."""
-    bucket = resolve_documents_bucket(_env("SDR_DOCUMENTS_BUCKET"))
+    raw = _env("SDR_DOCUMENTS_BUCKET")
+    bucket = resolve_documents_bucket(raw)
     if not bucket:
+        if raw in FORBIDDEN_DOCUMENT_BUCKETS:
+            raise DocumentsBucketNotConfigured(
+                f"{raw} is not a private documents bucket"
+            )
         raise DocumentsBucketNotConfigured(
             "SDR_DOCUMENTS_BUCKET must be set to a private documents bucket"
         )

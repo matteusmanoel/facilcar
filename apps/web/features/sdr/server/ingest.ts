@@ -10,6 +10,7 @@ import { humanFromMeOwnershipCas } from "./human-from-me-cas";
 import { prisma } from "@/lib/db";
 import { isGroupJid, sdrPreferredPhone } from "./jid-guard";
 import { extractSdrQuotedContext } from "./quoted-context";
+import { evaluatePhoneAccessFromEnv } from "./phone-access";
 
 export type IngestSdrResult = {
   ok: true;
@@ -103,6 +104,13 @@ export async function ingestSdrWebhook(payload: unknown): Promise<IngestSdrResul
     if (!phone) {
       ignored++;
       reason = reason ?? "missing_phone";
+      continue;
+    }
+
+    const access = evaluatePhoneAccessFromEnv(phone);
+    if (!access.allowed) {
+      ignored++;
+      reason = "phone_not_allowed";
       continue;
     }
 
