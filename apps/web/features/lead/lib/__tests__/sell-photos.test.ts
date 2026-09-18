@@ -49,4 +49,70 @@ describe("sell photo intake", () => {
       ]),
     ).toEqual(["https://cdn.example/sell-leads/a.jpg", "/vehicle-placeholder.webp"]);
   });
+
+  it("accepts a real File when File is available", () => {
+    const file = new File([JPEG_HEADER], "frente.jpg", { type: "image/jpeg" });
+    expect(isSellPhotoUpload(file)).toBe(true);
+    const formData = new FormData();
+    formData.append("photos", file);
+    const collected: ReturnType<typeof collectSellPhotoUploads> = collectSellPhotoUploads(formData);
+    expect(collected).toHaveLength(1);
+    expect(collected[0]?.name).toBe("frente.jpg");
+  });
+
+  it("accepts a structural upload that the server can actually read", () => {
+    const upload = {
+      size: JPEG_HEADER.byteLength,
+      type: "image/jpeg",
+      name: "estrutural.jpg",
+      arrayBuffer: async () => JPEG_HEADER.buffer.slice(
+        JPEG_HEADER.byteOffset,
+        JPEG_HEADER.byteOffset + JPEG_HEADER.byteLength,
+      ),
+    };
+    expect(isSellPhotoUpload(upload)).toBe(true);
+  });
+
+  it("rejects values that cannot be read as uploads", () => {
+    expect(isSellPhotoUpload(null)).toBe(false);
+    expect(isSellPhotoUpload(undefined)).toBe(false);
+    expect(isSellPhotoUpload("https://cdn.example/a.jpg")).toBe(false);
+    expect(isSellPhotoUpload(1)).toBe(false);
+    expect(isSellPhotoUpload([])).toBe(false);
+    expect(isSellPhotoUpload({})).toBe(false);
+    expect(isSellPhotoUpload({ name: "a.jpg" })).toBe(false);
+    expect(isSellPhotoUpload({ type: "image/jpeg" })).toBe(false);
+    expect(isSellPhotoUpload({ size: 12 })).toBe(false);
+    expect(isSellPhotoUpload({ size: 12, arrayBuffer: "not-a-function" })).toBe(false);
+    expect(isSellPhotoUpload({ size: 0, arrayBuffer: async () => new ArrayBuffer(0) })).toBe(false);
+  });
+
+  it("preserves order of mixed FormData entries without inventing duplicates", () => {
+    const first = new File([JPEG_HEADER], "a.jpg", { type: "image/jpeg" });
+    const second = new File([PNG_HEADER], "b.png", { type: "image/png" });
+    const formData = new FormData();
+    formData.append("photos", first);
+    formData.append("photos", "skip-me");
+    formData.append("photos", second);
+    const uploads = collectSellPhotoUploads(formData);
+    expect(uploads.map((item) => item.name)).toEqual(["a.jpg", "b.png"]);
+    expect(uploads).toHaveLength(2);
+  });
+
+  it("treats missing url lists as empty without dropping valid urls or changing order", () => {
+    expect(visibleSellPhotoUrls(null)).toEqual([]);
+    expect(visibleSellPhotoUrls(undefined)).toEqual([]);
+    expect(visibleSellPhotoUrls(["", "   "])).toEqual([]);
+    expect(
+      visibleSellPhotoUrls([
+        "https://cdn.example/1.jpg",
+        "https://cdn.example/2.jpg",
+        "https://cdn.example/1.jpg",
+      ]),
+    ).toEqual([
+      "https://cdn.example/1.jpg",
+      "https://cdn.example/2.jpg",
+      "https://cdn.example/1.jpg",
+    ]);
+  });
 });
