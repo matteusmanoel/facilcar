@@ -19,14 +19,18 @@ export type SellPhotoUpload = {
   arrayBuffer: () => Promise<ArrayBuffer>;
 };
 
-export function isSellPhotoUpload(value: FormDataEntryValue): value is SellPhotoUpload {
+export function isSellPhotoUpload(value: unknown): value is SellPhotoUpload {
   if (typeof value !== "object" || value === null) return false;
   const upload = value as Partial<SellPhotoUpload>;
   return typeof upload.size === "number" && upload.size > 0 && typeof upload.arrayBuffer === "function";
 }
 
 export function collectSellPhotoUploads(formData: FormData): SellPhotoUpload[] {
-  return formData.getAll("photos").filter(isSellPhotoUpload);
+  const uploads: SellPhotoUpload[] = [];
+  for (const value of formData.getAll("photos")) {
+    if (isSellPhotoUpload(value)) uploads.push(value);
+  }
+  return uploads;
 }
 
 export function sellPhotoExt(contentType: string): string {
