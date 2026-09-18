@@ -75,6 +75,7 @@ def _snap(
     closed: bool = False,
     commercial_ok: bool = True,
     revision_loaded: bool = True,
+    phone: str = "5511999999999",
 ) -> FollowUpSnapshot:
     return FollowUpSnapshot(
         conversation_id=conversation_id,
@@ -86,6 +87,7 @@ def _snap(
         closed=closed,
         commercial_ok=commercial_ok,
         revision_loaded=revision_loaded,
+        phone=phone,
     )
 
 

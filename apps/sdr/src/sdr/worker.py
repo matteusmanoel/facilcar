@@ -12,6 +12,7 @@ import redis.asyncio as redis
 
 from sdr.config import Settings, get_settings
 from sdr.db import init_pool
+from sdr.domain.runtime_settings import validate_runtime_settings
 from sdr.infrastructure.conversation_repository import ConversationRepository
 from sdr.infrastructure.evolution_client import EvolutionClient
 from sdr.orchestrator import Orchestrator, StubEvolutionSender, default_understand
@@ -70,7 +71,7 @@ def _default_evolution(settings: Settings):
     if (settings.evolution_api_key or "").strip():
         return LiveEvolutionSender(EvolutionClient(settings))
     logger.warning("EVOLUTION_API_KEY empty — outbound WhatsApp uses StubEvolutionSender")
-    return StubEvolutionSender()
+    return StubEvolutionSender(settings=settings)
 
 
 async def process_pending_once(
@@ -120,6 +121,7 @@ async def run_worker_loop(
 ) -> None:
     """Long-running poll loop (CLI entry)."""
     cfg = settings or get_settings()
+    validate_runtime_settings(cfg)
     pool = await init_pool(cfg)
     r = await init_redis(cfg)
     evolution = _default_evolution(cfg)

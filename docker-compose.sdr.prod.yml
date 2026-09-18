@@ -42,12 +42,16 @@ services:
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-vehicle-images}
       STORAGE_S3_REGION: ${STORAGE_S3_REGION:-sa-east-1}
-      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-vehicle-images}
+      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-}
+      SDR_ENVIRONMENT: ${SDR_ENVIRONMENT:-staging}
+      SDR_OUTBOUND_POLICY: ${SDR_OUTBOUND_POLICY:-allowlist}
+      SDR_OUTBOUND_ALLOWLIST: ${SDR_OUTBOUND_ALLOWLIST:-}
     ports:
       - "127.0.0.1:8000:8000"
     networks: [facilcar-sdr]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      # Config-readiness only (/ready/config). No dependency probes.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready/config')"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -79,7 +83,10 @@ services:
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-vehicle-images}
       STORAGE_S3_REGION: ${STORAGE_S3_REGION:-sa-east-1}
-      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-vehicle-images}
+      SDR_DOCUMENTS_BUCKET: ${SDR_DOCUMENTS_BUCKET:-}
+      SDR_ENVIRONMENT: ${SDR_ENVIRONMENT:-staging}
+      SDR_OUTBOUND_POLICY: ${SDR_OUTBOUND_POLICY:-allowlist}
+      SDR_OUTBOUND_ALLOWLIST: ${SDR_OUTBOUND_ALLOWLIST:-}
     networks: [facilcar-sdr]
 
 networks:

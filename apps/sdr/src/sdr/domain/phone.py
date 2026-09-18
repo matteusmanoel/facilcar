@@ -20,6 +20,8 @@ def normalize_phone(raw: str | None) -> str:
         return ""
     # Drop WhatsApp / group suffixes before digit extraction.
     local = text.split("@", 1)[0]
+    # Device suffix (e.g. 5511999000101:12) is not part of the phone identity.
+    local = local.split(":", 1)[0]
     digits = _NON_DIGIT.sub("", local)
     return digits
 

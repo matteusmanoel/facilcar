@@ -18,6 +18,10 @@ def test_normalize_jid() -> None:
     assert phone_from_jid("5511888777666@s.whatsapp.net") == "5511888777666"
 
 
+def test_normalize_jid_strips_device_suffix() -> None:
+    assert normalize_phone("5511999000101:12@s.whatsapp.net") == "5511999000101"
+
+
 def test_normalize_empty() -> None:
     assert normalize_phone(None) == ""
     assert normalize_phone("") == ""

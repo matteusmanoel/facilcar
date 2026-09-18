@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from sdr.config import Settings, get_settings
+from sdr.domain.phone_access import ensure_outbound_allowed
 
 
 class EvolutionError(Exception):
@@ -138,6 +139,7 @@ class EvolutionClient:
         returned id when present. That marker lets inbound ``fromMe`` webhooks
         distinguish bot-sent traffic from human seller replies.
         """
+        ensure_outbound_allowed(number, self._settings)
         payload = await self._request(
             "POST",
             f"/message/sendText/{self.instance}",
@@ -160,6 +162,7 @@ class EvolutionClient:
         delay_ms: int = 800,
     ) -> str | None:
         """Send a WhatsApp location pin via Evolution ``/message/sendLocation``."""
+        ensure_outbound_allowed(number, self._settings)
         payload = await self._request(
             "POST",
             f"/message/sendLocation/{self.instance}",
@@ -186,6 +189,7 @@ class EvolutionClient:
         delay_ms: int | None = None,
     ) -> str | None:
         """Send media (image/video/document/audio). ``media`` may be URL or base64."""
+        ensure_outbound_allowed(number, self._settings)
         body: dict[str, Any] = {
             "number": number,
             "mediatype": mediatype,

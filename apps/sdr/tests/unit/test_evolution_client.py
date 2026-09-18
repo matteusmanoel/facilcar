@@ -22,6 +22,9 @@ def _settings(**overrides: str) -> Settings:
         "database_url": "postgresql://unused:unused@localhost:5432/unused",
         "redis_url": "redis://localhost:6379/15",
         "sdr_webhook_secret": "test-secret",
+        "sdr_environment": "sandbox",
+        "sdr_outbound_policy": "allowlist",
+        "sdr_outbound_allowlist": "5545988432998",
     }
     data.update(overrides)
     return Settings(**data)

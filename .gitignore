@@ -80,6 +80,9 @@ apps/web/public/frente-loja.png
 wa-session*.json
 *-wa-creds.json
 
+# Local SDR conversation dumps — never commit (PII / media)
+apps/sdr/real_conversations/
+
 # Local Cursor/agent skill copies (third-party Redis/Iris) — not product runtime
 .agents/
 skills-lock.json

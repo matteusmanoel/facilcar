@@ -184,8 +184,6 @@ class DocumentStorageService:
                 error=err,
                 digest=digest,
             )
-            if attempts >= self._max_attempts():
-                status = STORAGE_PERMANENT_FAILURE
             return DocumentStorageOutcome(
                 commercial_received=commercial,
                 document_type=doc_type,

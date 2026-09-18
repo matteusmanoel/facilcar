@@ -166,6 +166,7 @@ async def test_restart_preserves_captured_revision() -> None:
     restarted = FollowUpRuntime(conversation_id="t-rev", repo=repo)
     restarted.context_revision = captured
     restarted.ownership_revision = 0
+    restarted.phone = first.phone
     _make_due(restarted)
     await restarted.tick()
     assert repo.all_rows()[0].context_revision == captured
