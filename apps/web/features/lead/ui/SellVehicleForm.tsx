@@ -7,28 +7,22 @@ import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
 import { formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
 import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
+import { RelatoFields } from "./RelatoFields";
 
 const inputClass = publicFormInputClass;
 const labelClass = publicFormLabelClass;
-const MAX_PHOTOS = 5;
 
 export function SellVehicleForm() {
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [phoneValue, setPhoneValue] = useState("");
-  const [photoCount, setPhotoCount] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
 
   async function handleSubmit(formData: FormData) {
-    const payload = new FormData();
-    for (const [key, value] of formData.entries()) {
-      payload.append(key, value);
-    }
-
     setStatus("submitting");
     setErrorMessage("");
-    const result = await createSellVehicleLead(payload);
+    const result = await createSellVehicleLead(formData);
     if (result.success) {
       router.push(
         buildFormThankYouPath({
@@ -38,7 +32,6 @@ export function SellVehicleForm() {
       );
       return;
     }
-
     setStatus("error");
     setErrorMessage(result.error);
   }
@@ -82,18 +75,21 @@ export function SellVehicleForm() {
       </label>
 
       <fieldset className="space-y-2">
-        <legend className={labelClass}>Como prefere vender?</legend>
+        <legend className={`${labelClass} mb-1`}>Como prefere negociar? *</legend>
         <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
           <input
             type="radio"
             name="saleMode"
             value="CONSIGNMENT"
+            required
             className="mt-1 accent-facil-orange"
             disabled={status === "submitting"}
           />
           <span>
             <span className="font-medium">Consignação</span>
-            <span className="block text-facil-muted">A loja anuncia e negocia o seu carro.</span>
+            <span className="block text-facil-muted">
+              A loja anuncia e cuida da negociação. Seu carro fica anunciado profissionalmente até vender.
+            </span>
           </span>
         </label>
         <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
@@ -105,102 +101,18 @@ export function SellVehicleForm() {
             disabled={status === "submitting"}
           />
           <span>
-            <span className="font-medium">Compra direta pela loja</span>
-            <span className="block text-facil-muted">A FácilCar avalia e pode comprar o veículo.</span>
+            <span className="font-medium">Venda direta</span>
+            <span className="block text-facil-muted">
+              A FácilCar avalia e, se tiver interesse, compra o seu veículo diretamente.
+            </span>
           </span>
         </label>
       </fieldset>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className={labelClass}>
-          Marca
-          <input
-            name="brand"
-            className={inputClass}
-            placeholder="Ex: Toyota"
-            disabled={status === "submitting"}
-            onFocus={scrollPublicFieldIntoView}
-          />
-        </label>
-        <label className={labelClass}>
-          Modelo
-          <input
-            name="model"
-            className={inputClass}
-            placeholder="Ex: Corolla"
-            disabled={status === "submitting"}
-            onFocus={scrollPublicFieldIntoView}
-          />
-        </label>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <label className={labelClass}>
-          Ano
-          <input
-            name="yearModel"
-            type="number"
-            min={1990}
-            max={2030}
-            inputMode="numeric"
-            className={inputClass}
-            placeholder="2020"
-            disabled={status === "submitting"}
-            onFocus={scrollPublicFieldIntoView}
-          />
-        </label>
-        <label className={labelClass}>
-          Quilometragem
-          <input
-            name="mileage"
-            type="number"
-            min={0}
-            inputMode="numeric"
-            className={inputClass}
-            placeholder="45000"
-            disabled={status === "submitting"}
-            onFocus={scrollPublicFieldIntoView}
-          />
-        </label>
-      </div>
-
-      <label className={labelClass}>
-        Fotos do veículo
-        <input
-          name="photos"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          multiple
-          className={`${inputClass} file:mr-3 file:rounded-md file:border-0 file:bg-facil-orange file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white`}
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (files.length > MAX_PHOTOS) {
-              e.target.value = "";
-              setPhotoCount(0);
-              setStatus("error");
-              setErrorMessage(`Envie no máximo ${MAX_PHOTOS} fotos.`);
-              return;
-            }
-            setPhotoCount(files.length);
-          }}
-        />
-        <span className="mt-1 block text-xs font-normal text-facil-muted">
-          Até {MAX_PHOTOS} fotos (JPEG, PNG ou WebP, 4 MB cada)
-          {photoCount > 0 ? ` · ${photoCount} selecionada(s)` : ""}
-        </span>
-      </label>
-
-      <label className={labelClass}>
-        Observações
-        <textarea
-          name="observations"
-          rows={4}
-          className={inputClass}
-          placeholder="Opcionais, estado de conservação, documentação…"
-          disabled={status === "submitting"}
-          onFocus={scrollPublicFieldIntoView}
-        />
-      </label>
+      <RelatoFields
+        disabled={status === "submitting"}
+        placeholder="Conte sobre o veículo: marca, modelo, ano, quilometragem, estado de conservação, o que quiser. Não precisa de fotos nem de documentos agora."
+      />
 
       {status === "error" && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
@@ -211,7 +123,7 @@ export function SellVehicleForm() {
         disabled={status === "submitting"}
         className="btn-facil-primary mt-1 flex w-full items-center justify-center gap-2 py-3.5 text-base font-bold shadow-md disabled:opacity-70"
       >
-        {status === "submitting" ? "Enviando..." : "Solicitar avaliação"}
+        {status === "submitting" ? "Enviando..." : "Quero negociar meu carro"}
       </button>
     </form>
   );

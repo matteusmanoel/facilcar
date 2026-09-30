@@ -21,7 +21,6 @@ export type StockListVehicleInput = {
   doors: number | null;
   plateFinal: string | null;
   priceCash: number | string | { toString(): string } | null;
-  pricePromotional: number | string | { toString(): string } | null;
   priceTradeIn: number | string | { toString(): string } | null;
   aceitaTroca: boolean;
   aceitaSemEntrada: boolean;
@@ -51,7 +50,6 @@ export type StockListRow = {
   doorsLabel: string;
   plateFinal: string;
   priceCashLabel: string;
-  pricePromotionalLabel: string;
   priceTradeInLabel: string;
   aceitaTroca: boolean;
   aceitaSemEntrada: boolean;
@@ -82,7 +80,6 @@ export type CustomerSheetVehicleInput = {
   doors: number | null;
   plateFinal: string | null;
   priceCash: number | string | { toString(): string } | null;
-  pricePromotional: number | string | { toString(): string } | null;
   priceTradeIn: number | string | { toString(): string } | null;
   aceitaTroca: boolean;
   aceitaSemEntrada: boolean;
@@ -100,7 +97,6 @@ export type CustomerSheetModel = {
   subtitle: string | null;
   yearLabel: string;
   priceCashLabel: string;
-  pricePromotionalLabel: string | null;
   priceTradeInLabel: string | null;
   specs: CustomerSheetSpec[];
   plateFinal: string | null;
@@ -186,7 +182,6 @@ export function toStockListRow(vehicle: StockListVehicleInput): StockListRow {
     doorsLabel: vehicle.doors != null ? String(vehicle.doors) : "—",
     plateFinal: vehicle.plateFinal?.trim() || "—",
     priceCashLabel: formatPrintPrice(vehicle.priceCash),
-    pricePromotionalLabel: formatPrintPrice(vehicle.pricePromotional),
     priceTradeInLabel: formatPrintPrice(vehicle.priceTradeIn),
     aceitaTroca: vehicle.aceitaTroca,
     aceitaSemEntrada: vehicle.aceitaSemEntrada,
@@ -223,7 +218,6 @@ export function toCustomerSheetModel(
   const engine = toNumber(vehicle.engineDisplacementLiters);
   const cityState = [vehicle.city, vehicle.state].filter(Boolean).join(" / ") || null;
   const cash = toNumber(vehicle.priceCash);
-  const promo = toNumber(vehicle.pricePromotional);
   const tradeIn = toNumber(vehicle.priceTradeIn);
 
   const specs: CustomerSheetSpec[] = [
@@ -257,7 +251,6 @@ export function toCustomerSheetModel(
       vehicle.yearModel,
     ),
     priceCashLabel: cash != null ? formatPrintPrice(cash) : "Consultar valor",
-    pricePromotionalLabel: promo != null ? formatPrintPrice(promo) : null,
     priceTradeInLabel: tradeIn != null ? formatPrintPrice(tradeIn) : null,
     specs,
     plateFinal: vehicle.plateFinal?.trim() || null,

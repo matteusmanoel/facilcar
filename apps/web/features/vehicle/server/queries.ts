@@ -16,8 +16,8 @@ export type VehicleWithBrandAndPreviewImages = Prisma.VehicleGetPayload<{
 }>;
 
 export async function getVehicleBySlug(slug: string) {
-  return prisma.vehicle.findUnique({
-    where: { slug, status: "PUBLISHED" },
+  return prisma.vehicle.findFirst({
+    where: { slug, status: { in: ["PUBLISHED", "SOLD"] } },
     include: {
       brand: true,
       images: { orderBy: { sortOrder: "asc" } },
@@ -96,7 +96,6 @@ const PRINT_VEHICLE_SELECT = {
   plateFinal: true,
   plate: true,
   priceCash: true,
-  pricePromotional: true,
   priceTradeIn: true,
   stockType: true,
   commercialHistory: true,
@@ -166,7 +165,7 @@ export async function getAdminVehicleNumericBounds() {
   ]);
   const priceMin = price._min.priceCash != null ? Math.floor(Number(price._min.priceCash)) : 0;
   const priceMax = price._max.priceCash != null ? Math.ceil(Number(price._max.priceCash)) : 300000;
-  const yearMin = year._min.yearModel ?? 1990;
+  const yearMin = year._min.yearModel ?? 1950;
   const yearMax = year._max.yearModel ?? currentYear;
   return {
     price: { min: priceMin, max: Math.max(priceMin, priceMax) },

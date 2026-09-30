@@ -78,12 +78,7 @@ export function Footer({
               <ul className="mt-3 space-y-2 text-sm">
                 <li>
                   <Link href="/estoque" className="text-zinc-300 hover:text-white">
-                    Estoque
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/financiamento" className="text-zinc-300 hover:text-white">
-                    Financiamento
+                    Comprar
                   </Link>
                 </li>
                 <li>
@@ -92,15 +87,19 @@ export function Footer({
                   </Link>
                 </li>
                 <li>
-                  {wa ? (
-                    <a href={whatsappUrl} className="text-zinc-300 hover:text-white">
-                      WhatsApp
-                    </a>
-                  ) : (
-                    <Link href="/quem-somos" className="text-zinc-300 hover:text-white">
-                      Quem somos
-                    </Link>
-                  )}
+                  <Link href="/financiamento" className="text-zinc-300 hover:text-white">
+                    Financiamento
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/quem-somos" className="text-zinc-300 hover:text-white">
+                    Quem somos
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/blog" className="text-zinc-300 hover:text-white">
+                    Blog
+                  </Link>
                 </li>
               </ul>
             </nav>

@@ -37,11 +37,6 @@ export function CustomerSheetDocument({ site, sheet, qrSvg }: Props) {
           <p className="mt-3 text-3xl font-black tracking-tight text-[#ff6600]">
             {sheet.priceCashLabel}
           </p>
-          {sheet.pricePromotionalLabel ? (
-            <p className="mt-1 text-sm text-zinc-700">
-              Promoção: <strong>{sheet.pricePromotionalLabel}</strong>
-            </p>
-          ) : null}
           {sheet.priceTradeInLabel ? (
             <p className="text-sm text-zinc-700">
               Troca a partir de <strong>{sheet.priceTradeInLabel}</strong>

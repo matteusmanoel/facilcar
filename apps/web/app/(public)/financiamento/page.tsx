@@ -3,9 +3,9 @@ import { FinancingSimulationForm } from "@/features/lead/ui/FinancingSimulationF
 import { getSiteSettings } from "@/features/settings/server/queries";
 
 export const metadata = {
-  title: "Simule seu financiamento",
+  title: "Financiamento e refinanciamento | FácilCar",
   description:
-    "Simule o financiamento do seu próximo seminovo na FácilCar em Cascavel/PR. Envie seus dados e continue o atendimento pelo WhatsApp, sem compromisso.",
+    "Precisa de crédito para comprar um carro ou usar o seu como garantia? Fale com a equipe da FácilCar pelo WhatsApp — sem CPF e sem burocracia agora.",
 };
 
 export default async function FinanciamentoPage() {
@@ -17,21 +17,21 @@ export default async function FinanciamentoPage() {
       <section className="bg-facil-black px-4 py-16 text-white">
         <div className="mx-auto max-w-6xl">
           <p className="text-sm font-semibold uppercase tracking-widest text-facil-orange">
-            Financiamento 100% Online
+            Crédito veicular
           </p>
           <h1 className="mt-4 text-4xl font-extrabold md:text-5xl">
-            Simule seu Financiamento em 2 Minutos
+            Financiamento ou refinanciamento?
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-zinc-300">
-            Preencha seus dados e receba a análise de crédito pelo WhatsApp. Trabalhamos com mais de
-            10 financeiras para encontrar a melhor condição para o seu perfil.
+            A FácilCar orienta os dois caminhos. Conta o que você precisa — o encaminhamento é
+            feito pelo WhatsApp, sem CPF nem burocracia agora.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
             <div className="flex items-center gap-2 rounded-full bg-facil-card/10 px-4 py-2 text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M20 6 9 17l-5-5" />
               </svg>
-              100% gratuito
+              Sem CPF agora
             </div>
             <div className="flex items-center gap-2 rounded-full bg-facil-card/10 px-4 py-2 text-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -47,40 +47,25 @@ export default async function FinanciamentoPage() {
         <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1fr_min(100%,440px)]">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Como funciona</h2>
-            <div className="mt-8 grid gap-6 sm:grid-cols-3">
-              {[
-                {
-                  step: "1",
-                  t: "Simulação Online",
-                  d: "Preencha nome, CPF, renda e a entrada desejada. Leva menos de 2 minutos.",
-                },
-                {
-                  step: "2",
-                  t: "Análise Rápida",
-                  d: "Nossa equipe recebe seus dados pelo WhatsApp e inicia a análise com as financeiras parceiras.",
-                },
-                {
-                  step: "3",
-                  t: "Proposta e Fechamento",
-                  d: "Você recebe as melhores condições e fecha o negócio sem burocracia.",
-                },
-              ].map((x) => (
-                <div key={x.step} className="rounded-2xl border border-facil-border bg-facil-surface p-6">
-                  <span className="text-3xl font-black text-facil-orange">{x.step}</span>
-                  <h3 className="mt-2 font-bold text-foreground">{x.t}</h3>
-                  <p className="mt-2 text-sm text-facil-muted leading-relaxed">{x.d}</p>
-                </div>
-              ))}
+            <div className="mt-8 grid gap-6 sm:grid-cols-2">
+              <div className="rounded-2xl border border-facil-border bg-facil-surface p-6">
+                <h3 className="font-bold text-foreground">Financiar</h3>
+                <p className="mt-2 text-sm text-facil-muted leading-relaxed">
+                  Crédito para adquirir um veículo — com ou sem um em mente. A equipe orienta as
+                  condições com as financeiras parceiras, sujeitas à análise de crédito.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-facil-border bg-facil-surface p-6">
+                <h3 className="font-bold text-foreground">Refinanciar</h3>
+                <p className="mt-2 text-sm text-facil-muted leading-relaxed">
+                  Usar o seu próprio carro como garantia para obter crédito. O veículo fica alienado
+                  enquanto o crédito está em aberto. Sujeito à avaliação e à análise da financeira.
+                </p>
+              </div>
             </div>
-            <div className="mt-10 rounded-2xl border border-facil-orange/20 bg-orange-50/50 p-6">
-              <h3 className="font-bold text-foreground">Refinanciamento</h3>
-              <p className="mt-2 text-sm text-facil-muted leading-relaxed">
-                Quer usar seu carro como garantia para obter crédito? Podemos orientar sobre
-                refinanciamento com prazos e taxas competitivas, conforme análise da instituição.
-              </p>
-            </div>
+
             <div className="mt-10 rounded-2xl border border-facil-border bg-facil-surface p-6">
-              <h3 className="font-semibold text-foreground">Documentos necessários (na hora do fechamento)</h3>
+              <h3 className="font-semibold text-foreground">O que é preciso para o fechamento</h3>
               <ul className="mt-3 space-y-1.5 text-sm text-facil-muted">
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-facil-orange" />
@@ -95,18 +80,23 @@ export default async function FinanciamentoPage() {
                   CNH (desejável, não obrigatório para análise inicial)
                 </li>
               </ul>
+              <p className="mt-3 text-xs text-facil-muted">
+                Esses documentos só são necessários na hora de formalizar — não agora.
+              </p>
             </div>
           </div>
 
           <aside className="h-fit">
             <div className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-lg shadow-zinc-900/5">
-              <h2 className="text-xl font-bold text-foreground">Simule Agora</h2>
+              <h2 className="text-xl font-bold text-foreground">Fale com a equipe</h2>
               <p className="mt-1.5 text-sm text-facil-muted">
-                Preencha abaixo. Depois do envio, confirmamos o pedido e um especialista continua no WhatsApp.
+                Escolha o que precisa e conta o que quiser. Um especialista entra em contato pelo
+                WhatsApp.
               </p>
               <div className="mt-5">
                 <FinancingSimulationForm
                   whatsappNumber={settings?.defaultWhatsappNumber ?? ""}
+                  hideFinanceMode={false}
                 />
               </div>
             </div>
@@ -114,7 +104,7 @@ export default async function FinanciamentoPage() {
               <div className="mt-4 rounded-2xl border border-facil-border bg-facil-card p-5">
                 <h3 className="text-sm font-semibold text-foreground">Prefere falar antes?</h3>
                 <a
-                  href={`https://wa.me/${wa}?text=${encodeURIComponent("Olá, tenho interesse em simular um financiamento!")}`}
+                  href={`https://wa.me/${wa}?text=${encodeURIComponent("Olá, tenho interesse em crédito veicular!")}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-3 font-bold text-white hover:bg-green-700"
@@ -124,18 +114,13 @@ export default async function FinanciamentoPage() {
                   </svg>
                   Falar com quem entende
                 </a>
-                {settings?.phoneNumber && (
-                  <p className="mt-3 text-center text-sm text-facil-muted">
-                    ou ligue: <span className="font-semibold text-foreground">{settings.phoneNumber}</span>
-                  </p>
-                )}
               </div>
             )}
             <Link
               href="/estoque"
               className="mt-3 flex w-full items-center justify-center rounded-xl border-2 border-facil-orange py-3 text-center font-bold text-facil-orange hover:bg-facil-orange hover:text-white transition"
             >
-              Escolher um veículo primeiro
+              Ver estoque disponível
             </Link>
           </aside>
         </div>

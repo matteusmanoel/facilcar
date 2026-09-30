@@ -44,7 +44,7 @@ type Props = {
 
 function saleModeLabel(value: string | null) {
   if (value === "CONSIGNMENT") return "Consignação";
-  if (value === "DIRECT_PURCHASE") return "Compra direta pela loja";
+  if (value === "DIRECT_PURCHASE") return "Venda direta";
   return "—";
 }
 
@@ -182,7 +182,7 @@ export function LeadSellEditor({
               <SelectContent>
                 <SelectItem value={NONE}>—</SelectItem>
                 <SelectItem value="CONSIGNMENT">Consignação</SelectItem>
-                <SelectItem value="DIRECT_PURCHASE">Compra direta pela loja</SelectItem>
+                <SelectItem value="DIRECT_PURCHASE">Venda direta</SelectItem>
               </SelectContent>
             </Select>
           </div>

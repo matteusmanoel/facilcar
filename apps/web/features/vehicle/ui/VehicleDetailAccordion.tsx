@@ -25,7 +25,7 @@ export function VehicleDetailAccordion({ vehicle, siteName }: Props) {
         </p>
       </div>
       <div className="px-4 pb-2 md:px-5">
-        <VehicleAccordionItem title="Ficha técnica" defaultOpen>
+        <VehicleAccordionItem title="Ficha técnica" defaultOpen={true}>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-zinc-50 p-4 text-sm">
             <span className="text-facil-muted">Marca</span>
             <span className="font-semibold text-zinc-900">{vehicle.brand.name}</span>
@@ -73,7 +73,7 @@ export function VehicleDetailAccordion({ vehicle, siteName }: Props) {
         </VehicleAccordionItem>
 
         {hasFeatures && (
-          <VehicleAccordionItem title="Opcionais e equipamentos">
+          <VehicleAccordionItem title="Opcionais e equipamentos" defaultOpen={true}>
             <ul className="flex flex-wrap gap-2">
               {vehicle.features.map((f) => (
                 <li
@@ -88,16 +88,16 @@ export function VehicleDetailAccordion({ vehicle, siteName }: Props) {
         )}
 
         {hasDescription && (
-          <VehicleAccordionItem title="Descrição">
+          <VehicleAccordionItem title="Descrição" defaultOpen={true}>
             <p className="whitespace-pre-wrap leading-relaxed text-facil-muted">{vehicle.description}</p>
           </VehicleAccordionItem>
         )}
 
-        <VehicleAccordionItem title="Compre com segurança">
+        <VehicleAccordionItem title="Compre com segurança" defaultOpen={true}>
           <ul className="space-y-2 text-sm text-facil-muted">
-            <li>Veículo conferido pela equipe {siteName}.</li>
-            <li>Apoio para financiamento e avaliação do seu usado na troca.</li>
-            <li>Atendimento direto — sem intermediários desconhecidos.</li>
+            <li>Documentação conferida e transferência agilizada pela equipe {siteName}.</li>
+            <li>Apoio completo para financiamento, troca e avaliação do seu usado.</li>
+            <li>Atendimento direto, sem intermediários — você negocia com quem decide.</li>
           </ul>
         </VehicleAccordionItem>
       </div>

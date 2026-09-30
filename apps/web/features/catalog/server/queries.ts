@@ -11,6 +11,10 @@ export type { CatalogFilters };
 const PAGE_SIZE = PUBLIC_CATALOG_PAGE_SIZE;
 
 function catalogOrderBy(sort: CatalogFilters["sort"]) {
+  if (sort === "newest" || !sort) {
+    // PUBLISHED (P) comes before SOLD (S) alphabetically → asc keeps available first
+    return [{ status: "asc" as const }, { publishedAt: "desc" as const }];
+  }
   return sort === "priceAsc"
     ? [{ priceCash: "asc" as const }]
     : sort === "priceDesc"
@@ -69,7 +73,7 @@ export async function getPublicYearBounds() {
     _min: { yearModel: true },
     _max: { yearModel: true },
   });
-  const min = agg._min.yearModel ?? 2000;
+  const min = agg._min.yearModel ?? 1950;
   const max = agg._max.yearModel ?? currentYear;
   return { min, max: Math.max(min, max) };
 }

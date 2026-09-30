@@ -10,11 +10,9 @@ type HeaderProps = {
 };
 
 const nav = [
-  { href: "/estoque", label: "Estoque" },
-  { href: "/financiamento", label: "Financiamento" },
-  { href: "/vender-seu-veiculo", label: "Vender" },
-  { href: "/quem-somos", label: "Quem somos" },
-  { href: "/blog", label: "Blog" },
+  { href: "/estoque", label: "Quero comprar" },
+  { href: "/vender-seu-veiculo", label: "Quero vender" },
+  { href: "/financiamento", label: "Quero financiar" },
 ];
 
 const WA_ICON = (
@@ -74,12 +72,6 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
           </nav>
 
           <div className="flex items-center gap-2">
-            <Link
-              href="/financiamento"
-              className="rounded-lg bg-facil-orange px-3.5 py-1.5 text-xs font-semibold text-white shadow transition hover:bg-facil-orange-hover"
-            >
-              Simular
-            </Link>
             {wa && (
               <a
                 href={whatsappUrl}
@@ -110,21 +102,9 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
             />
           </Link>
 
-          <Link
-            href="/estoque"
-            onClick={() => setMenuOpen(false)}
-            className="justify-self-center rounded-full bg-facil-orange px-4 py-1.5 text-xs font-bold tracking-wide text-white shadow-sm transition hover:bg-facil-orange-hover"
-          >
-            Estoque
-          </Link>
+          <div className="justify-self-center" />
 
           <div className="flex items-center justify-end gap-2 justify-self-end">
-            <Link
-              href="/financiamento"
-              className="hidden rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20 md:inline-flex"
-            >
-              Simular
-            </Link>
             {wa && (
               <a
                 href={whatsappUrl}
@@ -198,15 +178,8 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
                 {item.label}
               </Link>
             ))}
-            <div className="mt-4 space-y-2 border-t border-facil-border pt-4">
-              <Link
-                href="/financiamento"
-                onClick={() => setMenuOpen(false)}
-                className="flex w-full items-center justify-center rounded-lg bg-facil-orange py-2.5 text-sm font-bold text-white transition hover:bg-facil-orange-hover"
-              >
-                Simular Financiamento
-              </Link>
-              {wa && (
+            {wa && (
+              <div className="mt-4 border-t border-facil-border pt-4">
                 <a
                   href={whatsappUrl}
                   target="_blank"
@@ -216,8 +189,8 @@ export function Header({ siteName = "FácilCar", whatsappNumber }: HeaderProps) 
                   {WA_ICON}
                   WhatsApp
                 </a>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </nav>
       </div>

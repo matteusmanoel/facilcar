@@ -13,7 +13,8 @@ describe("public catalog filters", () => {
       type: "MOTORCYCLE",
       bodyStyle: "SUV",
     });
-    expect(where.status).toBe("PUBLISHED");
+    // status now includes both PUBLISHED and SOLD
+    expect(where.status).toEqual({ in: ["PUBLISHED", "SOLD"] });
     expect(where.type).toBe("MOTORCYCLE");
     expect(where.bodyStyle).toBe("SUV");
   });
@@ -27,6 +28,8 @@ describe("toPublicVehicleCard", () => {
       title: "Civic",
       model: "Civic",
       version: "EXL",
+      status: "PUBLISHED",
+      aceitaSemEntrada: false,
       priceCash: { valueOf: () => 74900 },
       priceRetailAsIs: "69900.00",
       yearManufacture: 2020,
@@ -42,5 +45,7 @@ describe("toPublicVehicleCard", () => {
 
     expect(card.priceCash).toBe(74900);
     expect(card.priceRetailAsIs).toBe(69900);
+    expect(card.status).toBe("PUBLISHED");
+    expect(card.aceitaSemEntrada).toBe(false);
   });
 });

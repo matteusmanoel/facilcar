@@ -100,7 +100,6 @@ const vehicleFieldsSchema = z.object({
   }, z.array(z.string())),
   priceCash: optionalNonNegativeNumber("Preço à vista inválido"),
   priceTradeIn: optionalNonNegativeNumber("Preço inválido"),
-  pricePromotional: optionalNonNegativeNumber("Preço inválido"),
   priceFipe: optionalNonNegativeNumber("FIPE inválida"),
   priceRetailWithWarranty: optionalNonNegativeNumber("Preço com garantia inválido"),
   priceRetailAsIs: optionalNonNegativeNumber("Preço de repasse inválido"),

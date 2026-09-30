@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import AsyncMock
 
 import pytest
 
 from sdr.application.process_turn import process_turn
+from sdr.infrastructure.isolated_inventory import IsolatedInventoryAdapter
 from sdr.domain.budget_status import BudgetStatus
 from sdr.domain.decision import decide
 from sdr.domain.merge import deterministic_merge
@@ -180,7 +180,7 @@ async def test_success_empty_sets_pending_affordance(monkeypatch) -> None:
         state=state,
         inbound_text="quero ver um corolla",
         understand=understand,
-        pool=AsyncMock(),
+        pool=IsolatedInventoryAdapter(),
     )
     assert result.tool_results[0]["outcome"] == "SUCCESS_EMPTY"
     # New contract: SUCCESS_EMPTY no longer sets OFFER_ALTERNATIVES pending state.
@@ -247,7 +247,7 @@ async def test_title_fallback_success_found_then_any_vehicle(monkeypatch) -> Non
             language="pt-BR",
         )
 
-    r1 = await process_turn(state=state, inbound_text="corolla", understand=u1, pool=AsyncMock())
+    r1 = await process_turn(state=state, inbound_text="corolla", understand=u1, pool=IsolatedInventoryAdapter())
     assert r1.tool_results[0]["outcome"] == "SUCCESS_FOUND"
     assert r1.state.facts["desired_model"] == "corolla"
     key1 = r1.state.last_inventory_search_key
@@ -269,7 +269,7 @@ async def test_title_fallback_success_found_then_any_vehicle(monkeypatch) -> Non
         state=state2,
         inbound_text="pode mandar qualquer opcao de carro",
         understand=u2,
-        pool=AsyncMock(),
+        pool=IsolatedInventoryAdapter(),
     )
     assert r2.state.alternative_scope == AlternativeScope.ANY_VEHICLE
     assert r2.state.facts["desired_model"] == "corolla"

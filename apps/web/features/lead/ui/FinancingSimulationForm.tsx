@@ -3,15 +3,11 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createFinancingSimulationLead } from "../server/actions";
-import {
-  publicFormInputClass,
-  publicFormLabelClass,
-} from "@/lib/theme";
-import { formatCPF, formatPhoneBR } from "@/lib/input-masks";
+import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
+import { formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
 import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/cn";
+import { RelatoFields } from "./RelatoFields";
 
 type Props = {
   vehicleId?: string;
@@ -19,37 +15,35 @@ type Props = {
   vehicleYear?: number;
   vehicleModel?: string;
   whatsappNumber: string;
+  /** "SOLD" indica que o veículo já foi vendido — lead vira VEHICLE_INTEREST */
+  vehicleStatus?: string;
+  /** Quando true, não exibe o radio de modo (ficha já define FINANCING) */
+  hideFinanceMode?: boolean;
 };
 
 const inputClass = publicFormInputClass;
 const labelClass = publicFormLabelClass;
 
-const INSTALLMENT_OPTIONS = [36, 48];
+const WA_ICON = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+  </svg>
+);
 
 export function FinancingSimulationForm({
   vehicleId,
   vehicleTitle,
-  vehicleYear,
-  vehicleModel,
   whatsappNumber,
+  vehicleStatus,
+  hideFinanceMode = false,
 }: Props) {
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
-  const [cpfValue, setCpfValue] = useState("");
   const [phoneValue, setPhoneValue] = useState("");
-  const [installments, setInstallments] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
 
-  const today = new Date();
-  const maxBirth = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate())
-    .toISOString()
-    .slice(0, 10);
-  const minBirth = new Date(today.getFullYear() - 100, today.getMonth(), today.getDate())
-    .toISOString()
-    .slice(0, 10);
-
-  const hasVehicle = Boolean(vehicleId);
+  const isSold = vehicleStatus === "SOLD";
 
   async function handleSubmit(formData: FormData) {
     setStatus("submitting");
@@ -58,6 +52,9 @@ export function FinancingSimulationForm({
     const result = await createFinancingSimulationLead(formData, whatsappNumber);
 
     if (result.success) {
+      if (result.whatsappUrl && result.whatsappUrl !== "#") {
+        window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
+      }
       router.push(
         buildFormThankYouPath({
           kind: "financiamento",
@@ -75,11 +72,14 @@ export function FinancingSimulationForm({
     <form
       ref={formRef}
       action={handleSubmit}
+      encType="multipart/form-data"
       className="flex flex-col gap-4"
       noValidate
     >
       {vehicleId && <input type="hidden" name="vehicleId" value={vehicleId} />}
       {vehicleTitle && <input type="hidden" name="vehicleTitle" value={vehicleTitle} />}
+      {/* Sinaliza ao servidor o tipo real do lead */}
+      {isSold && <input type="hidden" name="leadType" value="VEHICLE_INTEREST" />}
 
       <label className={labelClass}>
         Nome completo *
@@ -89,38 +89,6 @@ export function FinancingSimulationForm({
           autoComplete="name"
           className={inputClass}
           placeholder="Seu nome completo"
-          disabled={status === "submitting"}
-          onFocus={scrollPublicFieldIntoView}
-        />
-      </label>
-
-      <label className={labelClass}>
-        CPF *
-        <input
-          name="cpf"
-          required
-          autoComplete="off"
-          inputMode="numeric"
-          maxLength={14}
-          className={inputClass}
-          placeholder="000.000.000-00"
-          value={cpfValue}
-          onChange={(e) => setCpfValue(formatCPF(e.target.value))}
-          disabled={status === "submitting"}
-          onFocus={scrollPublicFieldIntoView}
-        />
-      </label>
-
-      <label className={labelClass}>
-        Data de Nascimento *
-        <input
-          name="birthDate"
-          type="date"
-          required
-          autoComplete="bday"
-          min={minBirth}
-          max={maxBirth}
-          className={inputClass}
           disabled={status === "submitting"}
           onFocus={scrollPublicFieldIntoView}
         />
@@ -143,108 +111,65 @@ export function FinancingSimulationForm({
         />
       </label>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className={labelClass}>
-          Renda Mensal *
-          <div className="relative mt-1.5">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-facil-muted">
-              R$
-            </span>
+      {/* Modo: só na porta de financiamento, não na ficha nem no vendido */}
+      {!hideFinanceMode && !isSold && (
+        <fieldset className="space-y-2">
+          <legend className={`${labelClass} mb-1`}>O que você precisa? *</legend>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
             <input
-              name="monthlyIncome"
-              type="number"
-              min={0}
-              step={100}
+              type="radio"
+              name="financeMode"
+              value="FINANCING"
               required
-              className={`${inputClass} !mt-0 pl-9`}
-              placeholder="0"
+              className="mt-1 accent-facil-orange"
               disabled={status === "submitting"}
-              onFocus={scrollPublicFieldIntoView}
             />
-          </div>
-        </label>
-
-        <label className={labelClass}>
-          Valor de Entrada
-          <div className="relative mt-1.5">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-facil-muted">
-              R$
+            <span>
+              <span className="font-medium">Financiar</span>
+              <span className="block text-facil-muted">
+                Crédito para adquirir um veículo, com ou sem um em mente.
+              </span>
             </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
             <input
-              name="downPayment"
-              type="number"
-              min={0}
-              step={100}
-              className={`${inputClass} !mt-0 pl-9`}
-              placeholder="0"
+              type="radio"
+              name="financeMode"
+              value="REFINANCING"
+              className="mt-1 accent-facil-orange"
               disabled={status === "submitting"}
-              onFocus={scrollPublicFieldIntoView}
             />
-          </div>
+            <span>
+              <span className="font-medium">Refinanciar</span>
+              <span className="block text-facil-muted">
+                Usar o seu carro como garantia para obter crédito.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+      )}
+
+      <RelatoFields
+        disabled={status === "submitting"}
+        placeholder={
+          isSold
+            ? "Conte o que procura: tipo de veículo, faixa de preço, uso — qualquer detalhe ajuda a encontrar um similar."
+            : "Conte o que quiser: veículo de interesse, quanto já tem de entrada, prazo preferido, dúvidas. Sem CPF ou documentos agora."
+        }
+      />
+
+      {/* Troca: só na ficha de veículo disponível */}
+      {vehicleId && !isSold && (
+        <label className={labelClass}>
+          Possuo veículo para troca
+          <textarea
+            name="tradeInDescription"
+            rows={2}
+            className={`${inputClass} resize-none`}
+            placeholder="Ex.: Fiat Uno 2018, 60 mil km, bem conservado. Opcional — pode deixar em branco."
+            disabled={status === "submitting"}
+          />
         </label>
-      </div>
-
-      <label className={labelClass}>
-        Prazo Desejado *
-        <input type="hidden" name="desiredInstallments" value={installments} />
-        <Select
-          value={installments || undefined}
-          onValueChange={setInstallments}
-          disabled={status === "submitting"}
-        >
-          <SelectTrigger
-            className={cn(inputClass, "h-auto min-h-11")}
-            aria-label="Prazo desejado"
-            onFocus={scrollPublicFieldIntoView}
-          >
-            <SelectValue placeholder="Selecione o prazo" />
-          </SelectTrigger>
-          <SelectContent>
-            {INSTALLMENT_OPTIONS.map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                {n} meses ({n / 12} {n / 12 === 1 ? "ano" : "anos"})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
-
-      {!hasVehicle && (
-        <div className="grid grid-cols-2 gap-3">
-          <label className={labelClass}>
-            Ano do Veículo
-            <input
-              name="vehicleYear"
-              type="number"
-              min={1990}
-              max={2030}
-              defaultValue={vehicleYear}
-              className={inputClass}
-              placeholder={String(new Date().getFullYear())}
-              disabled={status === "submitting"}
-              onFocus={scrollPublicFieldIntoView}
-            />
-          </label>
-          <label className={labelClass}>
-            Modelo
-            <input
-              name="vehicleModel"
-              type="text"
-              defaultValue={vehicleModel}
-              className={inputClass}
-              placeholder="Ex: Onix, HB20..."
-              disabled={status === "submitting"}
-              onFocus={scrollPublicFieldIntoView}
-            />
-          </label>
-        </div>
-      )}
-
-      {hasVehicle && vehicleYear && (
-        <input type="hidden" name="vehicleYear" value={vehicleYear} />
-      )}
-      {hasVehicle && vehicleModel && (
-        <input type="hidden" name="vehicleModel" value={vehicleModel} />
       )}
 
       {status === "error" && (
@@ -257,35 +182,11 @@ export function FinancingSimulationForm({
         className="btn-facil-primary mt-1 flex w-full items-center justify-center gap-2 py-3.5 text-base font-bold shadow-md disabled:opacity-70"
       >
         {status === "submitting" ? (
-          <>
-            <svg
-              className="h-5 w-5 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v8z"
-              />
-            </svg>
-            Enviando...
-          </>
+          "Enviando..."
         ) : (
           <>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-            </svg>
-            Simular e Enviar pelo WhatsApp
+            {WA_ICON}
+            {isSold ? "Quero um similar" : "Enviar pelo WhatsApp"}
           </>
         )}
       </button>

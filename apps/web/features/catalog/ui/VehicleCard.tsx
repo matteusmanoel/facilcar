@@ -11,8 +11,10 @@ export type VehicleCardVehicle = {
   title: string;
   model?: string | null;
   version?: string | null;
+  status?: string | null;
   priceCash?: unknown;
   priceRetailAsIs?: unknown;
+  aceitaSemEntrada?: boolean | null;
   yearManufacture?: number | null;
   yearModel?: number | null;
   mileage?: number | null;
@@ -77,6 +79,18 @@ export function VehicleCard({
           priority={priority}
         />
         {featured ? <span className="absolute left-3 top-3 z-10 badge-orange">Destaque</span> : null}
+        {vehicle.status === "SOLD" && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30">
+            <span className="rotate-[-25deg] rounded-md bg-red-600/90 px-6 py-1.5 text-xl font-black uppercase tracking-widest text-white shadow-lg">
+              Vendido
+            </span>
+          </div>
+        )}
+        {vehicle.aceitaSemEntrada && vehicle.status !== "SOLD" && (
+          <span className="absolute bottom-3 right-3 z-10 rounded-full bg-facil-orange px-2.5 py-0.5 text-xs font-bold text-white shadow">
+            Financia 100%
+          </span>
+        )}
         <InspectionSeal result={vehicle.inspectionResult} />
         {bodyLabel ? (
           <span className="absolute bottom-3 left-3 z-10 rounded-full bg-white/95 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 shadow-sm">

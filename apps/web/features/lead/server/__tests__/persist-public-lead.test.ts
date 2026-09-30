@@ -47,12 +47,10 @@ describe("persistPublicFormLead", () => {
       name: "Marina Ferreira",
       phone: "(45) 99999-8888",
       sell: {
-        brand: "Toyota",
-        model: "Corolla",
         saleMode: "CONSIGNMENT",
-        photoUrls: ["https://cdn.example/sell-leads/corolla.jpg"],
+        observations: "Quero consignar meu carro",
       },
-      message: "Quero consignar",
+      message: "Quero consignar meu carro",
     });
 
     expect(result).toEqual({ leadId: "lead-1", customerId: "cust-1" });
@@ -76,9 +74,8 @@ describe("persistPublicFormLead", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           leadId: "lead-1",
-          brand: "Toyota",
-          model: "Corolla",
-          photoUrls: ["https://cdn.example/sell-leads/corolla.jpg"],
+          saleMode: "CONSIGNMENT",
+          observations: "Quero consignar meu carro",
         }),
       }),
     );

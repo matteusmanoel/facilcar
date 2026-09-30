@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from sdr.application.process_turn import process_turn
+from sdr.infrastructure.isolated_inventory import IsolatedInventoryAdapter
 from sdr.application.tool_executor import execute_tool_calls, tool_results_to_context
 from sdr.domain.decision import decide, inventory_search_key
 from sdr.domain.inventory_outcome import (
@@ -141,7 +141,7 @@ async def test_success_found_updates_search_key(monkeypatch) -> None:
         state=state,
         inbound_text="quero ver",
         understand=_fixed_understand,
-        pool=AsyncMock(),  # truthy pool
+        pool=IsolatedInventoryAdapter(),  # truthy pool
     )
     assert result.tool_results[0]["outcome"] == "SUCCESS_FOUND"
     assert result.state.last_inventory_search_key is not None
@@ -163,7 +163,7 @@ async def test_success_empty_updates_key_and_distinct_message(monkeypatch) -> No
         state=_state(),
         inbound_text="tem?",
         understand=_fixed_understand,
-        pool=AsyncMock(),
+        pool=IsolatedInventoryAdapter(),
     )
     assert result.tool_results[0]["outcome"] == "SUCCESS_EMPTY"
     assert result.state.last_inventory_search_key is not None
@@ -188,7 +188,7 @@ async def test_timeout_is_failed_retryable_no_key_update(monkeypatch) -> None:
         state=_state(),
         inbound_text="tem?",
         understand=_fixed_understand,
-        pool=AsyncMock(),
+        pool=IsolatedInventoryAdapter(),
     )
     assert result.tool_results[0]["outcome"] == "FAILED_RETRYABLE"
     assert result.state.last_inventory_search_key is None
@@ -206,7 +206,7 @@ async def test_malformed_result_is_failed_terminal(monkeypatch) -> None:
         state=_state(),
         inbound_text="tem?",
         understand=_fixed_understand,
-        pool=AsyncMock(),
+        pool=IsolatedInventoryAdapter(),
     )
     assert result.tool_results[0]["outcome"] == "FAILED_TERMINAL"
     assert result.state.last_inventory_search_key is None

@@ -13,6 +13,7 @@ import {
   UserCog,
   FileText,
   BookOpen,
+  MessageSquare,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -56,6 +57,7 @@ const ALL_NAV_ITEMS: NavItemDef[] = [
   },
   { key: "paginas", href: "/admin/paginas", label: "Páginas", icon: FileText },
   { key: "blog", href: "/admin/blog", label: "Blog", icon: BookOpen },
+  { key: "depoimentos", href: "/admin/depoimentos", label: "Depoimentos", icon: MessageSquare },
   { key: "configuracoes", href: "/admin/configuracoes", label: "Configurações", icon: Settings },
 ];
 
