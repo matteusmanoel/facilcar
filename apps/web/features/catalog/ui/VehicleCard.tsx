@@ -81,28 +81,25 @@ export function VehicleCard({
         />
         {featured ? <span className="absolute left-3 top-3 z-10 badge-orange">Destaque</span> : null}
         {vehicle.status === "SOLD" && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
             <Image
               src="/carimbo-vendido.png"
               alt="Vendido"
-              width={220}
-              height={220}
-              className="w-[55%] max-w-[220px] object-contain drop-shadow-md"
-              unoptimized
+              width={946}
+              height={458}
+              className="h-auto w-[70%] max-w-[70%] object-contain drop-shadow-md"
+              style={{ width: "70%", height: "auto" }}
             />
           </div>
         )}
         {vehicle.aceitaSemEntrada && vehicle.status !== "SOLD" && (
-          <span className="absolute bottom-2 right-2 z-10">
-            <Image
-              src="/selo-financia-100.png"
-              alt="Financia 100% sem entrada"
-              width={72}
-              height={72}
-              className="h-14 w-14 object-contain drop-shadow-md sm:h-16 sm:w-16"
-              unoptimized
-            />
-          </span>
+          <Image
+            src="/selo-financia-100.png"
+            alt="Financia 100%"
+            width={256}
+            height={256}
+            className="absolute bottom-2 right-2 z-10 h-14 w-14 object-contain drop-shadow-md sm:bottom-3 sm:right-3 sm:h-16 sm:w-16"
+          />
         )}
         <InspectionSeal result={vehicle.inspectionResult} />
         {bodyLabel ? (

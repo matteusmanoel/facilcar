@@ -7,13 +7,7 @@ import { publicFormInputClass, publicFormLabelClass } from "@/lib/theme";
 import { formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
 import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
-import { RelatoFields } from "./RelatoFields";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { InfoTip, RelatoFields } from "./RelatoFields";
 
 type Props = {
   vehicleId?: string;
@@ -162,35 +156,24 @@ export function FinancingSimulationForm({
             ? "Conte o que procura: tipo de veículo, faixa de preço, uso — qualquer detalhe ajuda a encontrar um similar."
             : "Conte o que quiser: veículo de interesse, quanto já tem de entrada, prazo preferido, dúvidas. Sem CPF ou documentos agora."
         }
+        hint={
+          isSold
+            ? "Descreva o tipo de veículo, a faixa de preço e o uso. Isso acelera a busca por um similar. CPF e documento não são necessários agora."
+            : "Conte o que acelera o encaminhamento: veículo, entrada, prazo ou a dúvida que você já tem. CPF e documento não são necessários agora."
+        }
       />
 
       {/* Troca: só na ficha de veículo disponível */}
       {vehicleId && !isSold && (
         <div>
-          <div className={`${labelClass} flex items-center gap-1.5`}>
-            <span>Possuo veículo para troca</span>
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Dica sobre troca"
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-facil-muted/20 text-[10px] font-bold text-facil-muted hover:bg-facil-muted/30 focus:outline-none"
-                  >
-                    i
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[240px] text-center leading-relaxed">
-                  Opcional. Descreva o veículo em texto livre — marca, ano, km, estado. Não
-                  é necessário enviar fotos ou documentos agora.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div className="flex items-center gap-1.5">
+            <span className={labelClass}>Possuo veículo para troca</span>
+            <InfoTip text="Opcional. Se tiver um carro para dar na troca, descreva modelo, ano e estado. Pode deixar em branco." />
           </div>
           <textarea
             name="tradeInDescription"
             rows={2}
-            className={`${inputClass} mt-1 resize-none`}
+            className={`${inputClass} resize-none`}
             placeholder="Ex.: Fiat Uno 2018, 60 mil km, bem conservado. Opcional — pode deixar em branco."
             disabled={status === "submitting"}
           />
