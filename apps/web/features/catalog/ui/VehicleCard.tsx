@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { VehicleImage } from "@/components/shared/VehicleImage";
 import { InspectionSeal } from "@/features/catalog/ui/InspectionSeal";
 import { PublicVehiclePrice } from "@/features/catalog/ui/PublicVehiclePrice";
@@ -80,15 +81,27 @@ export function VehicleCard({
         />
         {featured ? <span className="absolute left-3 top-3 z-10 badge-orange">Destaque</span> : null}
         {vehicle.status === "SOLD" && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30">
-            <span className="rotate-[-25deg] rounded-md bg-red-600/90 px-6 py-1.5 text-xl font-black uppercase tracking-widest text-white shadow-lg">
-              Vendido
-            </span>
+          <div className="absolute inset-0 z-20 flex items-center justify-center">
+            <Image
+              src="/carimbo-vendido.png"
+              alt="Vendido"
+              width={220}
+              height={220}
+              className="w-[55%] max-w-[220px] object-contain drop-shadow-md"
+              unoptimized
+            />
           </div>
         )}
         {vehicle.aceitaSemEntrada && vehicle.status !== "SOLD" && (
-          <span className="absolute bottom-3 right-3 z-10 rounded-full bg-facil-orange px-2.5 py-0.5 text-xs font-bold text-white shadow">
-            Financia 100%
+          <span className="absolute bottom-2 right-2 z-10">
+            <Image
+              src="/selo-financia-100.png"
+              alt="Financia 100% sem entrada"
+              width={72}
+              height={72}
+              className="h-14 w-14 object-contain drop-shadow-md sm:h-16 sm:w-16"
+              unoptimized
+            />
           </span>
         )}
         <InspectionSeal result={vehicle.inspectionResult} />

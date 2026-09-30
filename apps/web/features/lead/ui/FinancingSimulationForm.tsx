@@ -8,6 +8,12 @@ import { formatPhoneBR } from "@/lib/input-masks";
 import { scrollPublicFieldIntoView } from "@/lib/public-form";
 import { buildFormThankYouPath } from "@/features/lead/lib/form-thank-you";
 import { RelatoFields } from "./RelatoFields";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type Props = {
   vehicleId?: string;
@@ -160,16 +166,35 @@ export function FinancingSimulationForm({
 
       {/* Troca: só na ficha de veículo disponível */}
       {vehicleId && !isSold && (
-        <label className={labelClass}>
-          Possuo veículo para troca
+        <div>
+          <div className={`${labelClass} flex items-center gap-1.5`}>
+            <span>Possuo veículo para troca</span>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Dica sobre troca"
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-facil-muted/20 text-[10px] font-bold text-facil-muted hover:bg-facil-muted/30 focus:outline-none"
+                  >
+                    i
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[240px] text-center leading-relaxed">
+                  Opcional. Descreva o veículo em texto livre — marca, ano, km, estado. Não
+                  é necessário enviar fotos ou documentos agora.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <textarea
             name="tradeInDescription"
             rows={2}
-            className={`${inputClass} resize-none`}
+            className={`${inputClass} mt-1 resize-none`}
             placeholder="Ex.: Fiat Uno 2018, 60 mil km, bem conservado. Opcional — pode deixar em branco."
             disabled={status === "submitting"}
           />
-        </label>
+        </div>
       )}
 
       {status === "error" && (
