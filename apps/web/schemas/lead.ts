@@ -32,20 +32,16 @@ export const financingFormSchema = z.object({
 
 export const financingSimulationSchema = z.object({
   name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
-  cpf: z.string().min(11, "CPF inválido").max(14, "CPF inválido"),
-  birthDate: z.string().min(1, "Data de nascimento é obrigatória"),
   phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),
-  monthlyIncome: z.coerce.number().min(1, "Informe sua renda mensal"),
-  downPayment: z.coerce.number().min(0, "Valor de entrada inválido"),
-  desiredInstallments: z.coerce
-    .number({ message: "Número de parcelas inválido" })
-    .int("Número de parcelas inválido")
-    .min(1, "Informe ao menos 1 parcela")
-    .max(84, "Máximo de 84 parcelas"),
-  vehicleYear: z.coerce.number().int().min(1990).max(2030).optional(),
-  vehicleModel: z.string().optional(),
+  // Porta de financiamento: modo obrigatório (financiar ou refinanciar)
+  financeMode: z.enum(["FINANCING", "REFINANCING"]).optional(),
+  relato: z.string().max(4000).optional(),
   vehicleId: z.string().optional(),
   vehicleTitle: z.string().optional(),
+  // Troca (só na ficha de PUBLISHED): texto livre opcional
+  tradeInDescription: z.string().max(2000).optional(),
+  // Tipo real do lead: derivado do financeMode no servidor, ou VEHICLE_INTEREST se sold
+  leadType: z.enum(["FINANCING", "REFINANCING", "VEHICLE_INTEREST"]).optional(),
 });
 
 export type FinancingSimulationValues = z.infer<typeof financingSimulationSchema>;
@@ -53,16 +49,8 @@ export type FinancingSimulationValues = z.infer<typeof financingSimulationSchema
 export const sellVehicleFormSchema = z.object({
   name: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
   phone: z.string().min(10, "Telefone inválido").regex(phoneRegex, "Telefone inválido"),
-  observations: z.string().max(2000).optional(),
-  brand: z.string().optional(),
-  model: z.string().optional(),
-  version: z.string().optional(),
-  yearManufacture: z.coerce.number().int().min(1900).max(2100).optional(),
-  yearModel: z.coerce.number().int().min(1900).max(2100).optional(),
-  mileage: z.coerce.number().int().min(0).optional(),
-  fuelType: z.string().optional(),
-  transmission: z.string().optional(),
-  saleMode: z.enum(["CONSIGNMENT", "DIRECT_PURCHASE"]).optional(),
+  saleMode: z.enum(["CONSIGNMENT", "DIRECT_PURCHASE"]),
+  relato: z.string().max(4000).optional(),
 });
 
 const leadTypeEnum = z.enum([

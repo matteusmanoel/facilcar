@@ -72,7 +72,6 @@ export function StockListDocument({
               <th className="px-1.5 py-1">Pt</th>
               <th className="px-1.5 py-1">Placa</th>
               <th className="px-1.5 py-1">À vista</th>
-              <th className="px-1.5 py-1">Promo</th>
               <th className="px-1.5 py-1">Troca</th>
               <th className="px-1.5 py-1">Comercial</th>
               <th className="px-1.5 py-1">Parcela</th>
@@ -99,7 +98,6 @@ export function StockListDocument({
                 <td className="px-1.5 py-1.5">{row.doorsLabel}</td>
                 <td className="px-1.5 py-1.5">{row.plateFinal}</td>
                 <td className="whitespace-nowrap px-1.5 py-1.5 font-semibold">{row.priceCashLabel}</td>
-                <td className="whitespace-nowrap px-1.5 py-1.5">{row.pricePromotionalLabel}</td>
                 <td className="whitespace-nowrap px-1.5 py-1.5">{row.priceTradeInLabel}</td>
                 <td className="px-1.5 py-1.5">{flagCell(row)}</td>
                 <td className="whitespace-nowrap px-1.5 py-1.5">{row.parcelaBaseLabel}</td>

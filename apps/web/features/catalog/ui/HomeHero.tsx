@@ -166,28 +166,22 @@ export function HomeHero({ whatsappHref }: Props) {
         <div data-hero-band className="relative px-4 py-10 sm:px-6 sm:py-12">
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Link
-              href="/financiamento"
-              className="inline-flex items-center gap-2 rounded-xl bg-facil-orange px-8 py-3.5 text-base font-bold text-white shadow-lg shadow-facil-orange/30 transition hover:-translate-y-0.5 hover:bg-facil-orange-hover hover:shadow-facil-orange/50"
+              href="/estoque"
+              className="inline-flex items-center gap-2 rounded-xl bg-facil-orange px-6 py-3.5 text-base font-bold text-white shadow-lg shadow-facil-orange/30 transition hover:-translate-y-0.5 hover:bg-facil-orange-hover hover:shadow-facil-orange/50"
             >
-              Quero simular!
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                aria-hidden
-              >
-                <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
+              Quero comprar
             </Link>
             <Link
-              href="/estoque"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-white/20 bg-white/5 px-8 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-white/40 hover:bg-white/10"
+              href="/vender-seu-veiculo"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-white/20 bg-white/5 px-6 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-white/40 hover:bg-white/10"
             >
-              Ver estoque
+              Quero vender
+            </Link>
+            <Link
+              href="/financiamento"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-white/20 bg-white/5 px-6 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-white/40 hover:bg-white/10"
+            >
+              Quero financiar
             </Link>
           </div>
 

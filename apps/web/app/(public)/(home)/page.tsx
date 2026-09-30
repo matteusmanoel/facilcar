@@ -12,27 +12,8 @@ import { catalogFullBleedClass } from "@/features/catalog/lib/shell";
 import { BlogCard } from "@/features/content/ui/BlogCard";
 import { InstagramFeed } from "@/features/content/ui/InstagramFeed";
 import { STORE_MAPS_EMBED_SRC, STORE_MAPS_PLACE_URL } from "@/lib/store-maps";
+import { prisma } from "@/lib/db";
 
-const testimonials = [
-  {
-    name: "Carlos M.",
-    role: "Empresário",
-    initials: "CM",
-    text: "Atendimento direto, sem enrolação. Fechei meu SUV em um dia.",
-  },
-  {
-    name: "Juliana R.",
-    role: "Autônoma",
-    initials: "JR",
-    text: "Financiamento claro e carro revisado. Recomendo a FácilCar.",
-  },
-  {
-    name: "Roberto A.",
-    role: "Motorista de app",
-    initials: "RA",
-    text: "Troquei o usado e saí de carro novo pra mim. Processo tranquilo.",
-  },
-];
 
 export default function HomePage() {
   return (
@@ -43,10 +24,14 @@ export default function HomePage() {
 }
 
 async function HomePageContent() {
-  const [settings, featured, posts] = await Promise.all([
+  const [settings, featured, posts, testimonials] = await Promise.all([
     getSiteSettings(),
     getFeaturedVehicles(9),
     listPublishedBlogPosts(3),
+    prisma.testimonial.findMany({
+      where: { published: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    }),
   ]);
 
   const wa = settings?.defaultWhatsappNumber?.replace(/\D/g, "") ?? "";
@@ -101,132 +86,60 @@ async function HomePageContent() {
       )}
 
       {/* ── TESTIMONIALS ─────────────────────────────────────── */}
-      <section
-        {...(featured.length === 0 ? { "data-whatsapp-reveal": "" } : {})}
-        className="border-y border-facil-border bg-facil-surface py-20 px-4"
-      >
-        <div className="mx-auto max-w-6xl">
-          <ScrollReveal>
-            <p className="text-center text-xs font-semibold uppercase tracking-widest text-facil-orange">
-              Depoimentos
-            </p>
-            <h2 className="mt-2 text-center text-3xl font-bold text-foreground md:text-4xl">
-              O que nossos clientes dizem
-            </h2>
-          </ScrollReveal>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {testimonials.map((t, i) => (
-              <ScrollReveal key={t.name} delay={i * 80}>
-                <blockquote className="flex h-full flex-col rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm transition hover:border-facil-orange/30 hover:shadow-md">
-                  <div className="flex gap-0.5 text-amber-400">
-                    {Array.from({ length: 5 }).map((_, j) => (
-                      <svg
-                        key={j}
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        aria-hidden
-                      >
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                      </svg>
-                    ))}
-                  </div>
-                  <p className="mt-4 flex-1 text-facil-muted leading-relaxed">
-                    &ldquo;{t.text}&rdquo;
-                  </p>
-                  <footer className="mt-5 flex items-center gap-3 border-t border-facil-border pt-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-facil-orange text-sm font-bold text-white">
-                      {t.initials}
-                    </div>
-                    <div>
-                      <cite className="not-italic text-sm font-bold text-foreground">
-                        {t.name}
-                      </cite>
-                      <p className="text-xs text-facil-muted">{t.role}</p>
-                    </div>
-                  </footer>
-                </blockquote>
-              </ScrollReveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FINANCING & SELL ──────────────────────────────────── */}
-      <section className="bg-facil-black py-20 px-4 text-white">
-        <div className="mx-auto max-w-6xl">
-          <ScrollReveal>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-facil-orange">
-              Serviços
-            </p>
-            <h2 className="text-3xl font-bold md:text-4xl">
-            Condições sob medida 
-            </h2>
-          </ScrollReveal>
-          <div className="mt-10 grid gap-6 lg:grid-cols-2">
-            <ScrollReveal direction="left">
-              <div className="group h-full rounded-2xl border border-white/10 bg-white/5 p-8 transition hover:border-facil-orange/40 hover:bg-white/8">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-facil-orange/15 text-facil-orange">
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    aria-hidden
-                  >
-                    <rect x="2" y="5" width="20" height="14" rx="2" />
-                    <path d="M2 10h20" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-2xl font-bold">Financiamento</h3>
-                <p className="mt-3 text-zinc-400 leading-relaxed">
-                  Simulação e análise com as principais financeiras. Entenda
-                  prazo, parcela e documentação em poucos passos.
-                </p>
-                <Link
-                  href="/financiamento"
-                  className="mt-6 inline-flex items-center gap-2 rounded-lg bg-facil-orange px-6 py-3 font-semibold transition hover:bg-facil-orange-hover"
-                >
-                  Quero simular!
-                </Link>
-              </div>
+      {testimonials.length > 0 && (
+        <section
+          {...(featured.length === 0 ? { "data-whatsapp-reveal": "" } : {})}
+          className="border-y border-facil-border bg-facil-surface py-20 px-4"
+        >
+          <div className="mx-auto max-w-6xl">
+            <ScrollReveal>
+              <p className="text-center text-xs font-semibold uppercase tracking-widest text-facil-orange">
+                Depoimentos
+              </p>
+              <h2 className="mt-2 text-center text-3xl font-bold text-foreground md:text-4xl">
+                O que nossos clientes dizem
+              </h2>
             </ScrollReveal>
-            <ScrollReveal direction="right">
-              <div className="group h-full rounded-2xl border border-white/10 bg-white/5 p-8 transition hover:border-facil-orange/40 hover:bg-white/8">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-facil-orange/15 text-facil-orange">
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    aria-hidden
-                  >
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-2xl font-bold">Venda e consignação</h3>
-                <p className="mt-3 text-zinc-400 leading-relaxed">
-                  Quer vender com segurança? Avaliamos seu carro e cuidamos da
-                  divulgação e da negociação pra você.
-                </p>
-                <Link
-                  href="/vender-seu-veiculo"
-                  className="mt-6 inline-flex items-center gap-2 rounded-lg border-2 border-facil-orange px-6 py-3 font-semibold text-facil-orange transition hover:bg-facil-orange hover:text-white"
-                >
-                  Quero avaliar meu carro →
-                </Link>
-              </div>
-            </ScrollReveal>
+            <div className="mt-12 grid gap-6 md:grid-cols-3">
+              {testimonials.map((t, i) => (
+                <ScrollReveal key={t.id} delay={i * 80}>
+                  <blockquote className="flex h-full flex-col rounded-2xl border border-facil-border bg-facil-card p-6 shadow-sm transition hover:border-facil-orange/30 hover:shadow-md">
+                    <div className="flex gap-0.5 text-amber-400">
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <svg
+                          key={j}
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          aria-hidden
+                        >
+                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                        </svg>
+                      ))}
+                    </div>
+                    <p className="mt-4 flex-1 text-facil-muted leading-relaxed">
+                      &ldquo;{t.comment}&rdquo;
+                    </p>
+                    <footer className="mt-5 flex items-center gap-3 border-t border-facil-border pt-4">
+                      <img
+                        src={t.imageUrl}
+                        alt={t.name}
+                        className="h-10 w-10 shrink-0 rounded-full object-cover border border-facil-border"
+                      />
+                      <div>
+                        <cite className="not-italic text-sm font-bold text-foreground">
+                          {t.name}
+                        </cite>
+                      </div>
+                    </footer>
+                  </blockquote>
+                </ScrollReveal>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ── LOCATION ────────────────────────────────────────── */}
       <section className="border-t border-facil-border bg-facil-surface py-20 px-4">

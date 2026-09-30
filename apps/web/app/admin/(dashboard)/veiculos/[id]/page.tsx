@@ -7,6 +7,7 @@ import { canWriteVehicles } from "@/features/auth/rbac-config";
 import { getBrandsForVehicleForm, getPartnersForVehicleForm } from "@/features/catalog/server/queries";
 import { VehicleForm } from "../VehicleForm";
 import { ArchiveVehicleButton } from "../ArchiveVehicleButton";
+import { DeleteVehicleButton } from "../DeleteVehicleButton";
 
 export default async function AdminVeiculoEditPage({
   params,
@@ -35,7 +36,6 @@ export default async function AdminVeiculoEditPage({
     ...vehicle,
     priceCash: vehicle.priceCash != null ? Number(vehicle.priceCash) : null,
     priceTradeIn: vehicle.priceTradeIn != null ? Number(vehicle.priceTradeIn) : null,
-    pricePromotional: vehicle.pricePromotional != null ? Number(vehicle.pricePromotional) : null,
     priceFipe: vehicle.priceFipe != null ? Number(vehicle.priceFipe) : null,
     priceRetailWithWarranty:
       vehicle.priceRetailWithWarranty != null ? Number(vehicle.priceRetailWithWarranty) : null,
@@ -75,12 +75,19 @@ export default async function AdminVeiculoEditPage({
         </div>
         <div className="flex items-center gap-2">
           {!readOnly && (
-            <ArchiveVehicleButton
-              vehicleId={vehicle.id}
-              vehicleTitle={vehicle.title}
-              currentStatus={vehicle.status}
-              variant="edit"
-            />
+            <>
+              <ArchiveVehicleButton
+                vehicleId={vehicle.id}
+                vehicleTitle={vehicle.title}
+                currentStatus={vehicle.status}
+                variant="edit"
+              />
+              <DeleteVehicleButton
+                vehicleId={vehicle.id}
+                vehicleTitle={vehicle.title}
+                variant="edit"
+              />
+            </>
           )}
           {vehicle.status === "PUBLISHED" ? (
             <Link

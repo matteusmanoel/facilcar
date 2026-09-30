@@ -26,7 +26,6 @@ function stockVehicle(overrides: Partial<StockListVehicleInput> = {}): StockList
     doors: 4,
     plateFinal: "7",
     priceCash: 98900,
-    pricePromotional: 94900,
     priceTradeIn: 92000,
     aceitaTroca: true,
     aceitaSemEntrada: true,
@@ -62,7 +61,6 @@ function sheetVehicle(
     doors: 4,
     plateFinal: "7",
     priceCash: 98900,
-    pricePromotional: 94900,
     priceTradeIn: 92000,
     aceitaTroca: true,
     aceitaSemEntrada: false,
@@ -86,7 +84,6 @@ describe("toStockListRow", () => {
     const row = toStockListRow(stockVehicle());
     expect(row.identity).toBe("Honda Civic EXL");
     expect(row.priceCashLabel).toMatch(/98\.900/);
-    expect(row.pricePromotionalLabel).toMatch(/94\.900/);
     expect(row.priceTradeInLabel).toMatch(/92\.000/);
     expect(row.parcelaBaseLabel).toMatch(/1\.890/);
     expect(row.entradaMinimaLabel).toMatch(/15\.000/);
@@ -111,7 +108,6 @@ describe("toCustomerSheetModel", () => {
     const sheet = toCustomerSheetModel(sheetVehicle(), site);
     expect(sheet).not.toBeNull();
     expect(sheet!.priceCashLabel).toMatch(/98\.900/);
-    expect(sheet!.pricePromotionalLabel).toMatch(/94\.900/);
     expect(sheet!.priceTradeInLabel).toMatch(/92\.000/);
     expect(sheet!.listingUrl).toBe(
       "https://facilcar.com.br/estoque/honda-civic-exl-2022",
@@ -134,10 +130,9 @@ describe("toCustomerSheetModel", () => {
 
   it("omits missing secondary prices", () => {
     const sheet = toCustomerSheetModel(
-      sheetVehicle({ pricePromotional: null, priceTradeIn: null }),
+      sheetVehicle({ priceTradeIn: null }),
       site,
     );
-    expect(sheet!.pricePromotionalLabel).toBeNull();
     expect(sheet!.priceTradeInLabel).toBeNull();
   });
 });

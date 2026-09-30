@@ -3,13 +3,6 @@
 import { sendLeadNotification } from "@/lib/email";
 import { normalizePhone } from "@/features/customer/server/phone";
 import { persistPublicFormLead } from "@/features/lead/server/persist-public-lead";
-import {
-  collectSellPhotoUploads,
-  inferSellPhotoContentType,
-  SELL_PHOTO_MAX_BYTES,
-  SELL_PHOTO_MAX_FILES,
-  sellPhotoExt,
-} from "@/features/lead/lib/sell-photos";
 import { uploadVehicleImageBuffer } from "@/features/storage/server/upload-vehicle-image";
 import { isVehicleStorageConfigured } from "@/features/storage/server/s3-client";
 import {
@@ -20,7 +13,7 @@ import {
   sellVehicleFormSchema,
 } from "@/schemas/lead";
 import { checkRateLimit } from "./rateLimit";
-import type { LeadSource } from "@prisma/client";
+import type { LeadSource, Prisma } from "@prisma/client";
 
 type FormResult = { success: true } | { success: false; error: string };
 type SimulationResult = { success: true; whatsappUrl: string } | { success: false; error: string };
@@ -120,42 +113,34 @@ export async function createFinancingLead(formData: FormData): Promise<FormResul
   return { success: true };
 }
 
-async function uploadSellPhotos(formData: FormData): Promise<{ urls: string[]; error?: string }> {
-  const files = collectSellPhotoUploads(formData);
-
-  if (files.length === 0) return { urls: [] };
-  if (files.length > SELL_PHOTO_MAX_FILES) {
-    return { urls: [], error: `Envie no máximo ${SELL_PHOTO_MAX_FILES} fotos.` };
+/** Upload de áudio opcional de lead. Retorna a URL pública ou null. */
+async function uploadLeadAudio(formData: FormData): Promise<{ url: string | null; error?: string }> {
+  const file = formData.get("audio");
+  if (!file || typeof file === "string" || (file as File).size === 0) {
+    return { url: null };
+  }
+  const audioFile = file as File;
+  const AUDIO_MAX_BYTES = 8 * 1024 * 1024;
+  if (audioFile.size > AUDIO_MAX_BYTES) {
+    return { url: null, error: "O áudio deve ter no máximo 8 MB." };
   }
   if (!isVehicleStorageConfigured()) {
-    return { urls: [], error: "Upload de fotos indisponível no momento. Envie o formulário sem imagens ou tente de novo." };
+    // Se storage não estiver configurado, ignoramos silenciosamente o áudio
+    return { url: null };
   }
-
-  const urls: string[] = [];
-  for (const file of files) {
-    if (file.size > SELL_PHOTO_MAX_BYTES) {
-      return {
-        urls: [],
-        error: "Use JPEG, PNG ou WebP de até 4 MB por foto.",
-      };
-    }
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const contentType = inferSellPhotoContentType(file, bytes);
-    if (!contentType) {
-      return {
-        urls: [],
-        error: "Use JPEG, PNG ou WebP de até 4 MB por foto.",
-      };
-    }
+  try {
+    const bytes = Buffer.from(await audioFile.arrayBuffer());
+    const ext = audioFile.name?.split(".").pop() ?? "webm";
     const uploaded = await uploadVehicleImageBuffer({
       bytes,
-      contentType,
-      ext: sellPhotoExt(contentType),
-      keyPrefix: "sell-leads",
+      contentType: audioFile.type || "audio/webm",
+      ext,
+      keyPrefix: "lead-audio",
     });
-    urls.push(uploaded.publicUrl);
+    return { url: uploaded.publicUrl };
+  } catch {
+    return { url: null };
   }
-  return { urls };
 }
 
 export async function createSellVehicleLead(formData: FormData): Promise<FormResult> {
@@ -166,16 +151,8 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
   const parsed = sellVehicleFormSchema.safeParse({
     name: raw.name,
     phone: raw.phone,
-    observations: raw.observations || undefined,
-    brand: raw.brand || undefined,
-    model: raw.model || undefined,
-    version: raw.version || undefined,
-    yearManufacture: raw.yearManufacture ? Number(raw.yearManufacture) : undefined,
-    yearModel: raw.yearModel ? Number(raw.yearModel) : undefined,
-    mileage: raw.mileage ? Number(raw.mileage) : undefined,
-    fuelType: raw.fuelType || undefined,
-    transmission: raw.transmission || undefined,
     saleMode: raw.saleMode || undefined,
+    relato: raw.relato || undefined,
   });
   if (!parsed.success) {
     const firstError =
@@ -185,45 +162,29 @@ export async function createSellVehicleLead(formData: FormData): Promise<FormRes
   const data = parsed.data;
   const phone = normalizePhone(data.phone);
 
-  let photoUrls: string[] = [];
-  try {
-    const uploaded = await uploadSellPhotos(formData);
-    if (uploaded.error) return { success: false, error: uploaded.error };
-    photoUrls = uploaded.urls;
-  } catch {
-    return { success: false, error: "Não foi possível enviar as fotos. Tente novamente." };
-  }
+  const audioResult = await uploadLeadAudio(formData);
+  if (audioResult.error) return { success: false, error: audioResult.error };
 
-  const vehicleLabel = [data.brand, data.model].filter(Boolean).join(" ");
+  const metadata: Prisma.JsonObject = {};
+  if (audioResult.url) metadata.audioUrl = audioResult.url;
 
   await persistPublicFormLead({
     type: "SELL_VEHICLE",
     source: "SELL_PAGE",
     name: data.name,
     phone,
-    message: data.observations || vehicleLabel || null,
-    metadata: vehicleLabel
-      ? { facts: { desired_vehicle_text: vehicleLabel } }
-      : undefined,
+    message: data.relato || null,
+    metadata: Object.keys(metadata).length > 0 ? (metadata as Prisma.InputJsonValue) : undefined,
     sell: {
-      brand: data.brand,
-      model: data.model,
-      version: data.version,
-      yearManufacture: data.yearManufacture,
-      yearModel: data.yearModel,
-      mileage: data.mileage,
-      fuelType: data.fuelType,
-      transmission: data.transmission,
-      observations: data.observations,
+      observations: data.relato,
       saleMode: data.saleMode,
-      photoUrls,
     },
   });
   void sendLeadNotification({
-    type: "Vender veículo",
+    type: data.saleMode === "CONSIGNMENT" ? "Consignação" : "Venda direta",
     name: data.name,
     phone,
-    message: data.observations ?? undefined,
+    message: data.relato ?? undefined,
   });
   return { success: true };
 }
@@ -239,16 +200,13 @@ export async function createFinancingSimulationLead(
 
   const parsed = financingSimulationSchema.safeParse({
     name: raw.name,
-    cpf: raw.cpf,
-    birthDate: raw.birthDate,
     phone: raw.phone,
-    monthlyIncome: raw.monthlyIncome ? Number(raw.monthlyIncome) : undefined,
-    downPayment: raw.downPayment !== undefined ? Number(raw.downPayment) : 0,
-    desiredInstallments: raw.desiredInstallments ? Number(raw.desiredInstallments) : undefined,
-    vehicleYear: raw.vehicleYear ? Number(raw.vehicleYear) : undefined,
-    vehicleModel: raw.vehicleModel || undefined,
+    financeMode: raw.financeMode || undefined,
+    relato: raw.relato || undefined,
     vehicleId: raw.vehicleId || undefined,
     vehicleTitle: raw.vehicleTitle || undefined,
+    tradeInDescription: raw.tradeInDescription || undefined,
+    leadType: raw.leadType || undefined,
   });
 
   if (!parsed.success) {
@@ -260,54 +218,65 @@ export async function createFinancingSimulationLead(
   const data = parsed.data;
   const phone = normalizePhone(data.phone);
 
-  const vehicleLabel =
-    data.vehicleTitle ||
-    [data.vehicleModel, data.vehicleYear].filter(Boolean).join(" ") ||
-    null;
+  const audioResult = await uploadLeadAudio(formData);
+  if (audioResult.error) return { success: false, error: audioResult.error };
 
-  const summary = [
-    vehicleLabel ? `Veículo: ${vehicleLabel}` : null,
-    `Renda: R$ ${Number(data.monthlyIncome).toLocaleString("pt-BR")}`,
-    `Entrada: R$ ${Number(data.downPayment).toLocaleString("pt-BR")}`,
-    `Prazo: ${data.desiredInstallments} meses`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // Tipo do lead: derivado do leadType hidden (para vendido = VEHICLE_INTEREST)
+  // ou do financeMode escolhido, com fallback a FINANCING
+  const leadType =
+    data.leadType === "VEHICLE_INTEREST"
+      ? "VEHICLE_INTEREST"
+      : data.financeMode === "REFINANCING"
+        ? "REFINANCING"
+        : "FINANCING";
+
+  const isSold = leadType === "VEHICLE_INTEREST";
+
+  // Montar mensagem
+  const parts: string[] = [];
+  if (data.vehicleTitle) parts.push(`Veículo: ${data.vehicleTitle}`);
+  if (data.financeMode === "REFINANCING") parts.push("Interesse: refinanciamento");
+  if (data.relato) parts.push(data.relato);
+  if (data.tradeInDescription) parts.push(`Possuo para troca: ${data.tradeInDescription}`);
+  const message = parts.join(" · ") || null;
+
+  const metadata: Prisma.JsonObject = {};
+  if (audioResult.url) metadata.audioUrl = audioResult.url;
+  if (data.tradeInDescription) metadata.tradeInDescription = data.tradeInDescription;
+  if (data.vehicleTitle) metadata.facts = { desired_vehicle_text: data.vehicleTitle };
 
   await persistPublicFormLead({
-    type: "FINANCING",
+    type: leadType,
     source: data.vehicleId ? "VEHICLE_PAGE" : "FINANCING_PAGE",
     name: data.name,
     phone,
-    message: summary,
+    message,
     vehicleId: data.vehicleId,
-    metadata: vehicleLabel
-      ? { facts: { desired_vehicle_text: vehicleLabel } }
-      : undefined,
+    metadata: Object.keys(metadata).length > 0 ? (metadata as Prisma.InputJsonValue) : undefined,
     financing: {
       vehicleId: data.vehicleId,
-      cpf: data.cpf,
-      birthDate: data.birthDate ? new Date(data.birthDate) : null,
-      monthlyIncome: data.monthlyIncome,
-      downPayment: data.downPayment,
-      desiredInstallments: data.desiredInstallments,
-      vehicleYear: data.vehicleYear ?? null,
-      vehicleModel: data.vehicleModel ?? null,
+      notes: message,
     },
   });
 
   const waNum = whatsappNumber.replace(/\D/g, "");
-  const waText = encodeURIComponent(
-    `Olá, FácilCar! Meu nome é ${data.name}. Tenho interesse em financiar: ${vehicleLabel || "veículo de interesse"}. Renda mensal: R$ ${Number(data.monthlyIncome).toLocaleString("pt-BR")}. Entrada: R$ ${Number(data.downPayment).toLocaleString("pt-BR")}. Prazo: ${data.desiredInstallments} meses. Aguardo análise!`,
-  );
+  let waMessage: string;
+  if (isSold) {
+    waMessage = `Olá, FácilCar! Meu nome é ${data.name}. Tenho interesse em um veículo similar ao que vi no site (já foi vendido).${data.relato ? ` ${data.relato}` : ""}`;
+  } else if (data.financeMode === "REFINANCING") {
+    waMessage = `Olá, FácilCar! Meu nome é ${data.name}. Tenho interesse em refinanciamento.${data.relato ? ` ${data.relato}` : ""}`;
+  } else {
+    waMessage = `Olá, FácilCar! Meu nome é ${data.name}. Tenho interesse em financiamento${data.vehicleTitle ? ` para ${data.vehicleTitle}` : ""}.${data.relato ? ` ${data.relato}` : ""}`;
+  }
+  const waText = encodeURIComponent(waMessage);
   const whatsappUrl = waNum ? `https://wa.me/${waNum}?text=${waText}` : "#";
 
   void sendLeadNotification({
-    type: "Simulação de Financiamento",
+    type: isSold ? "Interesse em similar" : data.financeMode === "REFINANCING" ? "Refinanciamento" : "Financiamento",
     name: data.name,
     phone: data.phone,
-    vehicleTitle: vehicleLabel ?? undefined,
-    message: summary,
+    vehicleTitle: data.vehicleTitle ?? undefined,
+    message: message ?? undefined,
   });
 
   return { success: true, whatsappUrl };

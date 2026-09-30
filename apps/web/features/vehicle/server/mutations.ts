@@ -105,7 +105,6 @@ export async function createVehicle(formData: FormData) {
       inspectionResult: data.inspectionResult ?? null,
       priceCash: announcedPrice ?? null,
       priceTradeIn: data.priceTradeIn ?? null,
-      pricePromotional: data.pricePromotional ?? null,
       priceFipe: data.priceFipe ?? null,
       priceRetailWithWarranty: data.priceRetailWithWarranty ?? null,
       priceRetailAsIs: data.priceRetailAsIs ?? null,
@@ -198,7 +197,6 @@ export async function updateVehicle(formData: FormData) {
   if ("inspectionResult" in raw) updatePayload.inspectionResult = data.inspectionResult ?? null;
   if (data.priceCash !== undefined) updatePayload.priceCash = data.priceCash ?? null;
   if (data.priceTradeIn !== undefined) updatePayload.priceTradeIn = data.priceTradeIn ?? null;
-  if (data.pricePromotional !== undefined) updatePayload.pricePromotional = data.pricePromotional ?? null;
   if (data.priceFipe !== undefined) updatePayload.priceFipe = data.priceFipe ?? null;
   if (data.priceRetailWithWarranty !== undefined) {
     updatePayload.priceRetailWithWarranty = data.priceRetailWithWarranty ?? null;
@@ -301,4 +299,23 @@ export async function archiveVehicleAction(vehicleId: string) {
 
   revalidatePath("/admin/veiculos");
   revalidatePath(`/admin/veiculos/${vehicleId}`);
+}
+
+export async function deleteVehicleAction(vehicleId: string) {
+  await requireAdminRole(VEHICLE_WRITE_ROLES);
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { id: vehicleId },
+    select: { id: true, title: true },
+  });
+
+  if (!vehicle) {
+    throw new Error("Veículo não encontrado");
+  }
+
+  // VehicleImage, VehicleFeature e VehicleOwner têm onDelete: Cascade.
+  // Lead.vehicleId e FinancingRequest.vehicleId têm onDelete: SetNull — preservam leads e conversas.
+  await prisma.vehicle.delete({ where: { id: vehicleId } });
+
+  revalidatePath("/admin/veiculos");
 }

@@ -18,6 +18,7 @@ export type AdminSection =
   | "usuarios"
   | "paginas"
   | "blog"
+  | "depoimentos"
   | "configuracoes";
 
 export type NavItemKey =
@@ -28,6 +29,7 @@ export type NavItemKey =
   | "usuarios"
   | "paginas"
   | "blog"
+  | "depoimentos"
   | "configuracoes";
 
 export const NAV_ITEM_KEYS: NavItemKey[] = [
@@ -38,6 +40,7 @@ export const NAV_ITEM_KEYS: NavItemKey[] = [
   "usuarios",
   "paginas",
   "blog",
+  "depoimentos",
   "configuracoes",
 ];
 
@@ -49,6 +52,7 @@ const SECTION_ROLES: Record<AdminSection, UserRole[]> = {
   usuarios: FULL_ACCESS_ROLES,
   paginas: CONTENT_ROLES,
   blog: CONTENT_ROLES,
+  depoimentos: CONTENT_ROLES,
   configuracoes: CONTENT_ROLES,
 };
 
@@ -87,6 +91,7 @@ export function resolveSectionFromPathname(pathname: string): AdminSection | nul
   if (pathname.startsWith("/admin/usuarios")) return "usuarios";
   if (pathname.startsWith("/admin/paginas")) return "paginas";
   if (pathname.startsWith("/admin/blog")) return "blog";
+  if (pathname.startsWith("/admin/depoimentos")) return "depoimentos";
   if (pathname.startsWith("/admin/configuracoes")) return "configuracoes";
   return null;
 }

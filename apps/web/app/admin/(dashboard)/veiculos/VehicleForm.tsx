@@ -51,7 +51,6 @@ type VehicleForForm = {
   commercialHistory: string | null;
   priceCash: unknown;
   priceTradeIn: unknown;
-  pricePromotional: unknown;
   priceFipe: unknown;
   priceRetailWithWarranty: unknown;
   priceRetailAsIs: unknown;
@@ -343,7 +342,6 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
       partnerIds: vehicle?.owners?.map((o) => o.partnerId) ?? [],
       priceCash: vehicle?.priceCash != null ? Number(vehicle.priceCash) : undefined,
       priceTradeIn: vehicle?.priceTradeIn != null ? Number(vehicle.priceTradeIn) : undefined,
-      pricePromotional: vehicle?.pricePromotional != null ? Number(vehicle.pricePromotional) : undefined,
       priceFipe: vehicle?.priceFipe != null ? Number(vehicle.priceFipe) : undefined,
       priceRetailWithWarranty:
         vehicle?.priceRetailWithWarranty != null ? Number(vehicle.priceRetailWithWarranty) : undefined,
@@ -379,7 +377,6 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
   const commercialHistory = watch("commercialHistory");
   const partnerIds = watch("partnerIds") ?? [];
   const priceCash = watch("priceCash");
-  const pricePromotional = watch("pricePromotional");
   const priceTradeIn = watch("priceTradeIn");
   const priceFipe = watch("priceFipe");
   const priceRetailAsIs = watch("priceRetailAsIs");
@@ -508,7 +505,6 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
         "priceOwnerAsking",
         "priceFipe",
         "priceTradeIn",
-        "pricePromotional",
         "parcelaBase",
         "entradaMinima",
         "rendaMinimaSugerida",
@@ -907,12 +903,6 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                       />
                     </>
                   ) : null}
-                  <FormCurrencyInput
-                    label="Preço promocional (R$)"
-                    error={errors.pricePromotional?.message}
-                    value={typeof pricePromotional === "number" ? pricePromotional : undefined}
-                    onValueChange={(n) => setValue("pricePromotional", n, { shouldValidate: true, shouldDirty: true })}
-                  />
                   <FormCurrencyInput
                     label="Troca a partir de (R$)"
                     error={errors.priceTradeIn?.message}

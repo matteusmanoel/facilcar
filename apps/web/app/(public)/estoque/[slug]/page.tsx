@@ -125,12 +125,26 @@ export default async function VehicleDetailPage({ params }: Props) {
           {/* Coluna principal: título + galeria + accordion */}
           <header className="min-w-0 lg:col-start-1 lg:row-start-1">
             <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-facil-orange/15 px-3 py-1 text-xs font-bold text-facil-orange">
-                Documentação em dia
-              </span>
-              <span className="badge-blue">
-                Financiamento facilitado
-              </span>
+              {vehicle.status !== "SOLD" && (
+                <span className="rounded-full bg-facil-orange/15 px-3 py-1 text-xs font-bold text-facil-orange">
+                  Documentação em dia
+                </span>
+              )}
+              {vehicle.status !== "SOLD" && (
+                <span className="badge-blue">
+                  Financiamento facilitado
+                </span>
+              )}
+              {vehicle.aceitaSemEntrada && vehicle.status !== "SOLD" && (
+                <span className="rounded-full bg-facil-orange px-3 py-1 text-xs font-bold text-white">
+                  Financia 100%
+                </span>
+              )}
+              {vehicle.status === "SOLD" && (
+                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                  Vendido
+                </span>
+              )}
             </div>
             <h1 className="mt-3 text-2xl font-extrabold uppercase tracking-tight text-foreground md:text-3xl lg:text-[1.75rem] lg:leading-tight">
               {vehicle.title}
@@ -154,12 +168,22 @@ export default async function VehicleDetailPage({ params }: Props) {
                 <strong className="text-foreground">~R$ {estimatedMonthly}/mês*</strong>
               </p>
             )}
-            {(vehicle.pricePromotional || vehicle.priceTradeIn) && (
+            {vehicle.aceitaSemEntrada && vehicle.status !== "SOLD" && (
+              <p className="mt-1 text-xs text-facil-muted">
+                *Financiamento 100% sujeito à análise de crédito.
+              </p>
+            )}
+            {vehicle.status === "SOLD" && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm dark:border-red-900 dark:bg-red-950/30">
+                <p className="font-semibold text-red-700 dark:text-red-400">Este veículo já foi vendido.</p>
+                <p className="mt-1 text-red-600 dark:text-red-400">
+                  Preencha o formulário ao lado — vamos encontrar um similar para você.
+                </p>
+              </div>
+            )}
+            {vehicle.priceTradeIn != null && (
               <p className="mt-2 text-sm text-facil-muted">
-                {vehicle.pricePromotional != null &&
-                  `Promoção: R$ ${Number(vehicle.pricePromotional).toLocaleString("pt-BR")} · `}
-                {vehicle.priceTradeIn != null &&
-                  `Troca a partir de R$ ${Number(vehicle.priceTradeIn).toLocaleString("pt-BR")}`}
+                {`Troca a partir de R$ ${Number(vehicle.priceTradeIn).toLocaleString("pt-BR")}`}
               </p>
             )}
             {quickStats.length > 0 && (
@@ -190,11 +214,14 @@ export default async function VehicleDetailPage({ params }: Props) {
           <aside className="lg:col-start-2 lg:row-start-1 lg:row-span-3 lg:sticky lg:top-24 lg:self-start">
             <div className="rounded-2xl border border-facil-border bg-facil-card p-6 shadow-lg shadow-zinc-900/5">
               <h2 className="text-xl font-bold text-foreground">
-                Simule seu Financiamento
+                {vehicle.status === "SOLD"
+                  ? "Tenho interesse em um similar"
+                  : "Simule seu Financiamento"}
               </h2>
               <p className="mt-1.5 text-sm leading-relaxed text-facil-muted">
-                Preencha seus dados em segundos e receba a análise de crédito pelo
-                WhatsApp. 100% gratuito, sem compromisso.
+                {vehicle.status === "SOLD"
+                  ? "Deixe seus dados — encontramos um veículo similar para você. Gratuito, sem compromisso."
+                  : "Preencha seus dados em segundos e receba a análise de crédito pelo WhatsApp. 100% gratuito, sem compromisso."}
               </p>
               <div className="mt-5">
                 <FinancingSimulationForm
@@ -203,6 +230,8 @@ export default async function VehicleDetailPage({ params }: Props) {
                   vehicleYear={vehicle.yearModel ?? undefined}
                   vehicleModel={vehicle.model}
                   whatsappNumber={settings?.defaultWhatsappNumber ?? ""}
+                  vehicleStatus={vehicle.status}
+                  hideFinanceMode={true}
                 />
               </div>
               {whatsappNumber && (

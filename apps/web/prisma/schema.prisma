@@ -485,6 +485,20 @@ model SellRequest {
   @@schema("facilcar")
 }
 
+model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  comment   String
+  imageUrl  String
+  sortOrder Int      @default(0)
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("facilcar")
+  @@index([published, sortOrder])
+}
+
 model Page {
   id              String     @id @default(cuid())
   slug            String     @unique

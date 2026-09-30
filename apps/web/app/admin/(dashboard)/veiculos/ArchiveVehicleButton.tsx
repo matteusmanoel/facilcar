@@ -69,25 +69,25 @@ export function ArchiveVehicleButton({
           onClick={() => setOpen(true)}
         >
           <Archive className="h-3.5 w-3.5" />
-          Excluir
+          Arquivar
         </Button>
       ) : variant === "edit" ? (
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+          className="border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900/50 dark:text-amber-400 dark:hover:bg-amber-950/30"
           onClick={() => setOpen(true)}
         >
           <Archive className="h-4 w-4" />
-          Excluir veículo
+          Arquivar veículo
         </Button>
       ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="dark:border-zinc-700 dark:bg-zinc-900">
           <DialogHeader>
-            <DialogTitle className="dark:text-zinc-100">Excluir veículo?</DialogTitle>
+            <DialogTitle className="dark:text-zinc-100">Arquivar veículo?</DialogTitle>
             <DialogDescription className="dark:text-zinc-400">
               {vehicleTitle} sairá do estoque público e ficará arquivado. Você pode
               reativá-lo alterando o status depois.
@@ -98,7 +98,7 @@ export function ArchiveVehicleButton({
               Cancelar
             </Button>
             <Button type="button" variant="destructive" disabled={isPending} onClick={confirmArchive}>
-              {isPending ? "Excluindo…" : "Excluir"}
+              {isPending ? "Arquivando…" : "Arquivar"}
             </Button>
           </DialogFooter>
         </DialogContent>

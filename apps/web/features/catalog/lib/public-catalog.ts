@@ -59,7 +59,7 @@ export function parseBodyStyleParam(value: string | undefined): VehicleBodyStyle
 
 export function buildPublicCatalogWhere(filters: CatalogFilters) {
   const where: {
-    status: "PUBLISHED";
+    status: { in: ["PUBLISHED", "SOLD"] };
     brand?: { slug: string };
     type?: VehicleType;
     bodyStyle?: VehicleBodyStyle;
@@ -73,7 +73,7 @@ export function buildPublicCatalogWhere(filters: CatalogFilters) {
       brand?: { name: { contains: string; mode: "insensitive" } };
     }>;
   } = {
-    status: "PUBLISHED",
+    status: { in: ["PUBLISHED", "SOLD"] },
   };
 
   if (filters.brand) where.brand = { slug: filters.brand };
@@ -108,8 +108,10 @@ export function toPublicVehicleCard(v: {
   title: string;
   model: string;
   version: string | null;
+  status: string;
   priceCash: unknown;
   priceRetailAsIs?: unknown;
+  aceitaSemEntrada: boolean;
   yearManufacture: number | null;
   yearModel: number | null;
   mileage: number | null;
@@ -126,8 +128,10 @@ export function toPublicVehicleCard(v: {
     title: v.title,
     model: v.model,
     version: v.version,
+    status: v.status,
     priceCash: v.priceCash != null ? Number(v.priceCash) : null,
     priceRetailAsIs: v.priceRetailAsIs != null ? Number(v.priceRetailAsIs) : null,
+    aceitaSemEntrada: v.aceitaSemEntrada,
     yearManufacture: v.yearManufacture,
     yearModel: v.yearModel,
     mileage: v.mileage,
