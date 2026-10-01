@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 230" role="img" aria-labelledby="financia-title">
-  <title id="financia-title">Financia 100%</title>
-  <polygon points="8,230 400,58 400,230" fill="#ff6600"/>
-  <text x="132" y="186" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">financia</text>
-  <text x="352" y="198" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" text-anchor="end">100%</text>
-</svg>
