@@ -1,5 +1,5 @@
 import type { Brand, Vehicle, VehicleFeature } from "@prisma/client";
-import { fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
+import { bodyStyleLabels, fuelLabels, transLabels } from "@/features/vehicle/lib/labels";
 import { VehicleAccordionItem } from "@/features/vehicle/ui/VehicleAccordionItem";
 
 type VehicleWith = Vehicle & {
@@ -55,20 +55,16 @@ export function VehicleDetailAccordion({ vehicle, siteName }: Props) {
             <span className="font-semibold text-zinc-900">
               {vehicle.mileage != null ? `${vehicle.mileage.toLocaleString("pt-BR")} km` : "—"}
             </span>
-            {vehicle.doors != null && (
-              <>
-                <span className="text-facil-muted">Portas</span>
-                <span className="font-semibold text-zinc-900">{vehicle.doors}</span>
-              </>
-            )}
-            {(vehicle.city || vehicle.state) && (
-              <>
-                <span className="text-facil-muted">Localização</span>
-                <span className="font-semibold text-zinc-900">
-                  {[vehicle.city, vehicle.state].filter(Boolean).join(" / ")}
-                </span>
-              </>
-            )}
+            <span className="text-facil-muted">Carroceria</span>
+            <span className="font-semibold text-zinc-900">
+              {vehicle.bodyStyle ? (bodyStyleLabels[vehicle.bodyStyle] ?? vehicle.bodyStyle) : "—"}
+            </span>
+            <span className="text-facil-muted">Portas</span>
+            <span className="font-semibold text-zinc-900">{vehicle.doors ?? "—"}</span>
+            <span className="text-facil-muted">Localização</span>
+            <span className="font-semibold text-zinc-900">
+              {[vehicle.city, vehicle.state].filter(Boolean).join(" / ") || "—"}
+            </span>
           </div>
         </VehicleAccordionItem>
 

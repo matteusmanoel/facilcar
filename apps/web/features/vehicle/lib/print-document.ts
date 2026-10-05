@@ -1,5 +1,5 @@
 import { formatBRL } from "@/lib/input-masks";
-import { fuelLabels, labelFor, statusLabels, transLabels, typeLabels } from "./labels";
+import { bodyStyleLabels, fuelLabels, labelFor, statusLabels, transLabels, typeLabels } from "./labels";
 
 export const CUSTOMER_SHEET_MAX_FEATURES = 12;
 export const CUSTOMER_SHEET_MAX_THUMBS = 4;
@@ -78,6 +78,7 @@ export type CustomerSheetVehicleInput = {
   engineDisplacementLiters: number | string | { toString(): string } | null;
   color: string | null;
   doors: number | null;
+  bodyStyle?: string | null;
   plateFinal: string | null;
   priceCash: number | string | { toString(): string } | null;
   priceTradeIn: number | string | { toString(): string } | null;
@@ -231,13 +232,10 @@ export function toCustomerSheetModel(
     },
     { label: "Cor", value: vehicle.color?.trim() || "—" },
     { label: "Quilometragem", value: formatMileage(vehicle.mileage) },
+    { label: "Carroceria", value: labelFor(bodyStyleLabels, vehicle.bodyStyle) },
+    { label: "Portas", value: vehicle.doors != null ? String(vehicle.doors) : "—" },
+    { label: "Localização", value: cityState ?? "—" },
   ];
-  if (vehicle.doors != null) {
-    specs.push({ label: "Portas", value: String(vehicle.doors) });
-  }
-  if (cityState) {
-    specs.push({ label: "Localização", value: cityState });
-  }
 
   const featureLabels = [...vehicle.features]
     .sort((a, b) => a.sortOrder - b.sortOrder)

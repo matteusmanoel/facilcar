@@ -593,7 +593,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
           }
           void handleSubmit(onSubmit, onInvalid)(e);
         }}
-        className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm md:min-h-0 md:h-[calc(100vh-13rem)]">
+        className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-facil-border bg-facil-card shadow-sm">
         {readOnly && (
           <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
             Modo somente leitura — você pode consultar os dados do veículo, mas não alterá-los.
@@ -601,8 +601,8 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
         )}
         <fieldset disabled={readOnly} className="flex min-h-0 flex-1 flex-col">
           {/* Stepper header */}
-          <div className="shrink-0 border-b border-facil-border px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5">
-            <p className="mb-3 text-center text-xs font-medium text-facil-orange sm:hidden">{STEPS[step]}</p>
+          <div className="shrink-0 border-b border-facil-border px-4 py-2 sm:px-6">
+            <p className="mb-1.5 text-center text-xs font-medium text-facil-orange sm:hidden">{STEPS[step]}</p>
             <Stepper
               steps={STEPS}
               currentStep={step}
@@ -614,12 +614,12 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
           </div>
 
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          <div className="flex-1 overflow-y-auto px-4 py-3 sm:px-6">
             {/* Step 0 — Basic Info */}
             {step === 0 && (
-              <div className="space-y-5">
+              <div className="space-y-3">
                 <SectionTitle>Informações básicas</SectionTitle>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1 sm:col-span-2">
                     <FieldLabel required>Título</FieldLabel>
                     <Input
@@ -653,30 +653,26 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                     value={vehicleType}
                     onValueChange={(v) => {
                       setValue("type", v as CreateVehicleInput["type"], { shouldValidate: true });
-                      if (v !== "CAR") {
-                        setValue("bodyStyle", undefined, { shouldValidate: true });
-                      }
                     }}
                     items={TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
                   />
-                  {vehicleType === "CAR" ? (
-                    <FormSelect
-                      label="Recorte de carroceria"
-                      error={errors.bodyStyle?.message}
-                      value={bodyStyle ? String(bodyStyle) : SELECT_NONE}
-                      onValueChange={(v) =>
-                        setValue(
-                          "bodyStyle",
-                          (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["bodyStyle"],
-                          { shouldValidate: true },
-                        )
-                      }
-                      items={[
-                        { value: SELECT_NONE, label: "Não informado" },
-                        ...BODY_STYLES.map((s) => ({ value: s, label: BODY_STYLE_LABELS[s] })),
-                      ]}
-                    />
-                  ) : null}
+                  <FormSelect
+                    label="Recorte de carroceria"
+                    error={errors.bodyStyle?.message}
+                    value={bodyStyle ? String(bodyStyle) : SELECT_NONE}
+                    onValueChange={(v) =>
+                      setValue(
+                        "bodyStyle",
+                        (v === SELECT_NONE ? undefined : v) as CreateVehicleInput["bodyStyle"],
+                        { shouldValidate: true },
+                      )
+                    }
+                    placeholder="Não informado"
+                    items={[
+                      { value: SELECT_NONE, label: "Não informado" },
+                      ...BODY_STYLES.map((s) => ({ value: s, label: BODY_STYLE_LABELS[s] })),
+                    ]}
+                  />
                   <FormSelect
                     label="Resultado da perícia"
                     error={errors.inspectionResult?.message}
@@ -734,7 +730,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                     ]}
                   />
                 </div>
-                {stockType === "OWNED" && partners.length > 0 ? (
+                {partners.length > 0 ? (
                   <div className="space-y-2">
                     <FieldLabel>Sócios proprietários</FieldLabel>
                     <p className="text-xs text-facil-muted">
@@ -773,10 +769,10 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
 
             {/* Step 1 — Technical Specs */}
             {step === 1 && (
-              <div className="space-y-5">
+              <div className="space-y-3">
                 <SectionTitle>Especificações técnicas</SectionTitle>
                 <p className="text-sm text-facil-muted">Motorização</p>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <FormInput
                     label="Cilindrada"
                     type="number"
@@ -813,9 +809,9 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                         { shouldValidate: true },
                       )
                     }
-                    placeholder="—"
+                    placeholder="Não informado"
                     items={[
-                      { value: SELECT_NONE, label: "—" },
+                      { value: SELECT_NONE, label: "Não informado" },
                       ...TRANSMISSION.map((t) => ({ value: t, label: TRANS_LABELS[t] })),
                     ]}
                   />
@@ -824,7 +820,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                   Cilindrada só com o número comercial (ex.: 1.0, 1.4, 1.8, 2.0). Combustível e câmbio são opcionais.
                 </p>
                 <p className="text-sm text-facil-muted">Demais dados</p>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <FormInput
                     label="Ano fabricação"
                     type="number"
@@ -860,11 +856,11 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
 
             {/* Step 2 — Pricing */}
             {step === 2 && (
-              <div className="space-y-5">
+              <div className="space-y-3">
                 <SectionTitle>Precificação e localização</SectionTitle>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <FormCurrencyInput
-                    label={stockType === "CONSIGNED" ? "Preço anunciado com garantia (R$)" : "Preço à vista (R$)"}
+                    label="Preço à vista (R$)"
                     error={errors.priceCash?.message}
                     value={typeof priceCash === "number" ? priceCash : undefined}
                     onValueChange={(n) => {
@@ -883,26 +879,22 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                     value={typeof priceFipe === "number" ? priceFipe : undefined}
                     onValueChange={(n) => setValue("priceFipe", n, { shouldValidate: true, shouldDirty: true })}
                   />
-                  {stockType === "CONSIGNED" ? (
-                    <>
-                      <FormCurrencyInput
-                        label="Repasse sem garantia (R$)"
-                        error={errors.priceRetailAsIs?.message}
-                        value={typeof priceRetailAsIs === "number" ? priceRetailAsIs : undefined}
-                        onValueChange={(n) =>
-                          setValue("priceRetailAsIs", n, { shouldValidate: true, shouldDirty: true })
-                        }
-                      />
-                      <FormCurrencyInput
-                        label="Pedido do proprietário (interno, R$)"
-                        error={errors.priceOwnerAsking?.message}
-                        value={typeof priceOwnerAsking === "number" ? priceOwnerAsking : undefined}
-                        onValueChange={(n) =>
-                          setValue("priceOwnerAsking", n, { shouldValidate: true, shouldDirty: true })
-                        }
-                      />
-                    </>
-                  ) : null}
+                  <FormCurrencyInput
+                    label="Repasse sem garantia (R$)"
+                    error={errors.priceRetailAsIs?.message}
+                    value={typeof priceRetailAsIs === "number" ? priceRetailAsIs : undefined}
+                    onValueChange={(n) =>
+                      setValue("priceRetailAsIs", n, { shouldValidate: true, shouldDirty: true })
+                    }
+                  />
+                  <FormCurrencyInput
+                    label="Pedido do proprietário (interno, R$)"
+                    error={errors.priceOwnerAsking?.message}
+                    value={typeof priceOwnerAsking === "number" ? priceOwnerAsking : undefined}
+                    onValueChange={(n) =>
+                      setValue("priceOwnerAsking", n, { shouldValidate: true, shouldDirty: true })
+                    }
+                  />
                   <FormCurrencyInput
                     label="Troca a partir de (R$)"
                     error={errors.priceTradeIn?.message}
@@ -921,9 +913,9 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                   <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Destacar na home</span>
                 </label>
 
-                <div className="space-y-4 rounded-lg border border-zinc-100 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <div className="space-y-3 rounded-lg border border-zinc-100 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
                   <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Financiamento e comercial</h3>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <FormCurrencyInput
                       label="Parcela base (R$)"
                       error={errors.parcelaBase?.message}
@@ -976,7 +968,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
 
             {/* Step 3 — Media & SEO */}
             {step === 3 && (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <div className="space-y-3">
                   <SectionTitle>Imagens</SectionTitle>
                   <ImageUploader
@@ -1022,11 +1014,12 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
 
           {/* Footer buttons */}
           {!readOnly && (
-            <div className="shrink-0 flex flex-col gap-3 border-t border-facil-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+            <div className="shrink-0 flex flex-col gap-2 border-t border-facil-border px-4 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   className="flex-1 sm:flex-none"
                   onClick={() => requestLeave("/admin/veiculos")}>
                   Cancelar
@@ -1034,6 +1027,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   className="flex-1 sm:flex-none"
                   onClick={goPrev}
                   disabled={step === 0}>
@@ -1047,7 +1041,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
               </span>
 
               {vehicleFormFooterAction(step, STEPS.length) === "next" ? (
-                <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={() => void goNext()}>
+                <Button type="button" variant="primary" size="sm" className="w-full sm:w-auto" onClick={() => void goNext()}>
                   Próximo
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -1055,6 +1049,7 @@ export function VehicleForm({ brands, partners = [], vehicle, readOnly = false, 
                 <Button
                   type="button"
                   variant="primary"
+                  size="sm"
                   className="w-full sm:w-auto"
                   disabled={isSubmitting}
                   onClick={() => void handleSubmit(onSubmit, onInvalid)()}>

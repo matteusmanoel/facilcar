@@ -115,7 +115,18 @@ describe("toCustomerSheetModel", () => {
     expect(sheet!.coverUrl).toBe("https://cdn.example/cover.jpg");
     expect(sheet!.thumbUrls).toEqual(["https://cdn.example/2.jpg"]);
     expect(sheet!.plateFinal).toBe("7");
-    expect(sheet!.specs.map((s) => s.label)).toContain("Marca");
+    expect(sheet!.specs.map((s) => s.label)).toEqual([
+      "Marca",
+      "Ano / Modelo",
+      "Câmbio",
+      "Combustível",
+      "Motorização",
+      "Cor",
+      "Quilometragem",
+      "Carroceria",
+      "Portas",
+      "Localização",
+    ]);
     expect(sheet).not.toHaveProperty("parcelaBase");
     expect(sheet).not.toHaveProperty("entradaMinima");
     expect(sheet).not.toHaveProperty("rendaMinimaSugerida");
@@ -126,6 +137,17 @@ describe("toCustomerSheetModel", () => {
   it("does not generate a sheet for unpublished vehicles", () => {
     expect(toCustomerSheetModel(sheetVehicle({ status: "DRAFT" }), site)).toBeNull();
     expect(toCustomerSheetModel(sheetVehicle({ status: "SOLD" }), site)).toBeNull();
+  });
+
+  it("keeps the same spec rows when optional fields are empty", () => {
+    const sheet = toCustomerSheetModel(
+      sheetVehicle({ doors: null, city: null, state: null, bodyStyle: null }),
+      site,
+    );
+    const byLabel = Object.fromEntries(sheet!.specs.map((spec) => [spec.label, spec.value]));
+    expect(byLabel.Carroceria).toBe("—");
+    expect(byLabel.Portas).toBe("—");
+    expect(byLabel.Localização).toBe("—");
   });
 
   it("omits missing secondary prices", () => {

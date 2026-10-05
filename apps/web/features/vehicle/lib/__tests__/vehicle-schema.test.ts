@@ -16,16 +16,13 @@ describe("createVehicleSchema bodyStyle", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("rejects body style on a motorcycle", () => {
+  it("accepts body style on any vehicle type", () => {
     const parsed = createVehicleSchema.safeParse({
       ...base,
       type: "MOTORCYCLE",
       bodyStyle: "SUV",
     });
-    expect(parsed.success).toBe(false);
-    if (!parsed.success) {
-      expect(parsed.error.issues.some((issue) => issue.path.includes("bodyStyle"))).toBe(true);
-    }
+    expect(parsed.success).toBe(true);
   });
 
   it("accepts a motorcycle without body style", () => {
