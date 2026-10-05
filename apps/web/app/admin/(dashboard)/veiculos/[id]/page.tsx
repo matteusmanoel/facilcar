@@ -51,8 +51,8 @@ export default async function AdminVeiculoEditPage({
   };
 
   return (
-    <div className="admin-page flex flex-col gap-4">
-      <div className="flex items-start justify-between">
+    <div className="mx-auto flex h-[calc(100dvh-8.5rem)] w-full max-w-7xl flex-col gap-3 overflow-hidden px-4 py-3 sm:px-6 md:h-dvh lg:px-8">
+      <div className="flex shrink-0 items-start justify-between">
         <div>
           <Link
             href="/admin/veiculos"

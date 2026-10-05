@@ -101,7 +101,7 @@ export async function createVehicle(formData: FormData) {
       plateFinal: plateFinalFromPlate(normalizedPlate) ?? (data.plateFinal?.trim() || null),
       stockType: data.stockType ?? null,
       commercialHistory: data.commercialHistory ?? null,
-      bodyStyle: data.type === "CAR" ? data.bodyStyle ?? null : null,
+      bodyStyle: data.bodyStyle ?? null,
       inspectionResult: data.inspectionResult ?? null,
       priceCash: announcedPrice ?? null,
       priceTradeIn: data.priceTradeIn ?? null,
@@ -189,11 +189,7 @@ export async function updateVehicle(formData: FormData) {
   }
   if (data.stockType !== undefined) updatePayload.stockType = data.stockType ?? null;
   if (data.commercialHistory !== undefined) updatePayload.commercialHistory = data.commercialHistory ?? null;
-  if ("bodyStyle" in raw) {
-    updatePayload.bodyStyle = data.type === "MOTORCYCLE" || data.type === "UTILITY" || data.type === "OTHER"
-      ? null
-      : data.bodyStyle ?? null;
-  }
+  if ("bodyStyle" in raw) updatePayload.bodyStyle = data.bodyStyle ?? null;
   if ("inspectionResult" in raw) updatePayload.inspectionResult = data.inspectionResult ?? null;
   if (data.priceCash !== undefined) updatePayload.priceCash = data.priceCash ?? null;
   if (data.priceTradeIn !== undefined) updatePayload.priceTradeIn = data.priceTradeIn ?? null;

@@ -126,26 +126,10 @@ const vehicleFieldsSchema = z.object({
   features: z.string().optional(),  // one label per line
 });
 
-function refineBodyStyleForType(
-  data: { bodyStyle?: string; type?: string },
-  ctx: z.RefinementCtx,
-) {
-  if (data.bodyStyle && data.type && data.type !== "CAR") {
-    ctx.addIssue({
-      code: "custom",
-      path: ["bodyStyle"],
-      message: "Recorte de carroceria só se aplica a carro.",
-    });
-  }
-}
-
-export const createVehicleSchema = vehicleFieldsSchema.superRefine(refineBodyStyleForType);
+export const createVehicleSchema = vehicleFieldsSchema;
 export type CreateVehicleInput = z.infer<typeof createVehicleSchema>;
 
-export const updateVehicleSchema = vehicleFieldsSchema
-  .partial()
-  .extend({
-    id: z.string().min(1, "ID é obrigatório"),
-  })
-  .superRefine(refineBodyStyleForType);
+export const updateVehicleSchema = vehicleFieldsSchema.partial().extend({
+  id: z.string().min(1, "ID é obrigatório"),
+});
 export type UpdateVehicleInput = z.infer<typeof updateVehicleSchema>;
