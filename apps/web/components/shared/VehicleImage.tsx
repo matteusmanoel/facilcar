@@ -2,15 +2,12 @@
 
 import Image from "next/image";
 import { useState } from "react";
-
-const PLACEHOLDER_SRC = "/vehicle-placeholder.webp";
-const LEGACY_PLACEHOLDER = "/no-image.svg";
-
-function isInvalidImageUrl(url: string | null | undefined): boolean {
-  if (!url || !url.trim()) return true;
-  const u = url.trim();
-  return u.startsWith("/mock/") || u === PLACEHOLDER_SRC || u === LEGACY_PLACEHOLDER;
-}
+import { cn } from "@/lib/cn";
+import {
+  VEHICLE_PLACEHOLDER_SRC,
+  isDirectVehicleImageUrl,
+  isInvalidVehicleImageUrl,
+} from "@/features/vehicle/lib/vehicle-image-src";
 
 type Props = {
   src: string | null | undefined;
@@ -27,17 +24,35 @@ export function VehicleImage({
   sizes = "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw",
   priority = false,
 }: Props) {
-  const [useFallback, setUseFallback] = useState(() => isInvalidImageUrl(src));
-  const showPlaceholder = useFallback || isInvalidImageUrl(src);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const trimmed = src?.trim() ?? "";
+  const failed = failedSrc === trimmed;
+  const showPlaceholder = failed || isInvalidVehicleImageUrl(trimmed);
+  const direct = !showPlaceholder && isDirectVehicleImageUrl(trimmed);
+
+  if (direct) {
+    return (
+      // Storage URLs skip the image optimizer; a load error still falls back to the placeholder.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={trimmed}
+        alt={alt}
+        className={cn("absolute inset-0", className)}
+        onError={() => setFailedSrc(trimmed)}
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+      />
+    );
+  }
 
   return (
     <Image
-      src={showPlaceholder ? PLACEHOLDER_SRC : src!}
+      src={showPlaceholder ? VEHICLE_PLACEHOLDER_SRC : trimmed}
       alt={showPlaceholder ? "" : alt}
       fill
       sizes={sizes}
       className={className}
-      onError={() => setUseFallback(true)}
+      onError={() => setFailedSrc(trimmed)}
       priority={priority}
     />
   );

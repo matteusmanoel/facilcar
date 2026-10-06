@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, X, ImageIcon, GripVertical, Link as LinkIcon, Camera } from "lucide-react";
+import { prepareVehicleUpload } from "@/features/admin/lib/prepare-vehicle-upload";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,16 +72,17 @@ export function ImageUploader({ value, onChange }: ImageUploaderProps) {
   }, [localPreviews]);
 
   const uploadFile = useCallback(async (file: File, previewId: string) => {
-    const localUrl = URL.createObjectURL(file);
+    const upload = await prepareVehicleUpload(file);
+    const localUrl = URL.createObjectURL(upload);
 
     setLocalPreviews((prev) => [
       ...prev.filter((p) => p.id !== previewId),
-      { id: previewId, url: localUrl, isLocal: true, file, uploading: true },
+      { id: previewId, url: localUrl, isLocal: true, file: upload, uploading: true },
     ]);
 
     try {
       const res = await fetch(
-        `/api/admin/upload?filename=${encodeURIComponent(file.name)}&type=${encodeURIComponent(file.type)}`,
+        `/api/admin/upload?filename=${encodeURIComponent(upload.name)}&type=${encodeURIComponent(upload.type)}`,
       );
 
       if (!res.ok) {
@@ -101,8 +103,8 @@ export function ImageUploader({ value, onChange }: ImageUploaderProps) {
 
       await fetch(uploadUrl, {
         method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
+        body: upload,
+        headers: { "Content-Type": upload.type || "image/jpeg" },
       });
 
       URL.revokeObjectURL(localUrl);

@@ -9,6 +9,6 @@ export const getSiteSettings = unstable_cache(
   ["site-settings"],
   {
     tags: ["site-settings"],
-    revalidate: 60,
+    revalidate: false,
   },
 );
